@@ -31,12 +31,12 @@ export function NewHome() {
         onScroll={(event) => scroll.viewport.update(event.currentTarget.scrollTop)}
         onWheel={scroll.viewport.containOuterWheel}
       >
-        <div class="mx-auto flex min-h-full w-full max-w-[1080px] flex-col gap-4 px-3 lg:px-6">
+        <div class="mx-auto flex min-h-full w-full flex-col gap-4 px-3 lg:px-6">
           <h1 class="pt-1 text-20-medium text-v2-text-text-strong">{language.t("home.heading")}</h1>
           <div
             class={`
               grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] gap-4
-              lg:grid-cols-[280px_minmax(0,720px)] lg:grid-rows-1 lg:gap-8
+              lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-1 lg:gap-8
             `}
           >
             <HomeProjects projects={projects} scroll={scroll} />

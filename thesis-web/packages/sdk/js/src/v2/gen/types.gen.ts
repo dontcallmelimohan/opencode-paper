@@ -529,7 +529,8 @@ export type ToolStateError = {
   }
 }
 
-export type ToolState = ToolStatePending | ToolStateRunning | ToolStateCompleted | ToolStateError
+export type ToolState =
+  ToolStatePending | ToolStateRunning | ToolStateCompleted | ToolStateError
 
 export type ToolPart = {
   id: string
@@ -1660,7 +1661,8 @@ export type PermissionObjectConfig = {
   [key: string]: PermissionActionConfig
 }
 
-export type PermissionRuleConfig = PermissionActionConfig | PermissionObjectConfig
+export type PermissionRuleConfig =
+  PermissionActionConfig | PermissionObjectConfig
 
 export type PermissionConfig =
   | PermissionActionConfig
@@ -1702,7 +1704,15 @@ export type AgentConfig = {
   /**
    * Hex color code (e.g., #FF5733) or theme color (e.g., primary)
    */
-  color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+  color?:
+    | string
+    | "primary"
+    | "secondary"
+    | "accent"
+    | "success"
+    | "warning"
+    | "error"
+    | "info"
   steps?: number
   maxSteps?: number
   permission?: PermissionConfig
@@ -1755,7 +1765,16 @@ export type ProviderConfig = {
      */
     headerTimeout?: number | false
     chunkTimeout?: number
-    [key: string]: unknown | string | boolean | number | false | number | false | number | undefined
+    [key: string]:
+      | unknown
+      | string
+      | boolean
+      | number
+      | false
+      | number
+      | false
+      | number
+      | undefined
   }
   models?: {
     [key: string]: {
@@ -2369,6 +2388,13 @@ export type Agent = {
   steps?: number
 }
 
+export type SkillInstallError = {
+  name: "SkillInstallError"
+  data: {
+    message: string
+  }
+}
+
 export type LspStatus = {
   id: string
   name: string
@@ -2660,7 +2686,8 @@ export type Workspace = {
   directory?: string | null
   extra?: unknown | null
   projectID: string
-  timeUsed: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  timeUsed:
+    number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
 }
 
 export type WorkspaceCreateError = {
@@ -3022,14 +3049,16 @@ export type IntegrationInputs = {
   [key: string]: string
 }
 
-export type IntegrationMethod = IntegrationOAuthMethod | IntegrationKeyMethod | IntegrationEnvMethod
+export type IntegrationMethod =
+  IntegrationOAuthMethod | IntegrationKeyMethod | IntegrationEnvMethod
 
 export type IntegrationRef = {
   id: string
   name: string
 }
 
-export type SkillV2Source = SkillV2DirectorySource | SkillV2UrlSource | SkillV2EmbeddedSource
+export type SkillV2Source =
+  SkillV2DirectorySource | SkillV2UrlSource | SkillV2EmbeddedSource
 
 export type MoveSessionDestination = {
   directory: string
@@ -3877,7 +3906,15 @@ export type ProviderRequest = {
   }
 }
 
-export type AgentColor = string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+export type AgentColor =
+  | string
+  | "primary"
+  | "secondary"
+  | "accent"
+  | "success"
+  | "warning"
+  | "error"
+  | "info"
 
 export type PermissionV2Effect = "allow" | "deny" | "ask"
 
@@ -4118,7 +4155,11 @@ export type SessionMessageAssistant = {
   type: "assistant"
   agent: string
   model: ModelRef
-  content: Array<SessionMessageAssistantText | SessionMessageAssistantReasoning | SessionMessageAssistantTool>
+  content: Array<
+    | SessionMessageAssistantText
+    | SessionMessageAssistantReasoning
+    | SessionMessageAssistantTool
+  >
   snapshot?: {
     start?: string
     end?: string
@@ -4944,8 +4985,22 @@ export type IntegrationAttempt = {
   instructions: string
   mode: "auto" | "code"
   time: {
-    created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    expires: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    created:
+      | number
+      | "NaN"
+      | "Infinity"
+      | "-Infinity"
+      | "Infinity"
+      | "-Infinity"
+      | "NaN"
+    expires:
+      | number
+      | "NaN"
+      | "Infinity"
+      | "-Infinity"
+      | "Infinity"
+      | "-Infinity"
+      | "NaN"
   }
 }
 
@@ -4953,30 +5008,86 @@ export type IntegrationAttemptStatus =
   | {
       status: "pending"
       time: {
-        created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-        expires: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        created:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
+        expires:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
       }
     }
   | {
       status: "complete"
       time: {
-        created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-        expires: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        created:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
+        expires:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
       }
     }
   | {
       status: "failed"
       message: string
       time: {
-        created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-        expires: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        created:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
+        expires:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
       }
     }
   | {
       status: "expired"
       time: {
-        created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-        expires: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        created:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
+        expires:
+          | number
+          | "NaN"
+          | "Infinity"
+          | "-Infinity"
+          | "Infinity"
+          | "-Infinity"
+          | "NaN"
       }
     }
 
@@ -7249,7 +7360,8 @@ export type GlobalHealthResponses = {
   }
 }
 
-export type GlobalHealthResponse = GlobalHealthResponses[keyof GlobalHealthResponses]
+export type GlobalHealthResponse =
+  GlobalHealthResponses[keyof GlobalHealthResponses]
 
 export type GlobalEventData = {
   body?: never
@@ -7274,7 +7386,8 @@ export type GlobalEventResponses = {
   200: GlobalEvent
 }
 
-export type GlobalEventResponse = GlobalEventResponses[keyof GlobalEventResponses]
+export type GlobalEventResponse =
+  GlobalEventResponses[keyof GlobalEventResponses]
 
 export type GlobalConfigGetData = {
   body?: never
@@ -7290,7 +7403,8 @@ export type GlobalConfigGetErrors = {
   400: BadRequestError
 }
 
-export type GlobalConfigGetError = GlobalConfigGetErrors[keyof GlobalConfigGetErrors]
+export type GlobalConfigGetError =
+  GlobalConfigGetErrors[keyof GlobalConfigGetErrors]
 
 export type GlobalConfigGetResponses = {
   /**
@@ -7299,7 +7413,8 @@ export type GlobalConfigGetResponses = {
   200: Config
 }
 
-export type GlobalConfigGetResponse = GlobalConfigGetResponses[keyof GlobalConfigGetResponses]
+export type GlobalConfigGetResponse =
+  GlobalConfigGetResponses[keyof GlobalConfigGetResponses]
 
 export type GlobalConfigUpdateData = {
   body?: Config
@@ -7315,7 +7430,8 @@ export type GlobalConfigUpdateErrors = {
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
-export type GlobalConfigUpdateError = GlobalConfigUpdateErrors[keyof GlobalConfigUpdateErrors]
+export type GlobalConfigUpdateError =
+  GlobalConfigUpdateErrors[keyof GlobalConfigUpdateErrors]
 
 export type GlobalConfigUpdateResponses = {
   /**
@@ -7324,7 +7440,8 @@ export type GlobalConfigUpdateResponses = {
   200: Config
 }
 
-export type GlobalConfigUpdateResponse = GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
+export type GlobalConfigUpdateResponse =
+  GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
 
 export type GlobalDisposeData = {
   body?: never
@@ -7349,7 +7466,8 @@ export type GlobalDisposeResponses = {
   200: boolean
 }
 
-export type GlobalDisposeResponse = GlobalDisposeResponses[keyof GlobalDisposeResponses]
+export type GlobalDisposeResponse =
+  GlobalDisposeResponses[keyof GlobalDisposeResponses]
 
 export type GlobalUpgradeData = {
   body?: {
@@ -7384,7 +7502,8 @@ export type GlobalUpgradeResponses = {
       }
 }
 
-export type GlobalUpgradeResponse = GlobalUpgradeResponses[keyof GlobalUpgradeResponses]
+export type GlobalUpgradeResponse =
+  GlobalUpgradeResponses[keyof GlobalUpgradeResponses]
 
 export type EventSubscribeData = {
   body?: never
@@ -7403,7 +7522,8 @@ export type EventSubscribeResponses = {
   200: Event
 }
 
-export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscribeResponses]
+export type EventSubscribeResponse =
+  EventSubscribeResponses[keyof EventSubscribeResponses]
 
 export type ConfigGetData = {
   body?: never
@@ -7459,7 +7579,8 @@ export type ConfigUpdateResponses = {
   200: Config
 }
 
-export type ConfigUpdateResponse = ConfigUpdateResponses[keyof ConfigUpdateResponses]
+export type ConfigUpdateResponse =
+  ConfigUpdateResponses[keyof ConfigUpdateResponses]
 
 export type ConfigProvidersData = {
   body?: never
@@ -7478,7 +7599,8 @@ export type ConfigProvidersErrors = {
   400: BadRequestError
 }
 
-export type ConfigProvidersError = ConfigProvidersErrors[keyof ConfigProvidersErrors]
+export type ConfigProvidersError =
+  ConfigProvidersErrors[keyof ConfigProvidersErrors]
 
 export type ConfigProvidersResponses = {
   /**
@@ -7492,7 +7614,8 @@ export type ConfigProvidersResponses = {
   }
 }
 
-export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+export type ConfigProvidersResponse =
+  ConfigProvidersResponses[keyof ConfigProvidersResponses]
 
 export type ExperimentalCapabilitiesGetData = {
   body?: never
@@ -7545,7 +7668,8 @@ export type ExperimentalConsoleGetErrors = {
   500: EffectHttpApiErrorInternalServerError
 }
 
-export type ExperimentalConsoleGetError = ExperimentalConsoleGetErrors[keyof ExperimentalConsoleGetErrors]
+export type ExperimentalConsoleGetError =
+  ExperimentalConsoleGetErrors[keyof ExperimentalConsoleGetErrors]
 
 export type ExperimentalConsoleGetResponses = {
   /**
@@ -7554,7 +7678,8 @@ export type ExperimentalConsoleGetResponses = {
   200: ConsoleState
 }
 
-export type ExperimentalConsoleGetResponse = ExperimentalConsoleGetResponses[keyof ExperimentalConsoleGetResponses]
+export type ExperimentalConsoleGetResponse =
+  ExperimentalConsoleGetResponses[keyof ExperimentalConsoleGetResponses]
 
 export type ExperimentalConsoleListOrgsData = {
   body?: never
@@ -7697,7 +7822,8 @@ export type WorktreeRemoveErrors = {
   400: WorktreeError | InvalidRequestError
 }
 
-export type WorktreeRemoveError = WorktreeRemoveErrors[keyof WorktreeRemoveErrors]
+export type WorktreeRemoveError =
+  WorktreeRemoveErrors[keyof WorktreeRemoveErrors]
 
 export type WorktreeRemoveResponses = {
   /**
@@ -7706,7 +7832,8 @@ export type WorktreeRemoveResponses = {
   200: boolean
 }
 
-export type WorktreeRemoveResponse = WorktreeRemoveResponses[keyof WorktreeRemoveResponses]
+export type WorktreeRemoveResponse =
+  WorktreeRemoveResponses[keyof WorktreeRemoveResponses]
 
 export type WorktreeListData = {
   body?: never
@@ -7734,7 +7861,8 @@ export type WorktreeListResponses = {
   200: Array<string>
 }
 
-export type WorktreeListResponse = WorktreeListResponses[keyof WorktreeListResponses]
+export type WorktreeListResponse =
+  WorktreeListResponses[keyof WorktreeListResponses]
 
 export type WorktreeCreateData = {
   body?: WorktreeCreateInput
@@ -7753,7 +7881,8 @@ export type WorktreeCreateErrors = {
   400: WorktreeError | InvalidRequestError
 }
 
-export type WorktreeCreateError = WorktreeCreateErrors[keyof WorktreeCreateErrors]
+export type WorktreeCreateError =
+  WorktreeCreateErrors[keyof WorktreeCreateErrors]
 
 export type WorktreeCreateResponses = {
   /**
@@ -7762,7 +7891,8 @@ export type WorktreeCreateResponses = {
   200: Worktree
 }
 
-export type WorktreeCreateResponse = WorktreeCreateResponses[keyof WorktreeCreateResponses]
+export type WorktreeCreateResponse =
+  WorktreeCreateResponses[keyof WorktreeCreateResponses]
 
 export type WorktreeResetData = {
   body?: WorktreeResetInput
@@ -7790,7 +7920,8 @@ export type WorktreeResetResponses = {
   200: boolean
 }
 
-export type WorktreeResetResponse = WorktreeResetResponses[keyof WorktreeResetResponses]
+export type WorktreeResetResponse =
+  WorktreeResetResponses[keyof WorktreeResetResponses]
 
 export type ExperimentalSessionListData = {
   body?: never
@@ -7815,7 +7946,8 @@ export type ExperimentalSessionListErrors = {
   400: BadRequestError
 }
 
-export type ExperimentalSessionListError = ExperimentalSessionListErrors[keyof ExperimentalSessionListErrors]
+export type ExperimentalSessionListError =
+  ExperimentalSessionListErrors[keyof ExperimentalSessionListErrors]
 
 export type ExperimentalSessionListResponses = {
   /**
@@ -7824,7 +7956,8 @@ export type ExperimentalSessionListResponses = {
   200: Array<GlobalSession>
 }
 
-export type ExperimentalSessionListResponse = ExperimentalSessionListResponses[keyof ExperimentalSessionListResponses]
+export type ExperimentalSessionListResponse =
+  ExperimentalSessionListResponses[keyof ExperimentalSessionListResponses]
 
 export type ExperimentalSessionBackgroundData = {
   body?: never
@@ -7875,7 +8008,8 @@ export type ExperimentalResourceListErrors = {
   400: BadRequestError
 }
 
-export type ExperimentalResourceListError = ExperimentalResourceListErrors[keyof ExperimentalResourceListErrors]
+export type ExperimentalResourceListError =
+  ExperimentalResourceListErrors[keyof ExperimentalResourceListErrors]
 
 export type ExperimentalResourceListResponses = {
   /**
@@ -7993,7 +8127,8 @@ export type FindSymbolsResponses = {
   200: Array<Symbol>
 }
 
-export type FindSymbolsResponse = FindSymbolsResponses[keyof FindSymbolsResponses]
+export type FindSymbolsResponse =
+  FindSymbolsResponses[keyof FindSymbolsResponses]
 
 export type FileListData = {
   body?: never
@@ -8098,7 +8233,8 @@ export type InstanceDisposeErrors = {
   400: BadRequestError
 }
 
-export type InstanceDisposeError = InstanceDisposeErrors[keyof InstanceDisposeErrors]
+export type InstanceDisposeError =
+  InstanceDisposeErrors[keyof InstanceDisposeErrors]
 
 export type InstanceDisposeResponses = {
   /**
@@ -8107,7 +8243,8 @@ export type InstanceDisposeResponses = {
   200: boolean
 }
 
-export type InstanceDisposeResponse = InstanceDisposeResponses[keyof InstanceDisposeResponses]
+export type InstanceDisposeResponse =
+  InstanceDisposeResponses[keyof InstanceDisposeResponses]
 
 export type PathGetData = {
   body?: never
@@ -8309,7 +8446,8 @@ export type CommandListResponses = {
   200: Array<Command>
 }
 
-export type CommandListResponse = CommandListResponses[keyof CommandListResponses]
+export type CommandListResponse =
+  CommandListResponses[keyof CommandListResponses]
 
 export type AppAgentsData = {
   body?: never
@@ -8372,6 +8510,49 @@ export type AppSkillsResponses = {
 
 export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]
 
+export type InstanceSkillInstallData = {
+  body?: {
+    name: string
+    description?: string
+    content: string
+    prompt?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/install"
+}
+
+export type InstanceSkillInstallErrors = {
+  /**
+   * SkillInstallError | InvalidRequestError
+   */
+  400: SkillInstallError | InvalidRequestError
+}
+
+export type InstanceSkillInstallError =
+  InstanceSkillInstallErrors[keyof InstanceSkillInstallErrors]
+
+export type InstanceSkillInstallResponses = {
+  /**
+   * Installed skill and agent
+   */
+  200: {
+    agent: Agent
+    skill: {
+      name: string
+      description?: string
+      location: string
+      content: string
+    }
+  }
+}
+
+export type InstanceSkillInstallResponse =
+  InstanceSkillInstallResponses[keyof InstanceSkillInstallResponses]
+
 export type LspStatusData = {
   body?: never
   path?: never
@@ -8417,7 +8598,8 @@ export type FormatterStatusErrors = {
   400: BadRequestError
 }
 
-export type FormatterStatusError = FormatterStatusErrors[keyof FormatterStatusErrors]
+export type FormatterStatusError =
+  FormatterStatusErrors[keyof FormatterStatusErrors]
 
 export type FormatterStatusResponses = {
   /**
@@ -8426,7 +8608,8 @@ export type FormatterStatusResponses = {
   200: Array<FormatterStatus>
 }
 
-export type FormatterStatusResponse = FormatterStatusResponses[keyof FormatterStatusResponses]
+export type FormatterStatusResponse =
+  FormatterStatusResponses[keyof FormatterStatusResponses]
 
 export type McpStatusData = {
   body?: never
@@ -8525,7 +8708,8 @@ export type McpAuthRemoveResponses = {
   }
 }
 
-export type McpAuthRemoveResponse = McpAuthRemoveResponses[keyof McpAuthRemoveResponses]
+export type McpAuthRemoveResponse =
+  McpAuthRemoveResponses[keyof McpAuthRemoveResponses]
 
 export type McpAuthStartData = {
   body?: never
@@ -8562,7 +8746,8 @@ export type McpAuthStartResponses = {
   }
 }
 
-export type McpAuthStartResponse = McpAuthStartResponses[keyof McpAuthStartResponses]
+export type McpAuthStartResponse =
+  McpAuthStartResponses[keyof McpAuthStartResponses]
 
 export type McpAuthCallbackData = {
   body?: {
@@ -8589,7 +8774,8 @@ export type McpAuthCallbackErrors = {
   404: McpServerNotFoundError
 }
 
-export type McpAuthCallbackError = McpAuthCallbackErrors[keyof McpAuthCallbackErrors]
+export type McpAuthCallbackError =
+  McpAuthCallbackErrors[keyof McpAuthCallbackErrors]
 
 export type McpAuthCallbackResponses = {
   /**
@@ -8598,7 +8784,8 @@ export type McpAuthCallbackResponses = {
   200: McpStatus
 }
 
-export type McpAuthCallbackResponse = McpAuthCallbackResponses[keyof McpAuthCallbackResponses]
+export type McpAuthCallbackResponse =
+  McpAuthCallbackResponses[keyof McpAuthCallbackResponses]
 
 export type McpAuthAuthenticateData = {
   body?: never
@@ -8623,7 +8810,8 @@ export type McpAuthAuthenticateErrors = {
   404: McpServerNotFoundError
 }
 
-export type McpAuthAuthenticateError = McpAuthAuthenticateErrors[keyof McpAuthAuthenticateErrors]
+export type McpAuthAuthenticateError =
+  McpAuthAuthenticateErrors[keyof McpAuthAuthenticateErrors]
 
 export type McpAuthAuthenticateResponses = {
   /**
@@ -8632,7 +8820,8 @@ export type McpAuthAuthenticateResponses = {
   200: McpStatus
 }
 
-export type McpAuthAuthenticateResponse = McpAuthAuthenticateResponses[keyof McpAuthAuthenticateResponses]
+export type McpAuthAuthenticateResponse =
+  McpAuthAuthenticateResponses[keyof McpAuthAuthenticateResponses]
 
 export type McpConnectData = {
   body?: never
@@ -8700,7 +8889,8 @@ export type McpDisconnectResponses = {
   200: boolean
 }
 
-export type McpDisconnectResponse = McpDisconnectResponses[keyof McpDisconnectResponses]
+export type McpDisconnectResponse =
+  McpDisconnectResponses[keyof McpDisconnectResponses]
 
 export type ProjectListData = {
   body?: never
@@ -8728,7 +8918,8 @@ export type ProjectListResponses = {
   200: Array<Project>
 }
 
-export type ProjectListResponse = ProjectListResponses[keyof ProjectListResponses]
+export type ProjectListResponse =
+  ProjectListResponses[keyof ProjectListResponses]
 
 export type ProjectCurrentData = {
   body?: never
@@ -8747,7 +8938,8 @@ export type ProjectCurrentErrors = {
   400: BadRequestError
 }
 
-export type ProjectCurrentError = ProjectCurrentErrors[keyof ProjectCurrentErrors]
+export type ProjectCurrentError =
+  ProjectCurrentErrors[keyof ProjectCurrentErrors]
 
 export type ProjectCurrentResponses = {
   /**
@@ -8756,7 +8948,8 @@ export type ProjectCurrentResponses = {
   200: Project
 }
 
-export type ProjectCurrentResponse = ProjectCurrentResponses[keyof ProjectCurrentResponses]
+export type ProjectCurrentResponse =
+  ProjectCurrentResponses[keyof ProjectCurrentResponses]
 
 export type ProjectInitGitData = {
   body?: never
@@ -8775,7 +8968,8 @@ export type ProjectInitGitErrors = {
   400: BadRequestError
 }
 
-export type ProjectInitGitError = ProjectInitGitErrors[keyof ProjectInitGitErrors]
+export type ProjectInitGitError =
+  ProjectInitGitErrors[keyof ProjectInitGitErrors]
 
 export type ProjectInitGitResponses = {
   /**
@@ -8784,7 +8978,8 @@ export type ProjectInitGitResponses = {
   200: Project
 }
 
-export type ProjectInitGitResponse = ProjectInitGitResponses[keyof ProjectInitGitResponses]
+export type ProjectInitGitResponse =
+  ProjectInitGitResponses[keyof ProjectInitGitResponses]
 
 export type ProjectUpdateData = {
   body?: {
@@ -8822,7 +9017,8 @@ export type ProjectUpdateResponses = {
   200: Project
 }
 
-export type ProjectUpdateResponse = ProjectUpdateResponses[keyof ProjectUpdateResponses]
+export type ProjectUpdateResponse =
+  ProjectUpdateResponses[keyof ProjectUpdateResponses]
 
 export type ProjectDirectoriesData = {
   body?: never
@@ -8843,7 +9039,8 @@ export type ProjectDirectoriesErrors = {
   400: BadRequestError
 }
 
-export type ProjectDirectoriesError = ProjectDirectoriesErrors[keyof ProjectDirectoriesErrors]
+export type ProjectDirectoriesError =
+  ProjectDirectoriesErrors[keyof ProjectDirectoriesErrors]
 
 export type ProjectDirectoriesResponses = {
   /**
@@ -8852,7 +9049,8 @@ export type ProjectDirectoriesResponses = {
   200: ProjectDirectories
 }
 
-export type ProjectDirectoriesResponse = ProjectDirectoriesResponses[keyof ProjectDirectoriesResponses]
+export type ProjectDirectoriesResponse =
+  ProjectDirectoriesResponses[keyof ProjectDirectoriesResponses]
 
 export type ExperimentalProjectCopyGenerateNameData = {
   body?: {
@@ -9121,7 +9319,8 @@ export type PtyConnectTokenErrors = {
   404: PtyNotFoundError
 }
 
-export type PtyConnectTokenError = PtyConnectTokenErrors[keyof PtyConnectTokenErrors]
+export type PtyConnectTokenError =
+  PtyConnectTokenErrors[keyof PtyConnectTokenErrors]
 
 export type PtyConnectTokenResponses = {
   /**
@@ -9130,7 +9329,8 @@ export type PtyConnectTokenResponses = {
   200: PtyTicketConnectToken
 }
 
-export type PtyConnectTokenResponse = PtyConnectTokenResponses[keyof PtyConnectTokenResponses]
+export type PtyConnectTokenResponse =
+  PtyConnectTokenResponses[keyof PtyConnectTokenResponses]
 
 export type QuestionListData = {
   body?: never
@@ -9158,7 +9358,8 @@ export type QuestionListResponses = {
   200: Array<QuestionRequest>
 }
 
-export type QuestionListResponse = QuestionListResponses[keyof QuestionListResponses]
+export type QuestionListResponse =
+  QuestionListResponses[keyof QuestionListResponses]
 
 export type QuestionReplyData = {
   body?: {
@@ -9197,7 +9398,8 @@ export type QuestionReplyResponses = {
   200: boolean
 }
 
-export type QuestionReplyResponse = QuestionReplyResponses[keyof QuestionReplyResponses]
+export type QuestionReplyResponse =
+  QuestionReplyResponses[keyof QuestionReplyResponses]
 
 export type QuestionRejectData = {
   body?: never
@@ -9222,7 +9424,8 @@ export type QuestionRejectErrors = {
   404: QuestionNotFoundError
 }
 
-export type QuestionRejectError = QuestionRejectErrors[keyof QuestionRejectErrors]
+export type QuestionRejectError =
+  QuestionRejectErrors[keyof QuestionRejectErrors]
 
 export type QuestionRejectResponses = {
   /**
@@ -9231,7 +9434,8 @@ export type QuestionRejectResponses = {
   200: boolean
 }
 
-export type QuestionRejectResponse = QuestionRejectResponses[keyof QuestionRejectResponses]
+export type QuestionRejectResponse =
+  QuestionRejectResponses[keyof QuestionRejectResponses]
 
 export type PermissionListData = {
   body?: never
@@ -9250,7 +9454,8 @@ export type PermissionListErrors = {
   400: BadRequestError
 }
 
-export type PermissionListError = PermissionListErrors[keyof PermissionListErrors]
+export type PermissionListError =
+  PermissionListErrors[keyof PermissionListErrors]
 
 export type PermissionListResponses = {
   /**
@@ -9259,7 +9464,8 @@ export type PermissionListResponses = {
   200: Array<PermissionRequest>
 }
 
-export type PermissionListResponse = PermissionListResponses[keyof PermissionListResponses]
+export type PermissionListResponse =
+  PermissionListResponses[keyof PermissionListResponses]
 
 export type PermissionReplyData = {
   body?: {
@@ -9287,7 +9493,8 @@ export type PermissionReplyErrors = {
   404: PermissionNotFoundError
 }
 
-export type PermissionReplyError = PermissionReplyErrors[keyof PermissionReplyErrors]
+export type PermissionReplyError =
+  PermissionReplyErrors[keyof PermissionReplyErrors]
 
 export type PermissionReplyResponses = {
   /**
@@ -9296,7 +9503,8 @@ export type PermissionReplyResponses = {
   200: boolean
 }
 
-export type PermissionReplyResponse = PermissionReplyResponses[keyof PermissionReplyResponses]
+export type PermissionReplyResponse =
+  PermissionReplyResponses[keyof PermissionReplyResponses]
 
 export type ProviderListData = {
   body?: never
@@ -9330,7 +9538,8 @@ export type ProviderListResponses = {
   }
 }
 
-export type ProviderListResponse = ProviderListResponses[keyof ProviderListResponses]
+export type ProviderListResponse =
+  ProviderListResponses[keyof ProviderListResponses]
 
 export type ProviderAuthData = {
   body?: never
@@ -9360,7 +9569,8 @@ export type ProviderAuthResponses = {
   }
 }
 
-export type ProviderAuthResponse = ProviderAuthResponses[keyof ProviderAuthResponses]
+export type ProviderAuthResponse =
+  ProviderAuthResponses[keyof ProviderAuthResponses]
 
 export type ProviderOauthAuthorizeData = {
   body?: {
@@ -9389,7 +9599,8 @@ export type ProviderOauthAuthorizeErrors = {
   400: ProviderAuthError1 | InvalidRequestError
 }
 
-export type ProviderOauthAuthorizeError = ProviderOauthAuthorizeErrors[keyof ProviderOauthAuthorizeErrors]
+export type ProviderOauthAuthorizeError =
+  ProviderOauthAuthorizeErrors[keyof ProviderOauthAuthorizeErrors]
 
 export type ProviderOauthAuthorizeResponses = {
   /**
@@ -9398,7 +9609,8 @@ export type ProviderOauthAuthorizeResponses = {
   200: ProviderAuthAuthorization
 }
 
-export type ProviderOauthAuthorizeResponse = ProviderOauthAuthorizeResponses[keyof ProviderOauthAuthorizeResponses]
+export type ProviderOauthAuthorizeResponse =
+  ProviderOauthAuthorizeResponses[keyof ProviderOauthAuthorizeResponses]
 
 export type ProviderOauthCallbackData = {
   body?: {
@@ -9425,7 +9637,8 @@ export type ProviderOauthCallbackErrors = {
   400: ProviderAuthError1 | InvalidRequestError
 }
 
-export type ProviderOauthCallbackError = ProviderOauthCallbackErrors[keyof ProviderOauthCallbackErrors]
+export type ProviderOauthCallbackError =
+  ProviderOauthCallbackErrors[keyof ProviderOauthCallbackErrors]
 
 export type ProviderOauthCallbackResponses = {
   /**
@@ -9434,7 +9647,8 @@ export type ProviderOauthCallbackResponses = {
   200: boolean
 }
 
-export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+export type ProviderOauthCallbackResponse =
+  ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
 
 export type SessionListData = {
   body?: never
@@ -9468,7 +9682,8 @@ export type SessionListResponses = {
   200: Array<Session>
 }
 
-export type SessionListResponse = SessionListResponses[keyof SessionListResponses]
+export type SessionListResponse =
+  SessionListResponses[keyof SessionListResponses]
 
 export type SessionCreateData = {
   body?: {
@@ -9510,7 +9725,8 @@ export type SessionCreateResponses = {
   200: Session
 }
 
-export type SessionCreateResponse = SessionCreateResponses[keyof SessionCreateResponses]
+export type SessionCreateResponse =
+  SessionCreateResponses[keyof SessionCreateResponses]
 
 export type SessionStatusData = {
   body?: never
@@ -9540,7 +9756,8 @@ export type SessionStatusResponses = {
   }
 }
 
-export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
+export type SessionStatusResponse =
+  SessionStatusResponses[keyof SessionStatusResponses]
 
 export type SessionDeleteData = {
   body?: never
@@ -9574,7 +9791,8 @@ export type SessionDeleteResponses = {
   200: boolean
 }
 
-export type SessionDeleteResponse = SessionDeleteResponses[keyof SessionDeleteResponses]
+export type SessionDeleteResponse =
+  SessionDeleteResponses[keyof SessionDeleteResponses]
 
 export type SessionGetData = {
   body?: never
@@ -9651,7 +9869,8 @@ export type SessionUpdateResponses = {
   200: Session
 }
 
-export type SessionUpdateResponse = SessionUpdateResponses[keyof SessionUpdateResponses]
+export type SessionUpdateResponse =
+  SessionUpdateResponses[keyof SessionUpdateResponses]
 
 export type SessionChildrenData = {
   body?: never
@@ -9676,7 +9895,8 @@ export type SessionChildrenErrors = {
   404: NotFoundError
 }
 
-export type SessionChildrenError = SessionChildrenErrors[keyof SessionChildrenErrors]
+export type SessionChildrenError =
+  SessionChildrenErrors[keyof SessionChildrenErrors]
 
 export type SessionChildrenResponses = {
   /**
@@ -9685,7 +9905,8 @@ export type SessionChildrenResponses = {
   200: Array<Session>
 }
 
-export type SessionChildrenResponse = SessionChildrenResponses[keyof SessionChildrenResponses]
+export type SessionChildrenResponse =
+  SessionChildrenResponses[keyof SessionChildrenResponses]
 
 export type SessionTodoData = {
   body?: never
@@ -9719,7 +9940,8 @@ export type SessionTodoResponses = {
   200: Array<Todo>
 }
 
-export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
+export type SessionTodoResponse =
+  SessionTodoResponses[keyof SessionTodoResponses]
 
 export type SessionDiffData = {
   body?: never
@@ -9750,7 +9972,8 @@ export type SessionDiffResponses = {
   200: Array<SnapshotFileDiff>
 }
 
-export type SessionDiffResponse = SessionDiffResponses[keyof SessionDiffResponses]
+export type SessionDiffResponse =
+  SessionDiffResponses[keyof SessionDiffResponses]
 
 export type SessionMessagesData = {
   body?: never
@@ -9777,7 +10000,8 @@ export type SessionMessagesErrors = {
   404: NotFoundError
 }
 
-export type SessionMessagesError = SessionMessagesErrors[keyof SessionMessagesErrors]
+export type SessionMessagesError =
+  SessionMessagesErrors[keyof SessionMessagesErrors]
 
 export type SessionMessagesResponses = {
   /**
@@ -9789,7 +10013,8 @@ export type SessionMessagesResponses = {
   }>
 }
 
-export type SessionMessagesResponse2 = SessionMessagesResponses[keyof SessionMessagesResponses]
+export type SessionMessagesResponse2 =
+  SessionMessagesResponses[keyof SessionMessagesResponses]
 
 export type SessionPromptData = {
   body?: {
@@ -9806,7 +10031,9 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<
+      TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput
+    >
   }
   path: {
     sessionID: string
@@ -9841,7 +10068,8 @@ export type SessionPromptResponses = {
   }
 }
 
-export type SessionPromptResponse = SessionPromptResponses[keyof SessionPromptResponses]
+export type SessionPromptResponse =
+  SessionPromptResponses[keyof SessionPromptResponses]
 
 export type SessionDeleteMessageData = {
   body?: never
@@ -9871,7 +10099,8 @@ export type SessionDeleteMessageErrors = {
   409: SessionBusyError
 }
 
-export type SessionDeleteMessageError = SessionDeleteMessageErrors[keyof SessionDeleteMessageErrors]
+export type SessionDeleteMessageError =
+  SessionDeleteMessageErrors[keyof SessionDeleteMessageErrors]
 
 export type SessionDeleteMessageResponses = {
   /**
@@ -9880,7 +10109,8 @@ export type SessionDeleteMessageResponses = {
   200: boolean
 }
 
-export type SessionDeleteMessageResponse = SessionDeleteMessageResponses[keyof SessionDeleteMessageResponses]
+export type SessionDeleteMessageResponse =
+  SessionDeleteMessageResponses[keyof SessionDeleteMessageResponses]
 
 export type SessionMessageData = {
   body?: never
@@ -9906,7 +10136,8 @@ export type SessionMessageErrors = {
   404: NotFoundError
 }
 
-export type SessionMessageError = SessionMessageErrors[keyof SessionMessageErrors]
+export type SessionMessageError =
+  SessionMessageErrors[keyof SessionMessageErrors]
 
 export type SessionMessageResponses = {
   /**
@@ -9918,7 +10149,8 @@ export type SessionMessageResponses = {
   }
 }
 
-export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessageResponses]
+export type SessionMessageResponse =
+  SessionMessageResponses[keyof SessionMessageResponses]
 
 export type SessionForkData = {
   body?: {
@@ -9954,7 +10186,8 @@ export type SessionForkResponses = {
   200: Session
 }
 
-export type SessionForkResponse = SessionForkResponses[keyof SessionForkResponses]
+export type SessionForkResponse =
+  SessionForkResponses[keyof SessionForkResponses]
 
 export type SessionAbortData = {
   body?: never
@@ -9984,7 +10217,8 @@ export type SessionAbortResponses = {
   200: boolean
 }
 
-export type SessionAbortResponse = SessionAbortResponses[keyof SessionAbortResponses]
+export type SessionAbortResponse =
+  SessionAbortResponses[keyof SessionAbortResponses]
 
 export type SessionInitData = {
   body?: {
@@ -10022,7 +10256,8 @@ export type SessionInitResponses = {
   200: boolean
 }
 
-export type SessionInitResponse = SessionInitResponses[keyof SessionInitResponses]
+export type SessionInitResponse =
+  SessionInitResponses[keyof SessionInitResponses]
 
 export type SessionUnshareData = {
   body?: never
@@ -10051,7 +10286,8 @@ export type SessionUnshareErrors = {
   500: EffectHttpApiErrorInternalServerError
 }
 
-export type SessionUnshareError = SessionUnshareErrors[keyof SessionUnshareErrors]
+export type SessionUnshareError =
+  SessionUnshareErrors[keyof SessionUnshareErrors]
 
 export type SessionUnshareResponses = {
   /**
@@ -10060,7 +10296,8 @@ export type SessionUnshareResponses = {
   200: Session
 }
 
-export type SessionUnshareResponse = SessionUnshareResponses[keyof SessionUnshareResponses]
+export type SessionUnshareResponse =
+  SessionUnshareResponses[keyof SessionUnshareResponses]
 
 export type SessionShareData = {
   body?: never
@@ -10098,7 +10335,8 @@ export type SessionShareResponses = {
   200: Session
 }
 
-export type SessionShareResponse = SessionShareResponses[keyof SessionShareResponses]
+export type SessionShareResponse =
+  SessionShareResponses[keyof SessionShareResponses]
 
 export type SessionSummarizeData = {
   body?: {
@@ -10127,7 +10365,8 @@ export type SessionSummarizeErrors = {
   404: NotFoundError
 }
 
-export type SessionSummarizeError = SessionSummarizeErrors[keyof SessionSummarizeErrors]
+export type SessionSummarizeError =
+  SessionSummarizeErrors[keyof SessionSummarizeErrors]
 
 export type SessionSummarizeResponses = {
   /**
@@ -10136,7 +10375,8 @@ export type SessionSummarizeResponses = {
   200: boolean
 }
 
-export type SessionSummarizeResponse = SessionSummarizeResponses[keyof SessionSummarizeResponses]
+export type SessionSummarizeResponse =
+  SessionSummarizeResponses[keyof SessionSummarizeResponses]
 
 export type SessionPromptAsyncData = {
   body?: {
@@ -10153,7 +10393,9 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<
+      TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput
+    >
   }
   path: {
     sessionID: string
@@ -10176,7 +10418,8 @@ export type SessionPromptAsyncErrors = {
   404: NotFoundError
 }
 
-export type SessionPromptAsyncError = SessionPromptAsyncErrors[keyof SessionPromptAsyncErrors]
+export type SessionPromptAsyncError =
+  SessionPromptAsyncErrors[keyof SessionPromptAsyncErrors]
 
 export type SessionPromptAsyncResponses = {
   /**
@@ -10185,7 +10428,8 @@ export type SessionPromptAsyncResponses = {
   204: void
 }
 
-export type SessionPromptAsyncResponse = SessionPromptAsyncResponses[keyof SessionPromptAsyncResponses]
+export type SessionPromptAsyncResponse =
+  SessionPromptAsyncResponses[keyof SessionPromptAsyncResponses]
 
 export type SessionCommandData = {
   body?: {
@@ -10225,7 +10469,8 @@ export type SessionCommandErrors = {
   404: NotFoundError
 }
 
-export type SessionCommandError = SessionCommandErrors[keyof SessionCommandErrors]
+export type SessionCommandError =
+  SessionCommandErrors[keyof SessionCommandErrors]
 
 export type SessionCommandResponses = {
   /**
@@ -10237,7 +10482,8 @@ export type SessionCommandResponses = {
   }
 }
 
-export type SessionCommandResponse = SessionCommandResponses[keyof SessionCommandResponses]
+export type SessionCommandResponse =
+  SessionCommandResponses[keyof SessionCommandResponses]
 
 export type SessionShellData = {
   body?: {
@@ -10286,7 +10532,8 @@ export type SessionShellResponses = {
   }
 }
 
-export type SessionShellResponse = SessionShellResponses[keyof SessionShellResponses]
+export type SessionShellResponse =
+  SessionShellResponses[keyof SessionShellResponses]
 
 export type SessionRevertData = {
   body?: {
@@ -10327,7 +10574,8 @@ export type SessionRevertResponses = {
   200: Session
 }
 
-export type SessionRevertResponse = SessionRevertResponses[keyof SessionRevertResponses]
+export type SessionRevertResponse =
+  SessionRevertResponses[keyof SessionRevertResponses]
 
 export type SessionUnrevertData = {
   body?: never
@@ -10356,7 +10604,8 @@ export type SessionUnrevertErrors = {
   409: SessionBusyError
 }
 
-export type SessionUnrevertError = SessionUnrevertErrors[keyof SessionUnrevertErrors]
+export type SessionUnrevertError =
+  SessionUnrevertErrors[keyof SessionUnrevertErrors]
 
 export type SessionUnrevertResponses = {
   /**
@@ -10365,7 +10614,8 @@ export type SessionUnrevertResponses = {
   200: Session
 }
 
-export type SessionUnrevertResponse = SessionUnrevertResponses[keyof SessionUnrevertResponses]
+export type SessionUnrevertResponse =
+  SessionUnrevertResponses[keyof SessionUnrevertResponses]
 
 export type PermissionRespondData = {
   body?: {
@@ -10393,7 +10643,8 @@ export type PermissionRespondErrors = {
   404: NotFoundError | PermissionNotFoundError
 }
 
-export type PermissionRespondError = PermissionRespondErrors[keyof PermissionRespondErrors]
+export type PermissionRespondError =
+  PermissionRespondErrors[keyof PermissionRespondErrors]
 
 export type PermissionRespondResponses = {
   /**
@@ -10402,7 +10653,8 @@ export type PermissionRespondResponses = {
   200: boolean
 }
 
-export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
+export type PermissionRespondResponse =
+  PermissionRespondResponses[keyof PermissionRespondResponses]
 
 export type PartDeleteData = {
   body?: never
@@ -10596,7 +10848,8 @@ export type SyncHistoryListErrors = {
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
-export type SyncHistoryListError = SyncHistoryListErrors[keyof SyncHistoryListErrors]
+export type SyncHistoryListError =
+  SyncHistoryListErrors[keyof SyncHistoryListErrors]
 
 export type SyncHistoryListResponses = {
   /**
@@ -10613,7 +10866,8 @@ export type SyncHistoryListResponses = {
   }>
 }
 
-export type SyncHistoryListResponse = SyncHistoryListResponses[keyof SyncHistoryListResponses]
+export type SyncHistoryListResponse =
+  SyncHistoryListResponses[keyof SyncHistoryListResponses]
 
 export type TuiAppendPromptData = {
   body?: {
@@ -10634,7 +10888,8 @@ export type TuiAppendPromptErrors = {
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
-export type TuiAppendPromptError = TuiAppendPromptErrors[keyof TuiAppendPromptErrors]
+export type TuiAppendPromptError =
+  TuiAppendPromptErrors[keyof TuiAppendPromptErrors]
 
 export type TuiAppendPromptResponses = {
   /**
@@ -10643,7 +10898,8 @@ export type TuiAppendPromptResponses = {
   200: boolean
 }
 
-export type TuiAppendPromptResponse = TuiAppendPromptResponses[keyof TuiAppendPromptResponses]
+export type TuiAppendPromptResponse =
+  TuiAppendPromptResponses[keyof TuiAppendPromptResponses]
 
 export type TuiOpenHelpData = {
   body?: never
@@ -10671,7 +10927,8 @@ export type TuiOpenHelpResponses = {
   200: boolean
 }
 
-export type TuiOpenHelpResponse = TuiOpenHelpResponses[keyof TuiOpenHelpResponses]
+export type TuiOpenHelpResponse =
+  TuiOpenHelpResponses[keyof TuiOpenHelpResponses]
 
 export type TuiOpenSessionsData = {
   body?: never
@@ -10690,7 +10947,8 @@ export type TuiOpenSessionsErrors = {
   400: BadRequestError
 }
 
-export type TuiOpenSessionsError = TuiOpenSessionsErrors[keyof TuiOpenSessionsErrors]
+export type TuiOpenSessionsError =
+  TuiOpenSessionsErrors[keyof TuiOpenSessionsErrors]
 
 export type TuiOpenSessionsResponses = {
   /**
@@ -10699,7 +10957,8 @@ export type TuiOpenSessionsResponses = {
   200: boolean
 }
 
-export type TuiOpenSessionsResponse = TuiOpenSessionsResponses[keyof TuiOpenSessionsResponses]
+export type TuiOpenSessionsResponse =
+  TuiOpenSessionsResponses[keyof TuiOpenSessionsResponses]
 
 export type TuiOpenThemesData = {
   body?: never
@@ -10727,7 +10986,8 @@ export type TuiOpenThemesResponses = {
   200: boolean
 }
 
-export type TuiOpenThemesResponse = TuiOpenThemesResponses[keyof TuiOpenThemesResponses]
+export type TuiOpenThemesResponse =
+  TuiOpenThemesResponses[keyof TuiOpenThemesResponses]
 
 export type TuiOpenModelsData = {
   body?: never
@@ -10755,7 +11015,8 @@ export type TuiOpenModelsResponses = {
   200: boolean
 }
 
-export type TuiOpenModelsResponse = TuiOpenModelsResponses[keyof TuiOpenModelsResponses]
+export type TuiOpenModelsResponse =
+  TuiOpenModelsResponses[keyof TuiOpenModelsResponses]
 
 export type TuiSubmitPromptData = {
   body?: never
@@ -10774,7 +11035,8 @@ export type TuiSubmitPromptErrors = {
   400: BadRequestError
 }
 
-export type TuiSubmitPromptError = TuiSubmitPromptErrors[keyof TuiSubmitPromptErrors]
+export type TuiSubmitPromptError =
+  TuiSubmitPromptErrors[keyof TuiSubmitPromptErrors]
 
 export type TuiSubmitPromptResponses = {
   /**
@@ -10783,7 +11045,8 @@ export type TuiSubmitPromptResponses = {
   200: boolean
 }
 
-export type TuiSubmitPromptResponse = TuiSubmitPromptResponses[keyof TuiSubmitPromptResponses]
+export type TuiSubmitPromptResponse =
+  TuiSubmitPromptResponses[keyof TuiSubmitPromptResponses]
 
 export type TuiClearPromptData = {
   body?: never
@@ -10802,7 +11065,8 @@ export type TuiClearPromptErrors = {
   400: BadRequestError
 }
 
-export type TuiClearPromptError = TuiClearPromptErrors[keyof TuiClearPromptErrors]
+export type TuiClearPromptError =
+  TuiClearPromptErrors[keyof TuiClearPromptErrors]
 
 export type TuiClearPromptResponses = {
   /**
@@ -10811,7 +11075,8 @@ export type TuiClearPromptResponses = {
   200: boolean
 }
 
-export type TuiClearPromptResponse = TuiClearPromptResponses[keyof TuiClearPromptResponses]
+export type TuiClearPromptResponse =
+  TuiClearPromptResponses[keyof TuiClearPromptResponses]
 
 export type TuiExecuteCommandData = {
   body?: {
@@ -10832,7 +11097,8 @@ export type TuiExecuteCommandErrors = {
   400: EffectHttpApiErrorBadRequest | InvalidRequestError
 }
 
-export type TuiExecuteCommandError = TuiExecuteCommandErrors[keyof TuiExecuteCommandErrors]
+export type TuiExecuteCommandError =
+  TuiExecuteCommandErrors[keyof TuiExecuteCommandErrors]
 
 export type TuiExecuteCommandResponses = {
   /**
@@ -10841,7 +11107,8 @@ export type TuiExecuteCommandResponses = {
   200: boolean
 }
 
-export type TuiExecuteCommandResponse = TuiExecuteCommandResponses[keyof TuiExecuteCommandResponses]
+export type TuiExecuteCommandResponse =
+  TuiExecuteCommandResponses[keyof TuiExecuteCommandResponses]
 
 export type TuiShowToastData = {
   body?: {
@@ -10874,10 +11141,15 @@ export type TuiShowToastResponses = {
   200: boolean
 }
 
-export type TuiShowToastResponse = TuiShowToastResponses[keyof TuiShowToastResponses]
+export type TuiShowToastResponse =
+  TuiShowToastResponses[keyof TuiShowToastResponses]
 
 export type TuiPublishData = {
-  body?: EventTuiPromptAppend | EventTuiCommandExecute | EventTuiToastShow | EventTuiSessionSelect
+  body?:
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
   path?: never
   query?: {
     directory?: string
@@ -10930,7 +11202,8 @@ export type TuiSelectSessionErrors = {
   404: NotFoundError
 }
 
-export type TuiSelectSessionError = TuiSelectSessionErrors[keyof TuiSelectSessionErrors]
+export type TuiSelectSessionError =
+  TuiSelectSessionErrors[keyof TuiSelectSessionErrors]
 
 export type TuiSelectSessionResponses = {
   /**
@@ -10939,7 +11212,8 @@ export type TuiSelectSessionResponses = {
   200: boolean
 }
 
-export type TuiSelectSessionResponse = TuiSelectSessionResponses[keyof TuiSelectSessionResponses]
+export type TuiSelectSessionResponse =
+  TuiSelectSessionResponses[keyof TuiSelectSessionResponses]
 
 export type TuiControlNextData = {
   body?: never
@@ -10958,7 +11232,8 @@ export type TuiControlNextErrors = {
   400: BadRequestError
 }
 
-export type TuiControlNextError = TuiControlNextErrors[keyof TuiControlNextErrors]
+export type TuiControlNextError =
+  TuiControlNextErrors[keyof TuiControlNextErrors]
 
 export type TuiControlNextResponses = {
   /**
@@ -10970,7 +11245,8 @@ export type TuiControlNextResponses = {
   }
 }
 
-export type TuiControlNextResponse = TuiControlNextResponses[keyof TuiControlNextResponses]
+export type TuiControlNextResponse =
+  TuiControlNextResponses[keyof TuiControlNextResponses]
 
 export type TuiControlResponseData = {
   body?: unknown
@@ -10989,7 +11265,8 @@ export type TuiControlResponseErrors = {
   400: BadRequestError
 }
 
-export type TuiControlResponseError = TuiControlResponseErrors[keyof TuiControlResponseErrors]
+export type TuiControlResponseError =
+  TuiControlResponseErrors[keyof TuiControlResponseErrors]
 
 export type TuiControlResponseResponses = {
   /**
@@ -10998,7 +11275,8 @@ export type TuiControlResponseResponses = {
   200: boolean
 }
 
-export type TuiControlResponseResponse = TuiControlResponseResponses[keyof TuiControlResponseResponses]
+export type TuiControlResponseResponse =
+  TuiControlResponseResponses[keyof TuiControlResponseResponses]
 
 export type ExperimentalWorkspaceAdapterListData = {
   body?: never
@@ -11051,7 +11329,8 @@ export type ExperimentalWorkspaceListErrors = {
   400: BadRequestError
 }
 
-export type ExperimentalWorkspaceListError = ExperimentalWorkspaceListErrors[keyof ExperimentalWorkspaceListErrors]
+export type ExperimentalWorkspaceListError =
+  ExperimentalWorkspaceListErrors[keyof ExperimentalWorkspaceListErrors]
 
 export type ExperimentalWorkspaceListResponses = {
   /**
@@ -11215,7 +11494,8 @@ export type ExperimentalWorkspaceWarpErrors = {
   404: NotFoundError
 }
 
-export type ExperimentalWorkspaceWarpError = ExperimentalWorkspaceWarpErrors[keyof ExperimentalWorkspaceWarpErrors]
+export type ExperimentalWorkspaceWarpError =
+  ExperimentalWorkspaceWarpErrors[keyof ExperimentalWorkspaceWarpErrors]
 
 export type ExperimentalWorkspaceWarpResponses = {
   /**
@@ -11256,7 +11536,8 @@ export type V2HealthGetResponses = {
   }
 }
 
-export type V2HealthGetResponse = V2HealthGetResponses[keyof V2HealthGetResponses]
+export type V2HealthGetResponse =
+  V2HealthGetResponses[keyof V2HealthGetResponses]
 
 export type V2LocationGetData = {
   body?: never
@@ -11290,7 +11571,8 @@ export type V2LocationGetResponses = {
   200: LocationInfo
 }
 
-export type V2LocationGetResponse = V2LocationGetResponses[keyof V2LocationGetResponses]
+export type V2LocationGetResponse =
+  V2LocationGetResponses[keyof V2LocationGetResponses]
 
 export type V2AgentListData = {
   body?: never
@@ -11327,7 +11609,8 @@ export type V2AgentListResponses = {
   }
 }
 
-export type V2AgentListResponse = V2AgentListResponses[keyof V2AgentListResponses]
+export type V2AgentListResponse =
+  V2AgentListResponses[keyof V2AgentListResponses]
 
 export type V2SessionListData = {
   body?: never
@@ -11368,7 +11651,8 @@ export type V2SessionListResponses = {
   200: SessionsResponse
 }
 
-export type V2SessionListResponse = V2SessionListResponses[keyof V2SessionListResponses]
+export type V2SessionListResponse =
+  V2SessionListResponses[keyof V2SessionListResponses]
 
 export type V2SessionCreateData = {
   body: {
@@ -11393,7 +11677,8 @@ export type V2SessionCreateErrors = {
   401: UnauthorizedError
 }
 
-export type V2SessionCreateError = V2SessionCreateErrors[keyof V2SessionCreateErrors]
+export type V2SessionCreateError =
+  V2SessionCreateErrors[keyof V2SessionCreateErrors]
 
 export type V2SessionCreateResponses = {
   /**
@@ -11404,7 +11689,8 @@ export type V2SessionCreateResponses = {
   }
 }
 
-export type V2SessionCreateResponse = V2SessionCreateResponses[keyof V2SessionCreateResponses]
+export type V2SessionCreateResponse =
+  V2SessionCreateResponses[keyof V2SessionCreateResponses]
 
 export type V2SessionActiveData = {
   body?: never
@@ -11424,7 +11710,8 @@ export type V2SessionActiveErrors = {
   401: UnauthorizedError
 }
 
-export type V2SessionActiveError = V2SessionActiveErrors[keyof V2SessionActiveErrors]
+export type V2SessionActiveError =
+  V2SessionActiveErrors[keyof V2SessionActiveErrors]
 
 export type V2SessionActiveResponses = {
   /**
@@ -11437,7 +11724,8 @@ export type V2SessionActiveResponses = {
   }
 }
 
-export type V2SessionActiveResponse = V2SessionActiveResponses[keyof V2SessionActiveResponses]
+export type V2SessionActiveResponse =
+  V2SessionActiveResponses[keyof V2SessionActiveResponses]
 
 export type V2SessionGetData = {
   body?: never
@@ -11474,7 +11762,8 @@ export type V2SessionGetResponses = {
   }
 }
 
-export type V2SessionGetResponse = V2SessionGetResponses[keyof V2SessionGetResponses]
+export type V2SessionGetResponse =
+  V2SessionGetResponses[keyof V2SessionGetResponses]
 
 export type V2SessionSwitchAgentData = {
   body: {
@@ -11502,7 +11791,8 @@ export type V2SessionSwitchAgentErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionSwitchAgentError = V2SessionSwitchAgentErrors[keyof V2SessionSwitchAgentErrors]
+export type V2SessionSwitchAgentError =
+  V2SessionSwitchAgentErrors[keyof V2SessionSwitchAgentErrors]
 
 export type V2SessionSwitchAgentResponses = {
   /**
@@ -11511,7 +11801,8 @@ export type V2SessionSwitchAgentResponses = {
   204: void
 }
 
-export type V2SessionSwitchAgentResponse = V2SessionSwitchAgentResponses[keyof V2SessionSwitchAgentResponses]
+export type V2SessionSwitchAgentResponse =
+  V2SessionSwitchAgentResponses[keyof V2SessionSwitchAgentResponses]
 
 export type V2SessionSwitchModelData = {
   body: {
@@ -11539,7 +11830,8 @@ export type V2SessionSwitchModelErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionSwitchModelError = V2SessionSwitchModelErrors[keyof V2SessionSwitchModelErrors]
+export type V2SessionSwitchModelError =
+  V2SessionSwitchModelErrors[keyof V2SessionSwitchModelErrors]
 
 export type V2SessionSwitchModelResponses = {
   /**
@@ -11548,7 +11840,8 @@ export type V2SessionSwitchModelResponses = {
   204: void
 }
 
-export type V2SessionSwitchModelResponse = V2SessionSwitchModelResponses[keyof V2SessionSwitchModelResponses]
+export type V2SessionSwitchModelResponse =
+  V2SessionSwitchModelResponses[keyof V2SessionSwitchModelResponses]
 
 export type V2SessionPromptData = {
   body: {
@@ -11583,7 +11876,8 @@ export type V2SessionPromptErrors = {
   409: ConflictError
 }
 
-export type V2SessionPromptError = V2SessionPromptErrors[keyof V2SessionPromptErrors]
+export type V2SessionPromptError =
+  V2SessionPromptErrors[keyof V2SessionPromptErrors]
 
 export type V2SessionPromptResponses = {
   /**
@@ -11594,7 +11888,8 @@ export type V2SessionPromptResponses = {
   }
 }
 
-export type V2SessionPromptResponse = V2SessionPromptResponses[keyof V2SessionPromptResponses]
+export type V2SessionPromptResponse =
+  V2SessionPromptResponses[keyof V2SessionPromptResponses]
 
 export type V2SessionCompactData = {
   body?: never
@@ -11624,7 +11919,8 @@ export type V2SessionCompactErrors = {
   503: ServiceUnavailableError
 }
 
-export type V2SessionCompactError = V2SessionCompactErrors[keyof V2SessionCompactErrors]
+export type V2SessionCompactError =
+  V2SessionCompactErrors[keyof V2SessionCompactErrors]
 
 export type V2SessionCompactResponses = {
   /**
@@ -11633,7 +11929,8 @@ export type V2SessionCompactResponses = {
   204: void
 }
 
-export type V2SessionCompactResponse = V2SessionCompactResponses[keyof V2SessionCompactResponses]
+export type V2SessionCompactResponse =
+  V2SessionCompactResponses[keyof V2SessionCompactResponses]
 
 export type V2SessionWaitData = {
   body?: never
@@ -11672,7 +11969,8 @@ export type V2SessionWaitResponses = {
   204: void
 }
 
-export type V2SessionWaitResponse = V2SessionWaitResponses[keyof V2SessionWaitResponses]
+export type V2SessionWaitResponse =
+  V2SessionWaitResponses[keyof V2SessionWaitResponses]
 
 export type V2SessionRevertStageData = {
   body: {
@@ -11705,7 +12003,8 @@ export type V2SessionRevertStageErrors = {
   500: UnknownError1
 }
 
-export type V2SessionRevertStageError = V2SessionRevertStageErrors[keyof V2SessionRevertStageErrors]
+export type V2SessionRevertStageError =
+  V2SessionRevertStageErrors[keyof V2SessionRevertStageErrors]
 
 export type V2SessionRevertStageResponses = {
   /**
@@ -11716,7 +12015,8 @@ export type V2SessionRevertStageResponses = {
   }
 }
 
-export type V2SessionRevertStageResponse = V2SessionRevertStageResponses[keyof V2SessionRevertStageResponses]
+export type V2SessionRevertStageResponse =
+  V2SessionRevertStageResponses[keyof V2SessionRevertStageResponses]
 
 export type V2SessionRevertClearData = {
   body?: never
@@ -11746,7 +12046,8 @@ export type V2SessionRevertClearErrors = {
   500: UnknownError1
 }
 
-export type V2SessionRevertClearError = V2SessionRevertClearErrors[keyof V2SessionRevertClearErrors]
+export type V2SessionRevertClearError =
+  V2SessionRevertClearErrors[keyof V2SessionRevertClearErrors]
 
 export type V2SessionRevertClearResponses = {
   /**
@@ -11755,7 +12056,8 @@ export type V2SessionRevertClearResponses = {
   204: void
 }
 
-export type V2SessionRevertClearResponse = V2SessionRevertClearResponses[keyof V2SessionRevertClearResponses]
+export type V2SessionRevertClearResponse =
+  V2SessionRevertClearResponses[keyof V2SessionRevertClearResponses]
 
 export type V2SessionRevertCommitData = {
   body?: never
@@ -11781,7 +12083,8 @@ export type V2SessionRevertCommitErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionRevertCommitError = V2SessionRevertCommitErrors[keyof V2SessionRevertCommitErrors]
+export type V2SessionRevertCommitError =
+  V2SessionRevertCommitErrors[keyof V2SessionRevertCommitErrors]
 
 export type V2SessionRevertCommitResponses = {
   /**
@@ -11790,7 +12093,8 @@ export type V2SessionRevertCommitResponses = {
   204: void
 }
 
-export type V2SessionRevertCommitResponse = V2SessionRevertCommitResponses[keyof V2SessionRevertCommitResponses]
+export type V2SessionRevertCommitResponse =
+  V2SessionRevertCommitResponses[keyof V2SessionRevertCommitResponses]
 
 export type V2SessionContextData = {
   body?: never
@@ -11820,7 +12124,8 @@ export type V2SessionContextErrors = {
   500: UnknownError1
 }
 
-export type V2SessionContextError = V2SessionContextErrors[keyof V2SessionContextErrors]
+export type V2SessionContextError =
+  V2SessionContextErrors[keyof V2SessionContextErrors]
 
 export type V2SessionContextResponses = {
   /**
@@ -11831,7 +12136,8 @@ export type V2SessionContextResponses = {
   }
 }
 
-export type V2SessionContextResponse = V2SessionContextResponses[keyof V2SessionContextResponses]
+export type V2SessionContextResponse =
+  V2SessionContextResponses[keyof V2SessionContextResponses]
 
 export type V2SessionHistoryData = {
   body?: never
@@ -11860,7 +12166,8 @@ export type V2SessionHistoryErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionHistoryError = V2SessionHistoryErrors[keyof V2SessionHistoryErrors]
+export type V2SessionHistoryError =
+  V2SessionHistoryErrors[keyof V2SessionHistoryErrors]
 
 export type V2SessionHistoryResponses = {
   /**
@@ -11869,7 +12176,8 @@ export type V2SessionHistoryResponses = {
   200: SessionHistory
 }
 
-export type V2SessionHistoryResponse = V2SessionHistoryResponses[keyof V2SessionHistoryResponses]
+export type V2SessionHistoryResponse =
+  V2SessionHistoryResponses[keyof V2SessionHistoryResponses]
 
 export type V2SessionEventsData = {
   body?: never
@@ -11897,7 +12205,8 @@ export type V2SessionEventsErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionEventsError = V2SessionEventsErrors[keyof V2SessionEventsErrors]
+export type V2SessionEventsError =
+  V2SessionEventsErrors[keyof V2SessionEventsErrors]
 
 export type V2SessionEventsResponses = {
   /**
@@ -11910,7 +12219,8 @@ export type V2SessionEventsResponses = {
   }
 }
 
-export type V2SessionEventsResponse = V2SessionEventsResponses[keyof V2SessionEventsResponses]
+export type V2SessionEventsResponse =
+  V2SessionEventsResponses[keyof V2SessionEventsResponses]
 
 export type V2SessionInterruptData = {
   body?: never
@@ -11936,7 +12246,8 @@ export type V2SessionInterruptErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionInterruptError = V2SessionInterruptErrors[keyof V2SessionInterruptErrors]
+export type V2SessionInterruptError =
+  V2SessionInterruptErrors[keyof V2SessionInterruptErrors]
 
 export type V2SessionInterruptResponses = {
   /**
@@ -11945,7 +12256,8 @@ export type V2SessionInterruptResponses = {
   204: void
 }
 
-export type V2SessionInterruptResponse = V2SessionInterruptResponses[keyof V2SessionInterruptResponses]
+export type V2SessionInterruptResponse =
+  V2SessionInterruptResponses[keyof V2SessionInterruptResponses]
 
 export type V2SessionMessageData = {
   body?: never
@@ -11972,7 +12284,8 @@ export type V2SessionMessageErrors = {
   404: MessageNotFoundError | SessionNotFoundError
 }
 
-export type V2SessionMessageError = V2SessionMessageErrors[keyof V2SessionMessageErrors]
+export type V2SessionMessageError =
+  V2SessionMessageErrors[keyof V2SessionMessageErrors]
 
 export type V2SessionMessageResponses = {
   /**
@@ -11983,7 +12296,8 @@ export type V2SessionMessageResponses = {
   }
 }
 
-export type V2SessionMessageResponse = V2SessionMessageResponses[keyof V2SessionMessageResponses]
+export type V2SessionMessageResponse =
+  V2SessionMessageResponses[keyof V2SessionMessageResponses]
 
 export type V2SessionMessagesData = {
   body?: never
@@ -12020,7 +12334,8 @@ export type V2SessionMessagesErrors = {
   500: UnknownError1
 }
 
-export type V2SessionMessagesError = V2SessionMessagesErrors[keyof V2SessionMessagesErrors]
+export type V2SessionMessagesError =
+  V2SessionMessagesErrors[keyof V2SessionMessagesErrors]
 
 export type V2SessionMessagesResponses = {
   /**
@@ -12029,7 +12344,8 @@ export type V2SessionMessagesResponses = {
   200: SessionMessagesResponse
 }
 
-export type V2SessionMessagesResponse = V2SessionMessagesResponses[keyof V2SessionMessagesResponses]
+export type V2SessionMessagesResponse =
+  V2SessionMessagesResponses[keyof V2SessionMessagesResponses]
 
 export type V2ModelListData = {
   body?: never
@@ -12070,7 +12386,8 @@ export type V2ModelListResponses = {
   }
 }
 
-export type V2ModelListResponse = V2ModelListResponses[keyof V2ModelListResponses]
+export type V2ModelListResponse =
+  V2ModelListResponses[keyof V2ModelListResponses]
 
 export type V2ProviderListData = {
   body?: never
@@ -12099,7 +12416,8 @@ export type V2ProviderListErrors = {
   503: ServiceUnavailableError
 }
 
-export type V2ProviderListError = V2ProviderListErrors[keyof V2ProviderListErrors]
+export type V2ProviderListError =
+  V2ProviderListErrors[keyof V2ProviderListErrors]
 
 export type V2ProviderListResponses = {
   /**
@@ -12111,7 +12429,8 @@ export type V2ProviderListResponses = {
   }
 }
 
-export type V2ProviderListResponse = V2ProviderListResponses[keyof V2ProviderListResponses]
+export type V2ProviderListResponse =
+  V2ProviderListResponses[keyof V2ProviderListResponses]
 
 export type V2ProviderGetData = {
   body?: never
@@ -12158,7 +12477,8 @@ export type V2ProviderGetResponses = {
   }
 }
 
-export type V2ProviderGetResponse = V2ProviderGetResponses[keyof V2ProviderGetResponses]
+export type V2ProviderGetResponse =
+  V2ProviderGetResponses[keyof V2ProviderGetResponses]
 
 export type V2IntegrationListData = {
   body?: never
@@ -12183,7 +12503,8 @@ export type V2IntegrationListErrors = {
   401: UnauthorizedError
 }
 
-export type V2IntegrationListError = V2IntegrationListErrors[keyof V2IntegrationListErrors]
+export type V2IntegrationListError =
+  V2IntegrationListErrors[keyof V2IntegrationListErrors]
 
 export type V2IntegrationListResponses = {
   /**
@@ -12195,7 +12516,8 @@ export type V2IntegrationListResponses = {
   }
 }
 
-export type V2IntegrationListResponse = V2IntegrationListResponses[keyof V2IntegrationListResponses]
+export type V2IntegrationListResponse =
+  V2IntegrationListResponses[keyof V2IntegrationListResponses]
 
 export type V2IntegrationGetData = {
   body?: never
@@ -12222,7 +12544,8 @@ export type V2IntegrationGetErrors = {
   401: UnauthorizedError
 }
 
-export type V2IntegrationGetError = V2IntegrationGetErrors[keyof V2IntegrationGetErrors]
+export type V2IntegrationGetError =
+  V2IntegrationGetErrors[keyof V2IntegrationGetErrors]
 
 export type V2IntegrationGetResponses = {
   /**
@@ -12234,7 +12557,8 @@ export type V2IntegrationGetResponses = {
   }
 }
 
-export type V2IntegrationGetResponse = V2IntegrationGetResponses[keyof V2IntegrationGetResponses]
+export type V2IntegrationGetResponse =
+  V2IntegrationGetResponses[keyof V2IntegrationGetResponses]
 
 export type V2IntegrationConnectKeyData = {
   body: {
@@ -12264,7 +12588,8 @@ export type V2IntegrationConnectKeyErrors = {
   401: UnauthorizedError
 }
 
-export type V2IntegrationConnectKeyError = V2IntegrationConnectKeyErrors[keyof V2IntegrationConnectKeyErrors]
+export type V2IntegrationConnectKeyError =
+  V2IntegrationConnectKeyErrors[keyof V2IntegrationConnectKeyErrors]
 
 export type V2IntegrationConnectKeyResponses = {
   /**
@@ -12273,7 +12598,8 @@ export type V2IntegrationConnectKeyResponses = {
   204: void
 }
 
-export type V2IntegrationConnectKeyResponse = V2IntegrationConnectKeyResponses[keyof V2IntegrationConnectKeyResponses]
+export type V2IntegrationConnectKeyResponse =
+  V2IntegrationConnectKeyResponses[keyof V2IntegrationConnectKeyResponses]
 
 export type V2IntegrationConnectOauthData = {
   body: {
@@ -12306,7 +12632,8 @@ export type V2IntegrationConnectOauthErrors = {
   401: UnauthorizedError
 }
 
-export type V2IntegrationConnectOauthError = V2IntegrationConnectOauthErrors[keyof V2IntegrationConnectOauthErrors]
+export type V2IntegrationConnectOauthError =
+  V2IntegrationConnectOauthErrors[keyof V2IntegrationConnectOauthErrors]
 
 export type V2IntegrationConnectOauthResponses = {
   /**
@@ -12346,7 +12673,8 @@ export type V2IntegrationAttemptCancelErrors = {
   401: UnauthorizedError
 }
 
-export type V2IntegrationAttemptCancelError = V2IntegrationAttemptCancelErrors[keyof V2IntegrationAttemptCancelErrors]
+export type V2IntegrationAttemptCancelError =
+  V2IntegrationAttemptCancelErrors[keyof V2IntegrationAttemptCancelErrors]
 
 export type V2IntegrationAttemptCancelResponses = {
   /**
@@ -12383,7 +12711,8 @@ export type V2IntegrationAttemptStatusErrors = {
   401: UnauthorizedError
 }
 
-export type V2IntegrationAttemptStatusError = V2IntegrationAttemptStatusErrors[keyof V2IntegrationAttemptStatusErrors]
+export type V2IntegrationAttemptStatusError =
+  V2IntegrationAttemptStatusErrors[keyof V2IntegrationAttemptStatusErrors]
 
 export type V2IntegrationAttemptStatusResponses = {
   /**
@@ -12463,7 +12792,8 @@ export type V2CredentialRemoveErrors = {
   401: UnauthorizedError
 }
 
-export type V2CredentialRemoveError = V2CredentialRemoveErrors[keyof V2CredentialRemoveErrors]
+export type V2CredentialRemoveError =
+  V2CredentialRemoveErrors[keyof V2CredentialRemoveErrors]
 
 export type V2CredentialRemoveResponses = {
   /**
@@ -12472,7 +12802,8 @@ export type V2CredentialRemoveResponses = {
   204: void
 }
 
-export type V2CredentialRemoveResponse = V2CredentialRemoveResponses[keyof V2CredentialRemoveResponses]
+export type V2CredentialRemoveResponse =
+  V2CredentialRemoveResponses[keyof V2CredentialRemoveResponses]
 
 export type V2CredentialUpdateData = {
   body: {
@@ -12501,7 +12832,8 @@ export type V2CredentialUpdateErrors = {
   401: UnauthorizedError
 }
 
-export type V2CredentialUpdateError = V2CredentialUpdateErrors[keyof V2CredentialUpdateErrors]
+export type V2CredentialUpdateError =
+  V2CredentialUpdateErrors[keyof V2CredentialUpdateErrors]
 
 export type V2CredentialUpdateResponses = {
   /**
@@ -12510,7 +12842,8 @@ export type V2CredentialUpdateResponses = {
   204: void
 }
 
-export type V2CredentialUpdateResponse = V2CredentialUpdateResponses[keyof V2CredentialUpdateResponses]
+export type V2CredentialUpdateResponse =
+  V2CredentialUpdateResponses[keyof V2CredentialUpdateResponses]
 
 export type V2PermissionRequestListData = {
   body?: never
@@ -12535,7 +12868,8 @@ export type V2PermissionRequestListErrors = {
   401: UnauthorizedError
 }
 
-export type V2PermissionRequestListError = V2PermissionRequestListErrors[keyof V2PermissionRequestListErrors]
+export type V2PermissionRequestListError =
+  V2PermissionRequestListErrors[keyof V2PermissionRequestListErrors]
 
 export type V2PermissionRequestListResponses = {
   /**
@@ -12547,7 +12881,8 @@ export type V2PermissionRequestListResponses = {
   }
 }
 
-export type V2PermissionRequestListResponse = V2PermissionRequestListResponses[keyof V2PermissionRequestListResponses]
+export type V2PermissionRequestListResponse =
+  V2PermissionRequestListResponses[keyof V2PermissionRequestListResponses]
 
 export type V2PermissionSavedListData = {
   body?: never
@@ -12569,7 +12904,8 @@ export type V2PermissionSavedListErrors = {
   401: UnauthorizedError
 }
 
-export type V2PermissionSavedListError = V2PermissionSavedListErrors[keyof V2PermissionSavedListErrors]
+export type V2PermissionSavedListError =
+  V2PermissionSavedListErrors[keyof V2PermissionSavedListErrors]
 
 export type V2PermissionSavedListResponses = {
   /**
@@ -12580,7 +12916,8 @@ export type V2PermissionSavedListResponses = {
   }
 }
 
-export type V2PermissionSavedListResponse = V2PermissionSavedListResponses[keyof V2PermissionSavedListResponses]
+export type V2PermissionSavedListResponse =
+  V2PermissionSavedListResponses[keyof V2PermissionSavedListResponses]
 
 export type V2PermissionSavedRemoveData = {
   body?: never
@@ -12602,7 +12939,8 @@ export type V2PermissionSavedRemoveErrors = {
   401: UnauthorizedError
 }
 
-export type V2PermissionSavedRemoveError = V2PermissionSavedRemoveErrors[keyof V2PermissionSavedRemoveErrors]
+export type V2PermissionSavedRemoveError =
+  V2PermissionSavedRemoveErrors[keyof V2PermissionSavedRemoveErrors]
 
 export type V2PermissionSavedRemoveResponses = {
   /**
@@ -12611,7 +12949,8 @@ export type V2PermissionSavedRemoveResponses = {
   204: void
 }
 
-export type V2PermissionSavedRemoveResponse = V2PermissionSavedRemoveResponses[keyof V2PermissionSavedRemoveResponses]
+export type V2PermissionSavedRemoveResponse =
+  V2PermissionSavedRemoveResponses[keyof V2PermissionSavedRemoveResponses]
 
 export type V2SessionPermissionListData = {
   body?: never
@@ -12637,7 +12976,8 @@ export type V2SessionPermissionListErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionPermissionListError = V2SessionPermissionListErrors[keyof V2SessionPermissionListErrors]
+export type V2SessionPermissionListError =
+  V2SessionPermissionListErrors[keyof V2SessionPermissionListErrors]
 
 export type V2SessionPermissionListResponses = {
   /**
@@ -12648,7 +12988,8 @@ export type V2SessionPermissionListResponses = {
   }
 }
 
-export type V2SessionPermissionListResponse = V2SessionPermissionListResponses[keyof V2SessionPermissionListResponses]
+export type V2SessionPermissionListResponse =
+  V2SessionPermissionListResponses[keyof V2SessionPermissionListResponses]
 
 export type V2SessionPermissionCreateData = {
   body: {
@@ -12684,7 +13025,8 @@ export type V2SessionPermissionCreateErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionPermissionCreateError = V2SessionPermissionCreateErrors[keyof V2SessionPermissionCreateErrors]
+export type V2SessionPermissionCreateError =
+  V2SessionPermissionCreateErrors[keyof V2SessionPermissionCreateErrors]
 
 export type V2SessionPermissionCreateResponses = {
   /**
@@ -12726,7 +13068,8 @@ export type V2SessionPermissionGetErrors = {
   404: PermissionNotFoundError | SessionNotFoundError
 }
 
-export type V2SessionPermissionGetError = V2SessionPermissionGetErrors[keyof V2SessionPermissionGetErrors]
+export type V2SessionPermissionGetError =
+  V2SessionPermissionGetErrors[keyof V2SessionPermissionGetErrors]
 
 export type V2SessionPermissionGetResponses = {
   /**
@@ -12737,7 +13080,8 @@ export type V2SessionPermissionGetResponses = {
   }
 }
 
-export type V2SessionPermissionGetResponse = V2SessionPermissionGetResponses[keyof V2SessionPermissionGetResponses]
+export type V2SessionPermissionGetResponse =
+  V2SessionPermissionGetResponses[keyof V2SessionPermissionGetResponses]
 
 export type V2SessionPermissionReplyData = {
   body: {
@@ -12767,7 +13111,8 @@ export type V2SessionPermissionReplyErrors = {
   404: PermissionNotFoundError | SessionNotFoundError
 }
 
-export type V2SessionPermissionReplyError = V2SessionPermissionReplyErrors[keyof V2SessionPermissionReplyErrors]
+export type V2SessionPermissionReplyError =
+  V2SessionPermissionReplyErrors[keyof V2SessionPermissionReplyErrors]
 
 export type V2SessionPermissionReplyResponses = {
   /**
@@ -12926,7 +13271,8 @@ export type V2CommandListResponses = {
   }
 }
 
-export type V2CommandListResponse = V2CommandListResponses[keyof V2CommandListResponses]
+export type V2CommandListResponse =
+  V2CommandListResponses[keyof V2CommandListResponses]
 
 export type V2SkillListData = {
   body?: never
@@ -12963,7 +13309,8 @@ export type V2SkillListResponses = {
   }
 }
 
-export type V2SkillListResponse = V2SkillListResponses[keyof V2SkillListResponses]
+export type V2SkillListResponse =
+  V2SkillListResponses[keyof V2SkillListResponses]
 
 export type V2EventSubscribeData = {
   body?: never
@@ -12983,7 +13330,8 @@ export type V2EventSubscribeErrors = {
   401: UnauthorizedError
 }
 
-export type V2EventSubscribeError = V2EventSubscribeErrors[keyof V2EventSubscribeErrors]
+export type V2EventSubscribeError =
+  V2EventSubscribeErrors[keyof V2EventSubscribeErrors]
 
 export type V2EventSubscribeResponses = {
   /**
@@ -12992,7 +13340,8 @@ export type V2EventSubscribeResponses = {
   200: V2Event
 }
 
-export type V2EventSubscribeResponse = V2EventSubscribeResponses[keyof V2EventSubscribeResponses]
+export type V2EventSubscribeResponse =
+  V2EventSubscribeResponses[keyof V2EventSubscribeResponses]
 
 export type V2PtyListData = {
   body?: never
@@ -13074,7 +13423,8 @@ export type V2PtyCreateResponses = {
   }
 }
 
-export type V2PtyCreateResponse = V2PtyCreateResponses[keyof V2PtyCreateResponses]
+export type V2PtyCreateResponse =
+  V2PtyCreateResponses[keyof V2PtyCreateResponses]
 
 export type V2PtyRemoveData = {
   body?: never
@@ -13114,7 +13464,8 @@ export type V2PtyRemoveResponses = {
   204: void
 }
 
-export type V2PtyRemoveResponse = V2PtyRemoveResponses[keyof V2PtyRemoveResponses]
+export type V2PtyRemoveResponse =
+  V2PtyRemoveResponses[keyof V2PtyRemoveResponses]
 
 export type V2PtyGetData = {
   body?: never
@@ -13206,7 +13557,8 @@ export type V2PtyUpdateResponses = {
   }
 }
 
-export type V2PtyUpdateResponse = V2PtyUpdateResponses[keyof V2PtyUpdateResponses]
+export type V2PtyUpdateResponse =
+  V2PtyUpdateResponses[keyof V2PtyUpdateResponses]
 
 export type V2PtyConnectTokenData = {
   body?: never
@@ -13241,7 +13593,8 @@ export type V2PtyConnectTokenErrors = {
   404: PtyNotFoundError
 }
 
-export type V2PtyConnectTokenError = V2PtyConnectTokenErrors[keyof V2PtyConnectTokenErrors]
+export type V2PtyConnectTokenError =
+  V2PtyConnectTokenErrors[keyof V2PtyConnectTokenErrors]
 
 export type V2PtyConnectTokenResponses = {
   /**
@@ -13253,7 +13606,8 @@ export type V2PtyConnectTokenResponses = {
   }
 }
 
-export type V2PtyConnectTokenResponse = V2PtyConnectTokenResponses[keyof V2PtyConnectTokenResponses]
+export type V2PtyConnectTokenResponse =
+  V2PtyConnectTokenResponses[keyof V2PtyConnectTokenResponses]
 
 export type V2PtyConnectData = {
   body?: never
@@ -13297,7 +13651,8 @@ export type V2PtyConnectResponses = {
   200: boolean
 }
 
-export type V2PtyConnectResponse = V2PtyConnectResponses[keyof V2PtyConnectResponses]
+export type V2PtyConnectResponse =
+  V2PtyConnectResponses[keyof V2PtyConnectResponses]
 
 export type V2QuestionRequestListData = {
   body?: never
@@ -13322,7 +13677,8 @@ export type V2QuestionRequestListErrors = {
   401: UnauthorizedError
 }
 
-export type V2QuestionRequestListError = V2QuestionRequestListErrors[keyof V2QuestionRequestListErrors]
+export type V2QuestionRequestListError =
+  V2QuestionRequestListErrors[keyof V2QuestionRequestListErrors]
 
 export type V2QuestionRequestListResponses = {
   /**
@@ -13334,7 +13690,8 @@ export type V2QuestionRequestListResponses = {
   }
 }
 
-export type V2QuestionRequestListResponse = V2QuestionRequestListResponses[keyof V2QuestionRequestListResponses]
+export type V2QuestionRequestListResponse =
+  V2QuestionRequestListResponses[keyof V2QuestionRequestListResponses]
 
 export type V2SessionQuestionListData = {
   body?: never
@@ -13360,7 +13717,8 @@ export type V2SessionQuestionListErrors = {
   404: SessionNotFoundError
 }
 
-export type V2SessionQuestionListError = V2SessionQuestionListErrors[keyof V2SessionQuestionListErrors]
+export type V2SessionQuestionListError =
+  V2SessionQuestionListErrors[keyof V2SessionQuestionListErrors]
 
 export type V2SessionQuestionListResponses = {
   /**
@@ -13371,7 +13729,8 @@ export type V2SessionQuestionListResponses = {
   }
 }
 
-export type V2SessionQuestionListResponse = V2SessionQuestionListResponses[keyof V2SessionQuestionListResponses]
+export type V2SessionQuestionListResponse =
+  V2SessionQuestionListResponses[keyof V2SessionQuestionListResponses]
 
 export type V2SessionQuestionReplyData = {
   body: QuestionV2Reply
@@ -13398,7 +13757,8 @@ export type V2SessionQuestionReplyErrors = {
   404: QuestionNotFoundError | SessionNotFoundError
 }
 
-export type V2SessionQuestionReplyError = V2SessionQuestionReplyErrors[keyof V2SessionQuestionReplyErrors]
+export type V2SessionQuestionReplyError =
+  V2SessionQuestionReplyErrors[keyof V2SessionQuestionReplyErrors]
 
 export type V2SessionQuestionReplyResponses = {
   /**
@@ -13407,7 +13767,8 @@ export type V2SessionQuestionReplyResponses = {
   204: void
 }
 
-export type V2SessionQuestionReplyResponse = V2SessionQuestionReplyResponses[keyof V2SessionQuestionReplyResponses]
+export type V2SessionQuestionReplyResponse =
+  V2SessionQuestionReplyResponses[keyof V2SessionQuestionReplyResponses]
 
 export type V2SessionQuestionRejectData = {
   body?: never
@@ -13434,7 +13795,8 @@ export type V2SessionQuestionRejectErrors = {
   404: QuestionNotFoundError | SessionNotFoundError
 }
 
-export type V2SessionQuestionRejectError = V2SessionQuestionRejectErrors[keyof V2SessionQuestionRejectErrors]
+export type V2SessionQuestionRejectError =
+  V2SessionQuestionRejectErrors[keyof V2SessionQuestionRejectErrors]
 
 export type V2SessionQuestionRejectResponses = {
   /**
@@ -13443,7 +13805,8 @@ export type V2SessionQuestionRejectResponses = {
   204: void
 }
 
-export type V2SessionQuestionRejectResponse = V2SessionQuestionRejectResponses[keyof V2SessionQuestionRejectResponses]
+export type V2SessionQuestionRejectResponse =
+  V2SessionQuestionRejectResponses[keyof V2SessionQuestionRejectResponses]
 
 export type V2ReferenceListData = {
   body?: never
@@ -13468,7 +13831,8 @@ export type V2ReferenceListErrors = {
   401: UnauthorizedError
 }
 
-export type V2ReferenceListError = V2ReferenceListErrors[keyof V2ReferenceListErrors]
+export type V2ReferenceListError =
+  V2ReferenceListErrors[keyof V2ReferenceListErrors]
 
 export type V2ReferenceListResponses = {
   /**
@@ -13480,7 +13844,8 @@ export type V2ReferenceListResponses = {
   }
 }
 
-export type V2ReferenceListResponse = V2ReferenceListResponses[keyof V2ReferenceListResponses]
+export type V2ReferenceListResponse =
+  V2ReferenceListResponses[keyof V2ReferenceListResponses]
 
 export type V2ProjectCopyRemoveData = {
   body?: {
@@ -13506,7 +13871,8 @@ export type V2ProjectCopyRemoveErrors = {
   400: ProjectCopyError | InvalidRequestError
 }
 
-export type V2ProjectCopyRemoveError = V2ProjectCopyRemoveErrors[keyof V2ProjectCopyRemoveErrors]
+export type V2ProjectCopyRemoveError =
+  V2ProjectCopyRemoveErrors[keyof V2ProjectCopyRemoveErrors]
 
 export type V2ProjectCopyRemoveResponses = {
   /**
@@ -13515,7 +13881,8 @@ export type V2ProjectCopyRemoveResponses = {
   204: void
 }
 
-export type V2ProjectCopyRemoveResponse = V2ProjectCopyRemoveResponses[keyof V2ProjectCopyRemoveResponses]
+export type V2ProjectCopyRemoveResponse =
+  V2ProjectCopyRemoveResponses[keyof V2ProjectCopyRemoveResponses]
 
 export type V2ProjectCopyCreateData = {
   body?: {
@@ -13542,7 +13909,8 @@ export type V2ProjectCopyCreateErrors = {
   400: ProjectCopyError | InvalidRequestError
 }
 
-export type V2ProjectCopyCreateError = V2ProjectCopyCreateErrors[keyof V2ProjectCopyCreateErrors]
+export type V2ProjectCopyCreateError =
+  V2ProjectCopyCreateErrors[keyof V2ProjectCopyCreateErrors]
 
 export type V2ProjectCopyCreateResponses = {
   /**
@@ -13551,7 +13919,8 @@ export type V2ProjectCopyCreateResponses = {
   200: ProjectCopyCopy
 }
 
-export type V2ProjectCopyCreateResponse = V2ProjectCopyCreateResponses[keyof V2ProjectCopyCreateResponses]
+export type V2ProjectCopyCreateResponse =
+  V2ProjectCopyCreateResponses[keyof V2ProjectCopyCreateResponses]
 
 export type V2ProjectCopyRefreshData = {
   body?: never
@@ -13574,7 +13943,8 @@ export type V2ProjectCopyRefreshErrors = {
   400: ProjectCopyError | InvalidRequestError
 }
 
-export type V2ProjectCopyRefreshError = V2ProjectCopyRefreshErrors[keyof V2ProjectCopyRefreshErrors]
+export type V2ProjectCopyRefreshError =
+  V2ProjectCopyRefreshErrors[keyof V2ProjectCopyRefreshErrors]
 
 export type V2ProjectCopyRefreshResponses = {
   /**
@@ -13583,7 +13953,8 @@ export type V2ProjectCopyRefreshResponses = {
   204: void
 }
 
-export type V2ProjectCopyRefreshResponse = V2ProjectCopyRefreshResponses[keyof V2ProjectCopyRefreshResponses]
+export type V2ProjectCopyRefreshResponse =
+  V2ProjectCopyRefreshResponses[keyof V2ProjectCopyRefreshResponses]
 
 export type PtyConnectData = {
   body?: never

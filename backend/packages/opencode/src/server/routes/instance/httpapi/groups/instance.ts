@@ -40,6 +40,26 @@ export class ApiVcsApplyError extends Schema.ErrorClass<ApiVcsApplyError>("VcsAp
   { httpApiStatus: 400 },
 ) {}
 
+const SkillInstallBody = Schema.Struct({
+  name: Schema.String,
+  description: Schema.optional(Schema.String),
+  content: Schema.String,
+  prompt: Schema.optional(Schema.String),
+})
+
+const SkillInstallResult = Schema.Struct({
+  agent: Agent.Info,
+  skill: Skill.Info,
+})
+
+export class ApiSkillInstallError extends Schema.ErrorClass<ApiSkillInstallError>("SkillInstallError")(
+  {
+    name: Schema.Literal("SkillInstallError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
 export const InstancePaths = {
   dispose: "/instance/dispose",
   path: "/path",
@@ -51,6 +71,7 @@ export const InstancePaths = {
   command: "/command",
   agent: "/agent",
   skill: "/skill",
+  skillInstall: "/skill/install",
   lsp: "/lsp",
   formatter: "/formatter",
 } as const
@@ -164,6 +185,19 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "app.skills",
             summary: "List skills",
             description: "Get a list of all available skills in the OpenCode system.",
+          }),
+        ),
+        HttpApiEndpoint.post("skillInstall", InstancePaths.skillInstall, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillInstallBody,
+          success: described(SkillInstallResult, "Installed skill and agent"),
+          error: ApiSkillInstallError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.skillInstall",
+            summary: "Install a skill and create its agent",
+            description:
+              "Writes the skill and agent config into the project .opencode directory, then reloads agents and skills.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {

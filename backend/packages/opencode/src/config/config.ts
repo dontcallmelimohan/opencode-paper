@@ -632,6 +632,7 @@ const layer = Layer.effect(
 
     const invalidate = Effect.fn("Config.invalidate")(function* () {
       yield* invalidateGlobal
+      yield* InstanceState.invalidate(state)
     })
 
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {

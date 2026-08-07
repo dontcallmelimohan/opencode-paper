@@ -98,6 +98,7 @@ export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly require: (name: string) => Effect.Effect<Info, NotFoundError>
   readonly all: () => Effect.Effect<Info[]>
+  readonly reload: () => Effect.Effect<void>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
 }
@@ -303,6 +304,11 @@ const layer = Layer.effect(
       return Object.values(s.skills)
     })
 
+    const reload = Effect.fn("Skill.reload")(function* () {
+      yield* InstanceState.invalidate(discovered)
+      yield* InstanceState.invalidate(state)
+    })
+
     const dirs = Effect.fn("Skill.dirs")(function* () {
       return (yield* InstanceState.get(discovered)).dirs
     })
@@ -314,7 +320,7 @@ const layer = Layer.effect(
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, require, all, dirs, available })
+    return Service.of({ get, require, all, reload, dirs, available })
   }),
 )
 

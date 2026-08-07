@@ -75,6 +75,7 @@ const it = testEffect(
             return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
           },
           all: () => Effect.succeed(skills),
+          reload: () => Effect.succeed(undefined),
           dirs: () => Effect.succeed([]),
           available: () => Effect.succeed(skills),
         }),
