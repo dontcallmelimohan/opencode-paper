@@ -12,6 +12,7 @@ import { createStore } from "solid-js/store"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
+import { useWritingMode, WRITING_MODES } from "./writing-mode"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
@@ -22,50 +23,6 @@ import { showToast } from "@/utils/toast"
 
 export const AGENT_COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4"]
 const SIDEBAR_COLLAPSED_KEY = "opencode.dat:thesis-agent-sidebar-collapsed"
-const SIDEBAR_MODE_KEY = "opencode.dat:thesis-agent-sidebar-mode"
-
-const WRITING_MODES = [
-  {
-    key: "outline",
-    label: "提纲助手",
-    step: "第 1 步 · 搭框架",
-    desc: "生成章节大纲与结构",
-    icon: "bullet-list",
-    color: "#4f8cff",
-  },
-  {
-    key: "writing",
-    label: "辅助写作",
-    step: "第 2 步 · 写初稿",
-    desc: "撰写与润色论文内容",
-    icon: "pencil-line",
-    color: "#22c55e",
-  },
-  {
-    key: "layout",
-    label: "论文排版",
-    step: "第 3 步 · 做排版",
-    desc: "格式、图表与版式调整",
-    icon: "layout-left",
-    color: "#f59e0b",
-  },
-  {
-    key: "review",
-    label: "论文评审",
-    step: "第 4 步 · 评质量",
-    desc: "评审与修改建议",
-    icon: "magnifying-glass",
-    color: "#a855f7",
-  },
-] as const
-
-const readSidebarMode = () => {
-  try {
-    return localStorage.getItem(SIDEBAR_MODE_KEY) ?? undefined
-  } catch {
-    return undefined
-  }
-}
 
 const SKILL_NAME_RE = /^[\p{L}\p{N}_-]+$/u
 const sanitizeName = (value: string) =>
@@ -338,7 +295,8 @@ export function SessionAgentSidebar() {
   const theme = useTheme()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = createSignal(readCollapsed())
-  const [mode, setMode] = createSignal<string | undefined>(readSidebarMode())
+  // [论文助手定制] 模式状态来自共享 Context；配置面板的打开/收起按钮已移到会话页面（不再在侧边栏）。
+  const { mode, setMode } = useWritingMode()
 
   const toggle = () => {
     const next = !collapsed()
@@ -350,13 +308,9 @@ export function SessionAgentSidebar() {
     }
   }
 
+  // [论文助手定制] 持久化改由 WritingModeProvider 统一处理。
   const selectMode = (key: string) => {
-    setMode(key)
-    try {
-      localStorage.setItem(SIDEBAR_MODE_KEY, key)
-    } catch {
-      // ignore storage errors
-    }
+    setMode(key as Parameters<typeof setMode>[0])
   }
 
   return (
@@ -399,12 +353,13 @@ export function SessionAgentSidebar() {
           </div>
           <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-2">
             <div class="px-2 pb-1 pt-1 text-10-medium tracking-wide text-v2-text-text-faint">写作流程</div>
+            {/* [论文助手定制] 点击整行 = 选择写作模式；配置面板的打开按钮在会话页面的面板条上。 */}
             <For each={WRITING_MODES}>
               {(item) => (
                 <button
                   type="button"
+                  class="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors"
                   classList={{
-                    "flex flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors": true,
                     "bg-v2-background-bg-layer-01 text-v2-text-text-strong": mode() === item.key,
                     "text-v2-text-text-base hover:bg-v2-background-bg-layer-01": mode() !== item.key,
                   }}

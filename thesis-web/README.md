@@ -126,7 +126,9 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 
 功能：
 
-- 左侧栏四步写作模式：**提纲助手 → 辅助写作 → 论文排版 → 论文评审**（`components/session/agent-sidebar.tsx` 的 `WRITING_MODES`）
+- 左侧栏四步写作模式：**提纲助手 → 辅助写作 → 论文排版 → 论文评审**（`components/session/agent-sidebar.tsx` 的 `WRITING_MODES`）；点击某行即切换模式，侧边栏不再放配置按钮
+- **写作模式配置面板（会话框上部）**：配置面板显示在**会话框（对话区）上部**，打开/收起/关闭按钮全部在会话页面上（侧边栏没有 ⚙）。切换写作模式会自动打开该模式自己的面板；面板头部「收起」→ 一行细栏，「展开」恢复，× 关闭；关闭后仍保留一行控制条，点「打开配置」再次展开（`components/session/thesis-mode-config-panel.tsx` 的 `ThesisConfigPanelStrip`、`thesis-outline-assistant.tsx`、`thesis-prompt-sender.ts`；会话页与新建会话页都渲染该面板条）
+- **配置与技能都是每个模式一份**：提纲助手/通用面板填的内容分别保存在各自模式名下（`writing-mode.tsx` 的 `modeConfigs`，localStorage 持久化），切换模式后回来内容还在；技能同理（`writing-mode.tsx` 的 `skillsByMode` + `components/session/thesis-mode-skills.ts` 的 `ThesisModeSkillsSync`）：切换模式时输入框里的 `@技能` 自动换成当前模式保存的那份，会话上下文始终互通
 - 侧边栏可完全收起（留一个浮动 `›` 按钮），状态存 localStorage
 - 会话内可多选 Skill：输入框上方显示已挂载的 `@skill名` 标签，可点 × 移除（`session-ui/src/v2/components/prompt-input/index.tsx` 的 `PromptInputV2SkillsMenu`）
 - 亮暗模式切换（侧边栏与主页都有入口）
@@ -134,8 +136,8 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 
 实现原理：
 
-- 写作模式只是前端状态（localStorage 记忆），用于提示当前写作步骤，不绑定具体 skill
-- 选中 skill 后以 `PromptInputV2AgentPart` 形式附加到用户消息，随 prompt 发给后端，后端会注入对应 agent 的任务指令
+- 写作模式是前端状态（localStorage 记忆），同时决定“当前使用哪个模式的面板与技能清单”；模式之间的对话上下文互通
+- 选中 skill 后以 `PromptInputV2AgentPart` 形式附加到用户消息，随 prompt 发给后端，后端会注入对应 agent 的任务指令；`ThesisModeSkillsSync` 监听输入框里的 agent 部分，模式切换时写回旧模式并装载新模式保存的清单
 - 消息通过 SSE 流式返回，由 `session-ui` 渲染
 
 ### 3. Skill 管理页（`/skills`，`pages/skills.tsx`）
