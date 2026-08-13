@@ -6,19 +6,66 @@ import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useMutation, useQueryClient } from "@tanstack/solid-query"
-import { For, Show, createMemo, createSignal } from "solid-js"
+import { useNavigate } from "@solidjs/router"
+import { For, Show, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
+import { useDirectoryPicker } from "@/components/directory-picker"
 import { useLanguage } from "@/context/language"
 import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
+import { useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 import { useSync } from "@/context/sync"
 import { pathKey } from "@/utils/path-key"
 import { showToast } from "@/utils/toast"
 
-const AGENT_COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4"]
+export const AGENT_COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4"]
 const SIDEBAR_COLLAPSED_KEY = "opencode.dat:thesis-agent-sidebar-collapsed"
+const SIDEBAR_MODE_KEY = "opencode.dat:thesis-agent-sidebar-mode"
+
+const WRITING_MODES = [
+  {
+    key: "outline",
+    label: "提纲助手",
+    step: "第 1 步 · 搭框架",
+    desc: "生成章节大纲与结构",
+    icon: "bullet-list",
+    color: "#4f8cff",
+  },
+  {
+    key: "writing",
+    label: "辅助写作",
+    step: "第 2 步 · 写初稿",
+    desc: "撰写与润色论文内容",
+    icon: "pencil-line",
+    color: "#22c55e",
+  },
+  {
+    key: "layout",
+    label: "论文排版",
+    step: "第 3 步 · 做排版",
+    desc: "格式、图表与版式调整",
+    icon: "layout-left",
+    color: "#f59e0b",
+  },
+  {
+    key: "review",
+    label: "论文评审",
+    step: "第 4 步 · 评质量",
+    desc: "评审与修改建议",
+    icon: "magnifying-glass",
+    color: "#a855f7",
+  },
+] as const
+
+const readSidebarMode = () => {
+  try {
+    return localStorage.getItem(SIDEBAR_MODE_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 const SKILL_NAME_RE = /^[\p{L}\p{N}_-]+$/u
 const sanitizeName = (value: string) =>
@@ -44,14 +91,16 @@ type InstallForm = {
   error?: string
 }
 
-function InstallSkillDialog() {
+export function InstallSkillDialog() {
   const dialog = useDialog()
   const local = useLocal()
   const sdk = useSDK()
+  const server = useServer()
   const serverSDK = useServerSDK()
   const serverSync = useServerSync()
   const sync = useSync()
   const queryClient = useQueryClient()
+  const pickDirectory = useDirectoryPicker()
   const [dragging, setDragging] = createSignal(false)
   let fileInput: HTMLInputElement | undefined
 
@@ -112,7 +161,7 @@ function InstallSkillDialog() {
       showToast({
         variant: "success",
         icon: "circle-check",
-        title: `已添加 Agent「${name}」`,
+        title: `已添加 Skill「${name}」`,
       })
     },
     onError: (err) => {
@@ -120,8 +169,57 @@ function InstallSkillDialog() {
     },
   }))
 
+  const installFromDirectory = useMutation(() => ({
+    mutationFn: async (directory: string) => {
+      const result = await sdk().client.instance.skillInstallDirectory({ directory })
+      const agent = result.data?.agent
+      if (!agent) throw new Error(formatApiError(result.error) ?? "安装失败：未返回 Agent 信息")
+
+      const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
+      await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
+      const agents = await queryClient.fetchQuery(agentsQuery())
+      sync().set("agent", agents)
+      return agent.name
+    },
+    onSuccess: (name) => {
+      dialog.close()
+      local.agent.set(name)
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: `已添加 Skill「${name}」`,
+      })
+    },
+    onError: (err) => {
+      setForm("error", err instanceof Error ? err.message : String(err))
+    },
+  }))
+
+  const pickSkillFolder = () => {
+    const conn = server.current
+    if (!conn) return
+    pickDirectory({
+      server: conn,
+      title: "选择 Skill 文件夹",
+      onSelect: (result) => {
+        const directory = Array.isArray(result) ? result[0] : result
+        if (!directory) return
+        setForm("error", undefined)
+        installFromDirectory.mutate(directory)
+      },
+    })
+  }
+
+  function formatApiError(error: unknown) {
+    if (!error || typeof error !== "object") return undefined
+    const data = (error as { data?: { message?: unknown } }).data
+    if (typeof data?.message === "string") return data.message
+    const message = (error as { message?: unknown }).message
+    return typeof message === "string" ? message : undefined
+  }
+
   return (
-    <Dialog title="添加 Skill Agent" description="上传 skill 的 markdown 文件，自动识别信息并创建同名 agent（全局安装，所有项目通用）">
+    <Dialog title="添加 Skill">
       <form
         class="flex max-h-[65vh] flex-col gap-4 overflow-y-auto px-2.5 pb-4"
         onSubmit={(event) => {
@@ -177,10 +275,25 @@ function InstallSkillDialog() {
           </div>
         </Show>
 
+        <div class="flex items-center gap-2">
+          <div class="h-px flex-1 bg-v2-border-border-base" />
+          <span class="text-11-regular text-v2-text-text-faint">或导入完整 Skill 文件夹</span>
+          <div class="h-px flex-1 bg-v2-border-border-base" />
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="small"
+          icon="folder-add-left"
+          class="w-full justify-center"
+          disabled={installFromDirectory.isPending}
+          onClick={pickSkillFolder}
+        >
+          {installFromDirectory.isPending ? "正在导入…" : "选择本地 Skill 文件夹"}
+        </Button>
+
         <TextField
           label="名称"
-          placeholder="例如：outline-assistant"
-          description="自动识别自 frontmatter 或文件名，可修改；会用作 skill 与 agent 的文件名"
           value={form.name}
           onChange={(value) => setForm("name", value)}
         />
@@ -222,18 +335,25 @@ function InstallSkillDialog() {
 
 export function SessionAgentSidebar() {
   const language = useLanguage()
-  const local = useLocal()
-  const dialog = useDialog()
   const theme = useTheme()
+  const navigate = useNavigate()
   const [collapsed, setCollapsed] = createSignal(readCollapsed())
-  const agents = createMemo(() => local.agent.list())
-  const active = createMemo(() => local.agent.current()?.name)
+  const [mode, setMode] = createSignal<string | undefined>(readSidebarMode())
 
   const toggle = () => {
     const next = !collapsed()
     setCollapsed(next)
     try {
       localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0")
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  const selectMode = (key: string) => {
+    setMode(key)
+    try {
+      localStorage.setItem(SIDEBAR_MODE_KEY, key)
     } catch {
       // ignore storage errors
     }
@@ -278,53 +398,41 @@ export function SessionAgentSidebar() {
             </div>
           </div>
           <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-2">
-            <Show
-              when={agents().length > 0}
-              fallback={
-                <div class="px-2 py-1.5 text-11-regular text-v2-text-text-faint">
-                  暂无 Agent，点击下方“添加”创建一个
-                </div>
-              }
-            >
-              <For each={agents()}>
-                {(agent, index) => {
-                  const isActive = () => active() === agent.name
-                  return (
-                    <button
-                      type="button"
-                      classList={{
-                        "flex flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors": true,
-                        "bg-v2-background-bg-layer-01 text-v2-text-text-strong": isActive(),
-                        "text-v2-text-text-base hover:bg-v2-background-bg-layer-01": !isActive(),
-                      }}
-                      onClick={() => local.agent.set(agent.name)}
-                    >
-                      <span class="flex w-full items-center gap-1.5 text-13-medium">
-                        <span
-                          class="size-1.5 shrink-0 rounded-full"
-                          style={{ background: agent.color || AGENT_COLORS[index() % AGENT_COLORS.length] }}
-                        />
-                        <span class="truncate">{agent.name}</span>
-                      </span>
-                      <span class="line-clamp-2 text-11-regular text-v2-text-text-faint">
-                        {agent.description ?? "Skill 驱动的 Agent"}
-                      </span>
-                    </button>
-                  )
-                }}
-              </For>
-            </Show>
-          </div>
-          <div class="px-2 pb-2">
+            <div class="px-2 pb-1 pt-1 text-10-medium tracking-wide text-v2-text-text-faint">写作流程</div>
+            <For each={WRITING_MODES}>
+              {(item) => (
+                <button
+                  type="button"
+                  classList={{
+                    "flex flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors": true,
+                    "bg-v2-background-bg-layer-01 text-v2-text-text-strong": mode() === item.key,
+                    "text-v2-text-text-base hover:bg-v2-background-bg-layer-01": mode() !== item.key,
+                  }}
+                  onClick={() => selectMode(item.key)}
+                >
+                  <span class="flex w-full items-center gap-1.5 text-13-medium">
+                    <span class="size-1.5 shrink-0 rounded-full" style={{ background: item.color }} />
+                    <span class="min-w-0 flex-1 truncate">{item.label}</span>
+                    <Show when={mode() === item.key}>
+                      <Icon name="check-small" size="small" class="shrink-0 text-v2-accent-accent-strong" />
+                    </Show>
+                  </span>
+                  <span class="pl-3 text-11-regular text-v2-text-text-faint">
+                    {item.step} · {item.desc}
+                  </span>
+                </button>
+              )}
+            </For>
+            <div class="my-1 h-px bg-v2-border-border-base" />
             <Button
               type="button"
               variant="ghost"
               size="small"
-              icon="plus"
+              icon="dot-grid"
               class="w-full justify-start"
-              onClick={() => dialog.show(() => <InstallSkillDialog />)}
+              onClick={() => navigate("/skills")}
             >
-              添加 Agent
+              Skill 管理
             </Button>
           </div>
         </aside>

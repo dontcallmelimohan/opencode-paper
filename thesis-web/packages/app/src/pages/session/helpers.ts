@@ -41,7 +41,7 @@ export const createSessionTabs = (input: TabsInput) => {
   const panelTabs = createMemo(
     () => {
       const seen = new Set<string>()
-      return input
+      const tabs = input
         .tabs()
         .all()
         .flatMap((tab) => {
@@ -52,6 +52,10 @@ export const createSessionTabs = (input: TabsInput) => {
           seen.add(value)
           return [value]
         })
+      // The file browser is the default surface of the right panel in this
+      // app, so keep its tab trigger available even before a file is opened.
+      if (fileBrowser() && !seen.has(SESSION_OPEN_FILE_TAB)) tabs.push(SESSION_OPEN_FILE_TAB)
+      return tabs
     },
     emptyTabs,
     { equals: same },
@@ -69,6 +73,7 @@ export const createSessionTabs = (input: TabsInput) => {
     const first = openedTabs()[0]
     if (first) return first
     if (contextOpen()) return "context"
+    if (fileBrowser()) return SESSION_OPEN_FILE_TAB
     if (review() && hasReview()) return "review"
     return "empty"
   })

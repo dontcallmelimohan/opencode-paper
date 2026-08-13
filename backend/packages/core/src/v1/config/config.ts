@@ -187,6 +187,9 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  thesisWorkspace: Schema.optional(Schema.String).annotate({
+    description: "Root directory for thesis workspaces (defaults to ~/thesis-workspace)",
+  }),
 }).annotate({ identifier: "Config" })
 
 export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>

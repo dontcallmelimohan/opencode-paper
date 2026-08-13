@@ -95,8 +95,16 @@ import type {
   GlobalUpgradeResponses,
   InstanceDisposeErrors,
   InstanceDisposeResponses,
+  InstanceSkillInstallDirectoryErrors,
+  InstanceSkillInstallDirectoryResponses,
   InstanceSkillInstallErrors,
   InstanceSkillInstallResponses,
+  InstanceThesisCreateErrors,
+  InstanceThesisCreateResponses,
+  InstanceThesisPdfTextErrors,
+  InstanceThesisPdfTextResponses,
+  InstanceThesisUploadErrors,
+  InstanceThesisUploadResponses,
   LocationRef,
   LspStatusErrors,
   LspStatusResponses,
@@ -2120,6 +2128,160 @@ export class Instance extends HeyApiClient {
       ThrowOnError
     >({
       url: "/skill/install",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Install a skill from a local folder
+   *
+   * Copies the whole skill folder (SKILL.md, manifest.yaml, references, static) into the global skills directory, then creates its agent.
+   */
+  public skillInstallDirectory<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [{ in: "body", key: "directory" }],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceSkillInstallDirectoryResponses,
+      InstanceSkillInstallDirectoryErrors,
+      ThrowOnError
+    >({
+      url: "/skill/install-directory",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Create a thesis project
+   *
+   * Creates a named thesis workspace directory under the user's thesis-workspace folder and registers it as a project.
+   */
+  public thesisCreate<ThrowOnError extends boolean = false>(
+    parameters?: {
+      title?: string
+      description?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "title" },
+            { in: "body", key: "description" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisCreateResponses,
+      InstanceThesisCreateErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/create",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Upload a thesis reference file
+   *
+   * Writes an uploaded reference file (base64 content) into the thesis workspace 资料 directory.
+   */
+  public thesisUpload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      filename?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisUploadResponses,
+      InstanceThesisUploadErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/upload",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Extract text from a thesis PDF reference
+   *
+   * Extracts text from a PDF in the thesis 资料 directory and writes it to a sibling .txt file so agents can read it.
+   */
+  public thesisPdfText<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      filename?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "filename" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisPdfTextResponses,
+      InstanceThesisPdfTextErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/pdf-text",
       ...options,
       ...params,
       headers: {

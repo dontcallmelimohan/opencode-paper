@@ -20,7 +20,13 @@ import { migrateLegacySessionStateKeys, ServerScope, SessionStateKey } from "@/u
 import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout-helpers"
 import { requireServerKey } from "@/utils/session-route"
 import { type DraftTab, useTabs } from "./tabs"
-import { closeSessionTab, openSessionTab, previewSessionTab, type SessionTabs } from "./layout-tabs"
+import {
+  SESSION_OPEN_FILE_TAB,
+  closeSessionTab,
+  openSessionTab,
+  previewSessionTab,
+  type SessionTabs,
+} from "./layout-tabs"
 
 export { createSessionKeyReader, ensureSessionKey, pruneSessionKeys }
 
@@ -121,9 +127,19 @@ const normalizeSessionTabList = (path: ReturnType<typeof createPathHelpers> | un
 
 const normalizeStoredSessionTabs = (key: string, tabs: SessionTabs) => {
   const path = sessionPath(key)
+  const all = normalizeSessionTabList(path, tabs.all)
+  let active = tabs.active ? normalizeSessionTab(path, tabs.active) : tabs.active
+  // The right panel in this app is a file preview surface: when the persisted
+  // tab is the review (files changed) tab and no file is open, default to the
+  // file browser instead of the diff list. Keep the placeholder tab in `all`
+  // so the active tab always has a matching tab trigger.
+  if (active === "review" && !all.some((tab) => tab.startsWith("file://"))) {
+    active = SESSION_OPEN_FILE_TAB
+    if (!all.includes(SESSION_OPEN_FILE_TAB)) all.push(SESSION_OPEN_FILE_TAB)
+  }
   return {
-    all: normalizeSessionTabList(path, tabs.all),
-    active: tabs.active ? normalizeSessionTab(path, tabs.active) : tabs.active,
+    all,
+    active,
   }
 }
 
@@ -704,7 +720,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       fileTree: {
         opened: createMemo(() => store.fileTree?.opened ?? true),
         width: createMemo(() => store.fileTree?.width ?? DEFAULT_FILE_TREE_WIDTH),
-        tab: createMemo(() => store.fileTree?.tab ?? "changes"),
+        tab: createMemo(() => store.fileTree?.tab ?? "all"),
         setTab(tab: "changes" | "all") {
           if (!store.fileTree) {
             setStore("fileTree", { opened: true, width: DEFAULT_FILE_TREE_WIDTH, tab })
@@ -714,28 +730,28 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
         open() {
           if (!store.fileTree) {
-            setStore("fileTree", { opened: true, width: DEFAULT_FILE_TREE_WIDTH, tab: "changes" })
+            setStore("fileTree", { opened: true, width: DEFAULT_FILE_TREE_WIDTH, tab: "all" })
             return
           }
           setStore("fileTree", "opened", true)
         },
         close() {
           if (!store.fileTree) {
-            setStore("fileTree", { opened: false, width: DEFAULT_FILE_TREE_WIDTH, tab: "changes" })
+            setStore("fileTree", { opened: false, width: DEFAULT_FILE_TREE_WIDTH, tab: "all" })
             return
           }
           setStore("fileTree", "opened", false)
         },
         toggle() {
           if (!store.fileTree) {
-            setStore("fileTree", { opened: true, width: DEFAULT_FILE_TREE_WIDTH, tab: "changes" })
+            setStore("fileTree", { opened: true, width: DEFAULT_FILE_TREE_WIDTH, tab: "all" })
             return
           }
           setStore("fileTree", "opened", (x) => !x)
         },
         resize(width: number) {
           if (!store.fileTree) {
-            setStore("fileTree", { opened: true, width, tab: "changes" })
+            setStore("fileTree", { opened: true, width, tab: "all" })
             return
           }
           setStore("fileTree", "width", width)

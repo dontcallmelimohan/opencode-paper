@@ -65,6 +65,7 @@ export interface Interface {
   readonly get: (agent: string) => Effect.Effect<Info>
   readonly list: () => Effect.Effect<Info[]>
   readonly reload: () => Effect.Effect<void>
+  readonly reloadAll: () => Effect.Effect<void>
   readonly defaultInfo: () => Effect.Effect<Info>
   readonly defaultAgent: () => Effect.Effect<string>
   readonly generate: (input: {
@@ -80,7 +81,7 @@ export interface Interface {
   >
 }
 
-type State = Omit<Interface, "generate" | "reload">
+type State = Omit<Interface, "generate" | "reload" | "reloadAll">
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
 
@@ -362,6 +363,9 @@ const layer = Layer.effect(
       }),
       reload: Effect.fn("Agent.reload")(function* () {
         yield* InstanceState.invalidate(state)
+      }),
+      reloadAll: Effect.fn("Agent.reloadAll")(function* () {
+        yield* InstanceState.invalidateAll(state)
       }),
       defaultInfo: Effect.fn("Agent.defaultInfo")(function* () {
         return yield* InstanceState.useEffect(state, (s) => s.defaultInfo())

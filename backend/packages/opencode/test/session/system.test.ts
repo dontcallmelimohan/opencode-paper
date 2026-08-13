@@ -76,6 +76,7 @@ const it = testEffect(
           },
           all: () => Effect.succeed(skills),
           reload: () => Effect.succeed(undefined),
+          reloadAll: () => Effect.succeed(undefined),
           dirs: () => Effect.succeed([]),
           available: () => Effect.succeed(skills),
         }),

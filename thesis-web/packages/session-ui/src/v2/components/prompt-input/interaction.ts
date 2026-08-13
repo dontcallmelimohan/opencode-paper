@@ -4,6 +4,7 @@ import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { createPromptInputV2Attachments, type PromptInputV2AttachmentConfig } from "./attachments"
 import { createPromptInputV2Store, type PromptInputV2StoreInput } from "./store"
 import type {
+  PromptInputV2AgentPart,
   PromptInputV2Attachment,
   PromptInputV2Comment,
   PromptInputV2History,
@@ -30,6 +31,11 @@ export type PromptInputV2ViewConfig = {
   placeholder?: Accessor<string>
   add?: {
     onAttach: () => void
+  }
+  skills?: {
+    options: Accessor<PromptInputV2Option[]>
+    selected: Accessor<string[]>
+    toggle: (id: string) => void
   }
   agent?: PromptInputV2SelectControl
   model?: PromptInputV2SelectControl
@@ -60,6 +66,9 @@ export function createPromptInputV2Controller(input: {
   history?: PromptInputV2History
   commands: Accessor<PromptInputV2Suggestion[]>
   context: Accessor<PromptInputV2Suggestion[]>
+  skills?: {
+    options: Accessor<PromptInputV2Option[]>
+  }
   searchContextFiles: (query: string) => PromptInputV2Suggestion[] | Promise<PromptInputV2Suggestion[]>
   openAttachment?: (attachment: PromptInputV2Attachment) => void
   openContext?: (key: string) => void
@@ -98,6 +107,21 @@ export function createPromptInputV2Controller(input: {
         addPart,
         setDraggingType: (type) => dispatch({ type: type ? "drag.enter" : "drag.leave" }),
       })
+    : undefined
+  const skills = input.skills
+    ? {
+        options: input.skills.options,
+        selected: () =>
+          draft.state.prompt.filter((part): part is PromptInputV2AgentPart => part.type === "agent").map((part) => part.name),
+        toggle: (id: string) => {
+          const exists = draft.state.prompt.some((part) => part.type === "agent" && part.name === id)
+          if (exists) {
+            draft.removeMention(id)
+            return
+          }
+          draft.appendMention({ type: "agent", name: id, content: `@${id}`, start: 0, end: 0 })
+        },
+      }
     : undefined
   const attach = () => {
     if (!attachments) {
@@ -291,7 +315,7 @@ export function createPromptInputV2Controller(input: {
 
   return {
     state,
-    view: input.view,
+    view: { ...input.view, skills },
     suggestions,
     dispatch,
     onKeyDown,
@@ -300,6 +324,12 @@ export function createPromptInputV2Controller(input: {
     },
     parts() {
       return draft.state.prompt
+    },
+    skills() {
+      return draft.state.prompt.filter((part): part is PromptInputV2AgentPart => part.type === "agent")
+    },
+    toggleSkill(id: string) {
+      skills?.toggle(id)
     },
     addPart,
     contextItem(id: string) {

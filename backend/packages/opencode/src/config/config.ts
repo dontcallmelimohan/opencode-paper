@@ -128,6 +128,7 @@ export interface Interface {
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly invalidate: () => Effect.Effect<void>
+  readonly invalidateAll: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
 }
@@ -169,6 +170,7 @@ function writableGlobal(info: Info) {
   const next = writable(info)
   // When a user changes config from a value back to default in the Desktop app, we don't want to leave a blank `"shell": "",` key
   if ("shell" in next && next.shell === "") return { ...next, shell: undefined }
+  if ("thesisWorkspace" in next && next.thesisWorkspace === "") return { ...next, thesisWorkspace: undefined }
   return next
 }
 
@@ -635,6 +637,11 @@ const layer = Layer.effect(
       yield* InstanceState.invalidate(state)
     })
 
+    const invalidateAll = Effect.fn("Config.invalidateAll")(function* () {
+      yield* invalidateGlobal
+      yield* InstanceState.invalidateAll(state)
+    })
+
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
@@ -667,6 +674,7 @@ const layer = Layer.effect(
       update,
       updateGlobal,
       invalidate,
+      invalidateAll,
       directories,
       waitForDependencies,
     })

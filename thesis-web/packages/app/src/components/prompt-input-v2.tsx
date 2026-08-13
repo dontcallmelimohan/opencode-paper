@@ -335,6 +335,12 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     },
     commands,
     context,
+    skills: {
+      options: () =>
+        props.controls.agents.available
+          .filter((agent) => !agent.hidden && agent.native === false)
+          .map((agent) => ({ id: agent.name, label: agent.name })),
+    },
     searchContextFiles: async (query) =>
       (await files.searchFilesAndDirectories(query)).map((path) => ({
         id: `file:${path}`,

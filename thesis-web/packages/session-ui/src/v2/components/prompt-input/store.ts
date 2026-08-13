@@ -82,6 +82,33 @@ export function createPromptInputV2Store(input: PromptInputV2StoreInput) {
       setStore()("prompt", insertMention(store().prompt, start < 0 ? end : start, end, mention))
       setStore()("cursor", (start < 0 ? end : start) + mention.content.length + 1)
     },
+    appendMention(mention: PromptInputV2FilePart | PromptInputV2AgentPart) {
+      const length = promptLength(store().prompt)
+      batch(() => {
+        setStore()("prompt", (prompt) =>
+          withOffsets([...prompt, mention, { type: "text", content: " ", start: 0, end: 0 }]),
+        )
+        setStore()("cursor", length + mention.content.length + 1)
+      })
+    },
+    removeMention(name: string) {
+      const prompt = store().prompt
+      const index = prompt.findIndex((part) => part.type === "agent" && part.name === name)
+      if (index === -1) return
+      const cursor = prompt.slice(0, index).reduce(
+        (length, part) => length + ("content" in part ? part.content.length : 0),
+        0,
+      )
+      batch(() => {
+        setStore()("prompt", (current) => {
+          const next = current.filter((part) => !(part.type === "agent" && part.name === name))
+          const first = next.findIndex((part) => !(part.type === "text" && !part.content.trim()))
+          const leading = first > 0 ? next.slice(first) : next
+          return withOffsets(leading)
+        })
+        setStore()("cursor", cursor)
+      })
+    },
     addAttachment(attachment: PromptInputV2Attachment) {
       setStore()("prompt", (prompt) => [...prompt, attachment])
     },

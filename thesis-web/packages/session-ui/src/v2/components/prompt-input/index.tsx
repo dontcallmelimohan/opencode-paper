@@ -3,6 +3,8 @@ import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
+import { Dialog } from "@opencode-ai/ui/dialog"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useI18n } from "@opencode-ai/ui/context/i18n"
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
@@ -14,6 +16,7 @@ import { AttachmentCardV2 } from "../attachment-card-v2"
 import { CommentCardV2 } from "../comment-card-v2"
 import { typeLabel } from "../../../components/message-file"
 import type {
+  PromptInputV2AgentPart,
   PromptInputV2Attachment,
   PromptInputV2Comment,
   PromptInputV2Option,
@@ -134,12 +137,15 @@ export function PromptInputV2(props: PromptInputV2Props) {
           <PromptInputV2Attachments
             attachments={props.controller.attachments()}
             comments={props.controller.comments()}
+            skills={props.controller.skills()}
             activeCommentID={state.activeContextID}
             removeLabel={i18n.t("ui.promptInput.removeAttachment")}
+            skillRemoveLabel={i18n.t("ui.promptInput.removeSkill")}
             onAttachmentClick={props.controller.openAttachment}
             onAttachmentRemove={(attachment) => props.controller.removeAttachment(attachment.id)}
             onCommentClick={(comment) => props.controller.toggleContext(comment.key)}
             onCommentRemove={(comment) => props.controller.removeContext(comment.key)}
+            onSkillRemove={(name) => props.controller.toggleSkill(name)}
           />
         </Show>
 
@@ -216,6 +222,19 @@ export function PromptInputV2(props: PromptInputV2Props) {
               onContext={props.controller.openContext}
               onShell={props.controller.openShell}
             />
+            <Show when={view.skills} keyed>
+              {(control) => (
+                <PromptInputV2SkillsMenu
+                  title={i18n.t("ui.promptInput.chooseSkills")}
+                  emptyLabel={i18n.t("ui.promptInput.noSkills")}
+                  confirmLabel={i18n.t("ui.promptInput.confirmSkills")}
+                  options={control.options}
+                  selected={control.selected}
+                  disabled={state.mode === "shell"}
+                  onToggle={control.toggle}
+                />
+              )}
+            </Show>
             <Show when={view.agent} keyed>
               {(control) => (
                 <PromptInputV2ConfiguredSelect
@@ -378,16 +397,19 @@ function promptInputV2Cursor(editor: HTMLDivElement) {
 export function PromptInputV2Attachments(props: {
   attachments: PromptInputV2Attachment[]
   comments?: PromptInputV2Comment[]
+  skills?: PromptInputV2AgentPart[]
   activeCommentID?: string
   removeLabel: string
+  skillRemoveLabel?: string
   onAttachmentClick?: (attachment: PromptInputV2Attachment) => void
   onAttachmentRemove: (attachment: PromptInputV2Attachment) => void
   onCommentClick?: (comment: PromptInputV2Comment) => void
   onCommentRemove?: (comment: PromptInputV2Comment) => void
+  onSkillRemove?: (name: string) => void
 }) {
   const i18n = useI18n()
   return (
-    <Show when={props.attachments.length > 0 || (props.comments?.length ?? 0) > 0}>
+    <Show when={props.attachments.length > 0 || (props.comments?.length ?? 0) > 0 || (props.skills?.length ?? 0) > 0}>
       <div data-component="prompt-input-v2-attachments" data-slot="prompt-attachments" class="relative">
         <div
           data-slot="prompt-attachments-scroll"
@@ -415,6 +437,28 @@ export function PromptInputV2Attachments(props: {
                   onClick={() => props.onCommentRemove?.(comment)}
                   class="absolute -top-1 -end-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   aria-label={props.removeLabel}
+                >
+                  <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
+                </button>
+              </div>
+            )}
+          </For>
+          <For each={props.skills ?? []}>
+            {(skill) => (
+              <div class="relative group shrink-0">
+                <TooltipV2 value={`@${skill.name}`} placement="top" openDelay={800} contentClass="break-all">
+                  <div class="flex h-12 items-center gap-1.5 rounded-[6px] bg-v2-background-bg-stronger px-2.5 py-1.5 shadow-xs-border">
+                    <Icon name="brain" size="small" class="shrink-0 text-icon-info-active" />
+                    <span class="text-[12px] font-medium leading-5 text-v2-text-text-strong whitespace-nowrap">
+                      @{skill.name}
+                    </span>
+                  </div>
+                </TooltipV2>
+                <button
+                  type="button"
+                  onClick={() => props.onSkillRemove?.(skill.name)}
+                  class="absolute -top-1 -end-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={props.skillRemoveLabel ?? props.removeLabel}
                 >
                   <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
                 </button>
@@ -464,6 +508,98 @@ export function PromptInputV2Attachments(props: {
         />
       </div>
     </Show>
+  )
+}
+
+export function PromptInputV2SkillsMenu(props: {
+  title: string
+  emptyLabel: string
+  confirmLabel: string
+  options: Accessor<PromptInputV2Option[]>
+  selected: Accessor<string[]>
+  disabled?: boolean
+  onToggle: (id: string) => void
+}) {
+  const dialog = useDialog()
+  return (
+    <TooltipV2 placement="top" value={props.title}>
+      <IconButtonV2
+        data-action="prompt-skills"
+        type="button"
+        icon={<IconV2 name="sparkles" />}
+        variant="ghost-muted"
+        size="large"
+        disabled={props.disabled}
+        aria-label={props.title}
+        onClick={() =>
+          dialog.show(() => (
+            <PromptInputV2SkillsDialog
+              title={props.title}
+              emptyLabel={props.emptyLabel}
+              confirmLabel={props.confirmLabel}
+              options={props.options}
+              selected={props.selected}
+              onToggle={props.onToggle}
+            />
+          ))
+        }
+      />
+    </TooltipV2>
+  )
+}
+
+function PromptInputV2SkillsDialog(props: {
+  title: string
+  emptyLabel: string
+  confirmLabel: string
+  options: Accessor<PromptInputV2Option[]>
+  selected: Accessor<string[]>
+  onToggle: (id: string) => void
+}) {
+  const dialog = useDialog()
+  return (
+    <Dialog title={props.title} fit>
+      <div class="flex max-h-[50vh] flex-col gap-1 overflow-y-auto px-2.5 pb-2">
+        <Show
+          when={props.options().length > 0}
+          fallback={<div class="px-1 py-2 text-13-regular text-v2-text-text-muted">{props.emptyLabel}</div>}
+        >
+          <For each={props.options()}>
+            {(option) => (
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-v2-overlay-simple-overlay-hover"
+                onClick={() => props.onToggle(option.id)}
+              >
+                <span
+                  class="flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors"
+                  classList={{
+                    "border-v2-border-border-strong bg-v2-background-bg-accent": props
+                      .selected()
+                      .includes(option.id),
+                    "border-v2-border-border-strong bg-v2-background-bg-base": !props
+                      .selected()
+                      .includes(option.id),
+                  }}
+                >
+                  <Show when={props.selected().includes(option.id)}>
+                    <IconV2 name="check" class="size-3 text-v2-text-text-inverse" />
+                  </Show>
+                </span>
+                <span class="min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-v2-text-text-strong">
+                  {option.label}
+                </span>
+              </button>
+            )}
+          </For>
+        </Show>
+      </div>
+      <div class="flex justify-end px-2.5 pb-2.5">
+        <ButtonV2 variant="contrast" size="normal" onClick={() => dialog.close()}>
+          {props.confirmLabel}
+        </ButtonV2>
+      </div>
+    </Dialog>
   )
 }
 

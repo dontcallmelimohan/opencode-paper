@@ -10,6 +10,7 @@ import { SettingsProvidersV2 } from "./providers"
 import { SettingsModelsV2 } from "./models"
 import "./settings-v2.css"
 import { SettingsServersV2 } from "./servers"
+import { SettingsThesisV2 } from "./thesis"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLayout } from "@/context/layout"
 import { useTabs } from "@/context/tabs"
@@ -85,6 +86,16 @@ export const DialogSettings: Component<{
                     </TabsV2.Trigger>
                   </div>
                 </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <TabsV2.SectionTitle>论文</TabsV2.SectionTitle>
+                  <div class="flex flex-col gap-1.5 w-full">
+                    <TabsV2.Trigger value="thesis">
+                      <Icon name="pencil-line" />
+                      论文设置
+                    </TabsV2.Trigger>
+                  </div>
+                </div>
               </div>
             </div>
             <div class="settings-v2-nav-footer">
@@ -107,6 +118,9 @@ export const DialogSettings: Component<{
         </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
           <SettingsModelsV2 />
+        </TabsV2.Content>
+        <TabsV2.Content value="thesis" class="settings-v2-panel">
+          <SettingsThesisV2 />
         </TabsV2.Content>
       </TabsV2>
     </Dialog>

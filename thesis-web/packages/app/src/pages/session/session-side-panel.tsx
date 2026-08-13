@@ -1,4 +1,4 @@
-import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, on, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
 import { DragDropProvider as DndKitProvider, PointerSensor } from "@dnd-kit/solid"
@@ -187,6 +187,24 @@ export function SessionSidePanel(props: {
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
+
+  // Default the right panel to the file browser (preview) instead of the
+  // review / files-changed tab whenever it opens with no file open.
+  createEffect(
+    on(
+      () => view().reviewPanel.opened(),
+      (opened, previous) => {
+        if (!opened || previous === true) return
+        if (!props.fileBrowserState) return
+        const active = activeTab()
+        if (openedTabs().length === 0 && (active === "review" || active === "empty" || active === SESSION_OPEN_FILE_TAB)) {
+          // Opening the placeholder tab adds it to `all`, so the tab trigger
+          // exists for the active value.
+          void tabs().open(SESSION_OPEN_FILE_TAB)
+        }
+      },
+    ),
+  )
 
   const fileTreeTab = () => layout.fileTree.tab()
 

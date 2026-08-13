@@ -14,6 +14,7 @@ import { LineCommentV2OverflowIcon } from "@opencode-ai/ui/v2/line-comment-v2"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { SegmentedControlItemV2, SegmentedControlV2 } from "@opencode-ai/ui/v2/segmented-control-v2"
 import { showToast } from "@/utils/toast"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { useComments } from "@/context/comments"
@@ -23,6 +24,8 @@ import { useSettings } from "@/context/settings"
 import { getSessionHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { MarkdownFilePreview } from "@/pages/session/markdown-file-preview"
+import { isMarkdownPath } from "@/pages/session/markdown-path"
 
 type SessionFileViewProps = {
   tab: string
@@ -252,6 +255,8 @@ function SessionFileViewV1(props: { tab: string }) {
   })
   const contents = createMemo(() => state()?.content?.content ?? "")
   const cacheKey = createMemo(() => sampledChecksum(contents()))
+  const isMarkdown = createMemo(() => isMarkdownPath(path()))
+  const [fileMode, setFileMode] = createSignal<"code" | "preview">("preview")
   const selectedLines = createMemo<SelectedLineRange | null>(() => {
     const p = path()
     if (!p) return null
@@ -493,15 +498,34 @@ function SessionFileViewV1(props: { tab: string }) {
 
   const content = () => (
     <div class="mt-3 relative h-full min-h-0">
-      <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
-        <Switch>
-          <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-          <Match when={state()?.loading}>
-            <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-          </Match>
-          <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-        </Switch>
-      </ScrollView>
+      <Show when={isMarkdown()}>
+        <div class="absolute top-2 right-4 z-20">
+          <SegmentedControlV2
+            value={fileMode()}
+            onChange={(value) => {
+              if (value === "preview" || value === "code") setFileMode(value)
+            }}
+            style={{ width: "auto" }}
+          >
+            <SegmentedControlItemV2 value="preview">{language.t("session.files.preview")}</SegmentedControlItemV2>
+            <SegmentedControlItemV2 value="code">{language.t("session.files.code")}</SegmentedControlItemV2>
+          </SegmentedControlV2>
+        </div>
+      </Show>
+      <Switch>
+        <Match when={isMarkdown() && fileMode() === "preview" && state()?.loaded}>
+          <MarkdownFilePreview contents={contents} cacheKey={cacheKey} />
+        </Match>
+        <Match when={state()?.loaded}>
+          <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
+            {renderFile(contents())}
+          </ScrollView>
+        </Match>
+        <Match when={state()?.loading}>
+          <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+        </Match>
+        <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+      </Switch>
     </div>
   )
 
@@ -537,6 +561,8 @@ function SessionFileViewV2(props: { tab: string }) {
   })
   const contents = createMemo(() => state()?.content?.content ?? "")
   const cacheKey = createMemo(() => sampledChecksum(contents()))
+  const isMarkdown = createMemo(() => isMarkdownPath(path()))
+  const [fileMode, setFileMode] = createSignal<"code" | "preview">("preview")
   const selectedLines = createMemo<SelectedLineRange | null>(() => {
     const p = path()
     if (!p) return null
@@ -784,15 +810,34 @@ function SessionFileViewV2(props: { tab: string }) {
 
   const content = () => (
     <div class="mt-3 relative h-full min-h-0">
-      <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
-        <Switch>
-          <Match when={state()?.loaded}>{renderFile(contents())}</Match>
-          <Match when={state()?.loading}>
-            <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
-          </Match>
-          <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
-        </Switch>
-      </ScrollView>
+      <Show when={isMarkdown()}>
+        <div class="absolute top-2 right-4 z-20">
+          <SegmentedControlV2
+            value={fileMode()}
+            onChange={(value) => {
+              if (value === "preview" || value === "code") setFileMode(value)
+            }}
+            style={{ width: "auto" }}
+          >
+            <SegmentedControlItemV2 value="preview">{language.t("session.files.preview")}</SegmentedControlItemV2>
+            <SegmentedControlItemV2 value="code">{language.t("session.files.code")}</SegmentedControlItemV2>
+          </SegmentedControlV2>
+        </div>
+      </Show>
+      <Switch>
+        <Match when={isMarkdown() && fileMode() === "preview" && state()?.loaded}>
+          <MarkdownFilePreview contents={contents} cacheKey={cacheKey} />
+        </Match>
+        <Match when={state()?.loaded}>
+          <ScrollView class="h-full" viewportRef={scrollSync.setViewport} onScroll={scrollSync.handleScroll as any}>
+            {renderFile(contents())}
+          </ScrollView>
+        </Match>
+        <Match when={state()?.loading}>
+          <div class="px-6 py-4 text-text-weak">{language.t("common.loading")}...</div>
+        </Match>
+        <Match when={state()?.error}>{(err) => <div class="px-6 py-4 text-text-weak">{err()}</div>}</Match>
+      </Switch>
     </div>
   )
 

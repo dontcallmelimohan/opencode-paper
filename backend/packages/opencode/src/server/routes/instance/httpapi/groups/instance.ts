@@ -2,6 +2,7 @@ import { Agent } from "@/agent/agent"
 import { Command } from "@/command"
 import { Format } from "@/format"
 import { LSP } from "@/lsp/lsp"
+import { Project } from "@/project/project"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
 import { Schema } from "effect"
@@ -47,14 +48,47 @@ const SkillInstallBody = Schema.Struct({
   prompt: Schema.optional(Schema.String),
 })
 
+const SkillInstallDirectoryBody = Schema.Struct({
+  directory: Schema.String,
+})
+
 const SkillInstallResult = Schema.Struct({
   agent: Agent.Info,
   skill: Skill.Info,
 })
 
+const ThesisCreateBody = Schema.Struct({
+  title: Schema.String,
+  description: Schema.optional(Schema.String),
+})
+
+const ThesisUploadBody = Schema.Struct({
+  projectID: Schema.String,
+  filename: Schema.String,
+  content: Schema.String,
+})
+
+const ThesisPdfTextBody = Schema.Struct({
+  projectID: Schema.String,
+  filename: Schema.String,
+})
+
+const ThesisPdfTextResult = Schema.Struct({
+  filename: Schema.String,
+  chars: Schema.Number,
+})
+
 export class ApiSkillInstallError extends Schema.ErrorClass<ApiSkillInstallError>("SkillInstallError")(
   {
     name: Schema.Literal("SkillInstallError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export class ApiThesisError extends Schema.ErrorClass<ApiThesisError>("ThesisError")(
+  {
+    name: Schema.Literal("ThesisError"),
     data: Schema.Struct({ message: Schema.String }),
   },
   { httpApiStatus: 400 },
@@ -72,6 +106,10 @@ export const InstancePaths = {
   agent: "/agent",
   skill: "/skill",
   skillInstall: "/skill/install",
+  skillInstallDirectory: "/skill/install-directory",
+  thesisCreate: "/thesis/create",
+  thesisUpload: "/thesis/upload",
+  thesisPdfText: "/thesis/pdf-text",
   lsp: "/lsp",
   formatter: "/formatter",
 } as const
@@ -198,6 +236,54 @@ export const InstanceApi = HttpApi.make("instance")
             summary: "Install a skill and create its agent",
             description:
               "Writes the skill and agent config into the project .opencode directory, then reloads agents and skills.",
+          }),
+        ),
+        HttpApiEndpoint.post("skillInstallDirectory", InstancePaths.skillInstallDirectory, {
+          payload: SkillInstallDirectoryBody,
+          success: described(SkillInstallResult, "Installed skill and agent from a local folder"),
+          error: ApiSkillInstallError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.skillInstallDirectory",
+            summary: "Install a skill from a local folder",
+            description:
+              "Copies the whole skill folder (SKILL.md, manifest.yaml, references, static) into the global skills directory, then creates its agent.",
+          }),
+        ),
+        HttpApiEndpoint.post("thesisCreate", InstancePaths.thesisCreate, {
+          payload: ThesisCreateBody,
+          success: described(Project.Info, "Created thesis project"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisCreate",
+            summary: "Create a thesis project",
+            description:
+              "Creates a named thesis workspace directory under the user's thesis-workspace folder and registers it as a project.",
+          }),
+        ),
+        HttpApiEndpoint.post("thesisUpload", InstancePaths.thesisUpload, {
+          payload: ThesisUploadBody,
+          success: described(Schema.Array(Schema.String), "Uploaded file names"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisUpload",
+            summary: "Upload a thesis reference file",
+            description:
+              "Writes an uploaded reference file (base64 content) into the thesis workspace 资料 directory.",
+          }),
+        ),
+        HttpApiEndpoint.post("thesisPdfText", InstancePaths.thesisPdfText, {
+          payload: ThesisPdfTextBody,
+          success: described(ThesisPdfTextResult, "Extracted text file name and character count"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisPdfText",
+            summary: "Extract text from a thesis PDF reference",
+            description:
+              "Extracts text from a PDF in the thesis 资料 directory and writes it to a sibling .txt file so agents can read it.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {

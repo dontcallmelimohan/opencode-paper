@@ -2046,6 +2046,7 @@ export type Config = {
     mcp_timeout?: number
     policies?: Array<ConfigV2ExperimentalPolicy>
   }
+  thesisWorkspace?: string
 }
 
 export type Model = {
@@ -2395,6 +2396,24 @@ export type SkillInstallError = {
   }
 }
 
+export type Project = {
+  id: string
+  worktree: string
+  vcs?: ProjectVcs
+  name?: string
+  icon?: ProjectIcon
+  commands?: ProjectCommands
+  time: ProjectTime
+  sandboxes: Array<string>
+}
+
+export type ThesisError = {
+  name: "ThesisError"
+  data: {
+    message: string
+  }
+}
+
 export type LspStatus = {
   id: string
   name: string
@@ -2445,17 +2464,6 @@ export type McpServerNotFoundError = {
   _tag: "McpServerNotFoundError"
   name: string
   message: string
-}
-
-export type Project = {
-  id: string
-  worktree: string
-  vcs?: ProjectVcs
-  name?: string
-  icon?: ProjectIcon
-  commands?: ProjectCommands
-  time: ProjectTime
-  sandboxes: Array<string>
 }
 
 export type ProjectNotFoundError = {
@@ -8552,6 +8560,144 @@ export type InstanceSkillInstallResponses = {
 
 export type InstanceSkillInstallResponse =
   InstanceSkillInstallResponses[keyof InstanceSkillInstallResponses]
+
+export type InstanceSkillInstallDirectoryData = {
+  body?: {
+    directory: string
+  }
+  path?: never
+  query?: never
+  url: "/skill/install-directory"
+}
+
+export type InstanceSkillInstallDirectoryErrors = {
+  /**
+   * SkillInstallError | InvalidRequestError
+   */
+  400: SkillInstallError | InvalidRequestError
+}
+
+export type InstanceSkillInstallDirectoryError =
+  InstanceSkillInstallDirectoryErrors[keyof InstanceSkillInstallDirectoryErrors]
+
+export type InstanceSkillInstallDirectoryResponses = {
+  /**
+   * Installed skill and agent from a local folder
+   */
+  200: {
+    agent: Agent
+    skill: {
+      name: string
+      description?: string
+      location: string
+      content: string
+    }
+  }
+}
+
+export type InstanceSkillInstallDirectoryResponse =
+  InstanceSkillInstallDirectoryResponses[keyof InstanceSkillInstallDirectoryResponses]
+
+export type InstanceThesisCreateData = {
+  body?: {
+    title: string
+    description?: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/create"
+}
+
+export type InstanceThesisCreateErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisCreateError =
+  InstanceThesisCreateErrors[keyof InstanceThesisCreateErrors]
+
+export type InstanceThesisCreateResponses = {
+  /**
+   * Created thesis project
+   */
+  200: Project
+}
+
+export type InstanceThesisCreateResponse =
+  InstanceThesisCreateResponses[keyof InstanceThesisCreateResponses]
+
+export type InstanceThesisUploadData = {
+  body?: {
+    projectID: string
+    filename: string
+    content: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/upload"
+}
+
+export type InstanceThesisUploadErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisUploadError =
+  InstanceThesisUploadErrors[keyof InstanceThesisUploadErrors]
+
+export type InstanceThesisUploadResponses = {
+  /**
+   * Uploaded file names
+   */
+  200: Array<string>
+}
+
+export type InstanceThesisUploadResponse =
+  InstanceThesisUploadResponses[keyof InstanceThesisUploadResponses]
+
+export type InstanceThesisPdfTextData = {
+  body?: {
+    projectID: string
+    filename: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/pdf-text"
+}
+
+export type InstanceThesisPdfTextErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisPdfTextError =
+  InstanceThesisPdfTextErrors[keyof InstanceThesisPdfTextErrors]
+
+export type InstanceThesisPdfTextResponses = {
+  /**
+   * Extracted text file name and character count
+   */
+  200: {
+    filename: string
+    chars:
+      | number
+      | "NaN"
+      | "Infinity"
+      | "-Infinity"
+      | "Infinity"
+      | "-Infinity"
+      | "NaN"
+  }
+}
+
+export type InstanceThesisPdfTextResponse =
+  InstanceThesisPdfTextResponses[keyof InstanceThesisPdfTextResponses]
 
 export type LspStatusData = {
   body?: never

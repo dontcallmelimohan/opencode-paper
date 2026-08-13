@@ -10,6 +10,7 @@ import { useLayout } from "@/context/layout"
 import { useLocal, type ModelSelection } from "@/context/local"
 import type { QueryOptionsApi } from "@/context/server-sync"
 import { useServerSDK } from "@/context/server-sdk"
+import { useServerSync } from "@/context/server-sync"
 import { serverName, ServerConnection, useServer } from "@/context/server"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -70,11 +71,19 @@ export function createPromptProjectControls() {
   const global = useGlobal()
   const pickDirectory = useDirectoryPicker()
   const [search] = useSearchParams<{ draftId?: string }>()
+  const serverSync = useServerSync()
   const projectServer = () => serverSDK().server
   const projectServerCtx = createMemo(() => global.ensureServerCtx(projectServer()))
   const projects = createMemo(() => {
+    const currentKey = pathKey(sdk().directory)
+    const fallback = () => {
+      const meta = serverSync().data.project.find((project) => pathKey(project.worktree) === currentKey)
+      return [{ worktree: sdk().directory, ...(meta ? { id: meta.id, name: meta.name, icon: meta.icon } : {}) }]
+    }
     if (server.list.length <= 1) {
-      return search.draftId ? projectServerCtx().projects.list() : layout.projects.list()
+      const base = search.draftId ? projectServerCtx().projects.list() : layout.projects.list()
+      if (base.some((project) => pathKey(project.worktree) === currentKey)) return base
+      return [...fallback(), ...base]
     }
     return server.list.flatMap((conn) => {
       const item = { key: ServerConnection.key(conn), name: serverName(conn) }
