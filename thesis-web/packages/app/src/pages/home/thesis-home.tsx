@@ -11,7 +11,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query"
 import { useNavigate } from "@solidjs/router"
 import { DateTime } from "luxon"
 import { For, Show, createSignal, startTransition } from "solid-js"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useSettingsDialog } from "@/components/settings-dialog"
+import { debugToolsVisible, setDebugToolsVisible } from "@/utils/debug-tools"
 import { useGlobal } from "@/context/global"
 import { useLayout } from "@/context/layout"
 import { ServerConnection, useServer } from "@/context/server"
@@ -38,8 +40,8 @@ const thesisErrorMessage = (error: unknown, fallback: string) => {
 
 const isPdf = (entry: { name: string }) => /\.pdf$/i.test(entry.name)
 
-const thesisName = (thesis: Project) => thesis.name?.trim() || thesis.worktree.split("/").pop() || thesis.worktree
-const thesisUpdatedAt = (thesis: Project) => thesis.time.updated ?? thesis.time.created
+export const thesisName = (thesis: Project) => thesis.name?.trim() || thesis.worktree.split("/").pop() || thesis.worktree
+export const thesisUpdatedAt = (thesis: Project) => thesis.time.updated ?? thesis.time.created
 
 function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
   const dialog = useDialog()
@@ -100,7 +102,7 @@ function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
   )
 }
 
-function ThesisUploadDialog(props: { thesis: Project }) {
+export function ThesisUploadDialog(props: { thesis: Project }) {
   const dialog = useDialog()
   const sdk = useServerSDK()
   const queryClient = useQueryClient()
@@ -288,14 +290,14 @@ function ThesisSessionsDialog(props: { thesis: Project }) {
   }
 
   return (
-    <Dialog title="对话列表" description={`${thesisName(props.thesis)} · 该论文的所有写作对话`}>
+    <Dialog title="生成记录" description={`${thesisName(props.thesis)} · 各步生成的聊天记录`}>
       <div class="flex max-h-[65vh] flex-col gap-3 overflow-y-auto px-2.5 pb-4">
         <Show
           when={sessions.data && sessions.data.length > 0}
           fallback={
             <div class="flex flex-col items-center gap-2 py-10 text-center">
               <Icon name="speech-bubble" size="large" class="text-v2-text-text-weak" />
-              <div class="text-13-regular text-v2-text-text-weak">还没有对话，点击「开始写作」发起第一篇</div>
+              <div class="text-13-regular text-v2-text-text-weak">还没有生成记录，进入论文工作台生成后这里会出现</div>
             </div>
           }
         >
@@ -369,11 +371,11 @@ export function ThesisHome() {
     },
   }))
 
+  // [论文助手定制] 进入“论文工作台”而不是新建聊天草稿：
+  // 论文生产以四步标准化流程为主体，聊天只作为生成记录/辅助查看。
   function startWriting(worktree: string) {
-    const conn = server.current
-    if (!conn) return
     layout.projects.open(worktree)
-    void tabs.newDraft({ server: ServerConnection.key(conn), directory: worktree })
+    navigate(`/${base64Encode(worktree)}/workbench`)
   }
 
   return (
@@ -384,6 +386,22 @@ export function ThesisHome() {
           <h1 class="text-20-medium text-v2-text-text-strong">论文助手</h1>
         </div>
         <div class="flex items-center gap-1">
+          {/* [论文助手定制] 顶部标题栏已删除，DEV 调试按钮挪到这里：切换底部调试栏（NAV/FPS 统计）显隐。 */}
+          <Show when={import.meta.env.DEV}>
+            <TooltipV2 placement="bottom" value="调试面板（NAV/FPS 统计）">
+              <button
+                type="button"
+                data-action="home-debug-toggle"
+                class="h-7 cursor-pointer rounded-sm bg-icon-interactive-base px-2 font-mono text-xs font-medium uppercase text-[#FFF]"
+                aria-label="调试面板"
+                aria-pressed={debugToolsVisible()}
+                onClick={() => setDebugToolsVisible((value) => !value)}
+              >
+                DEV
+              </button>
+            </TooltipV2>
+          </Show>
+          {/* [论文助手定制] Skill 管理入口：跳转到独立页面 /skills（管理页本身不放在主页）。 */}
           <TooltipV2 placement="bottom" value="Skill 管理">
             <IconButton
               type="button"
@@ -442,19 +460,24 @@ export function ThesisHome() {
             {(thesis) => (
               <div class="flex items-center gap-3 rounded-[10px] border border-v2-border-border-base bg-v2-background-bg-layer-01 px-4 py-3">
                 <Icon name="folder-add-left" class="shrink-0 text-v2-text-text-weak" />
-                <div class="min-w-0 flex-1">
+                {/* [论文助手定制] 点击卡片主体直接进入该论文的「论文工作台」（四步流程），而不是新建聊天 */}
+                <button
+                  type="button"
+                  class="min-w-0 flex-1 cursor-pointer text-left"
+                  onClick={() => startWriting(thesis.worktree)}
+                >
                   <div class="truncate text-14-medium text-v2-text-text-strong">{thesisName(thesis)}</div>
                   <div class="text-12-regular text-v2-text-text-weak">
                     {DateTime.fromMillis(thesisUpdatedAt(thesis)).toRelative() ?? ""}
                   </div>
-                </div>
+                </button>
                 <Button
                   size="small"
                   variant="ghost"
                   icon="speech-bubble"
                   onClick={() => dialog.show(() => <ThesisSessionsDialog thesis={thesis} />)}
                 >
-                  对话
+                  生成记录
                 </Button>
                 <Button
                   size="small"

@@ -35,13 +35,14 @@ import {
   onCleanup,
   type ParentProps,
   Show,
+  Suspense,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { CommandProvider, useCommand, type CommandOption } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
-import { ServerSDKProvider } from "@/context/server-sdk"
+import { ServerSDKProvider, useServerSDK } from "@/context/server-sdk"
 import { ServerSyncProvider, useServerSync } from "@/context/server-sync"
 import { GlobalProvider, useGlobal } from "@/context/global"
 import { HighlightsProvider } from "@/context/highlights"
@@ -56,8 +57,9 @@ import { ServerConnection, ServerProvider, serverName, useServer } from "@/conte
 import { SettingsProvider, useSettings } from "@/context/settings"
 import { TabsProvider, useTabs, type DraftTab } from "@/context/tabs"
 import { SDKProvider, useSDK } from "@/context/sdk"
+import { setBackToWorkbench } from "@/utils/back-to-workbench"
 import { WslServersProvider } from "@/wsl/context"
-import DirectoryLayout, { DirectoryDataProvider } from "@/pages/directory-layout"
+import DirectoryLayout, { decodeDirectory, DirectoryDataProvider } from "@/pages/directory-layout"
 import LegacyLayout from "@/pages/layout"
 import NewLayout from "@/pages/layout-new"
 import { ErrorPage } from "./pages/error"
@@ -71,6 +73,38 @@ import { LegacyHome } from "@/pages/home/legacy-home"
 import { ThesisSkillsPage } from "@/pages/skills"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
+// [论文助手定制] 论文工作台：四步标准化流程页面（提纲→写作→排版→评审）。
+const ThesisWorkbench = lazy(() => import("@/pages/thesis-workbench"))
+
+// [论文助手定制] 论文工作台独立顶层路由：
+// 提供与 DirectoryLayout 相同的 SDK / 数据同步上下文，直接渲染在新布局主区域。
+// 之前把工作台挂在 /:dir 旧版布局下，会被新布局 main 的 items-start 挤压成窄条（排版错乱），
+// 这里改为和会话页一样的自给自足路由，避免嵌套旧版侧边栏布局。
+function ThesisWorkbenchRoute() {
+  const params = useParams<{ dir: string }>()
+  const resolved = createMemo(() => decodeDirectory(params.dir) ?? "")
+
+  return (
+    <Show when={resolved()} keyed>
+      {(dir) => (
+        <ServerSDKProvider>
+          <ServerSyncProvider>
+            {/* [论文助手定制] LayoutProvider：让工作台在旧版布局（无侧边栏外壳）下也能读取项目列表 */}
+            <LayoutProvider>
+              <SDKProvider directory={dir}>
+                <DirectoryDataProvider directory={dir}>
+                  <Suspense fallback={<div class="size-full" />}>
+                    <ThesisWorkbench />
+                  </Suspense>
+                </DirectoryDataProvider>
+              </SDKProvider>
+            </LayoutProvider>
+          </ServerSyncProvider>
+        </ServerSDKProvider>
+      )}
+    </Show>
+  )
+}
 
 const SessionRoute = () => {
   const settings = useSettings()
@@ -128,11 +162,36 @@ function TargetServerRoute(props: ParentProps) {
   )
 }
 
-const TargetSessionRoute = () => (
-  <TargetServerRoute>
-    <TargetSessionRouteContent />
-  </TargetServerRoute>
-)
+function TargetSessionRoute() {
+  const params = useParams<{ serverKey: string; id: string }>()
+  const serverSDK = useServerSDK()
+  const navigate = useNavigate()
+  // [论文助手定制] 顶部标题栏已整个删除，会话页需要返回工作台的入口：
+  // /server/... 路由下没有 directory-scoped 的 SDK，改用 useServerSDK 拉会话信息拿到所属论文目录，
+  // 按钮本身挂载到会话标题行（与标题并列，不再悬浮遮挡标题）。
+  const [sessionInfo] = createResource(
+    () => params.id,
+    async (id) => {
+      if (!id) return undefined
+      const result = await serverSDK().client.session.get({ sessionID: id })
+      return result.data
+    },
+  )
+  createEffect(() => {
+    setBackToWorkbench({
+      onClick: () => {
+        const directory = sessionInfo()?.directory
+        navigate(directory ? `/${base64Encode(directory)}/workbench` : "/")
+      },
+    })
+  })
+  onCleanup(() => setBackToWorkbench(undefined))
+  return (
+    <TargetServerRoute>
+      <TargetSessionRouteContent />
+    </TargetServerRoute>
+  )
+}
 
 function LegacyTargetSessionRoute() {
   const params = useParams<{ serverKey: string; id: string }>()
@@ -618,6 +677,7 @@ function Routes(props: { serverScoped?: JSX.Element }) {
 
   return (
     <>
+      {/* [论文助手定制] Skill 管理独立页面（主页右上角按钮作为入口跳转到这里） */}
       <Route path="/skills" component={ThesisSkillsPage} />
       <Route
         component={(routeProps) => (
@@ -637,6 +697,8 @@ function Routes(props: { serverScoped?: JSX.Element }) {
           <Route path="/session/:id?" component={SessionRoute} />
         </Route>
       </Route>
+      {/* [论文助手定制] 论文工作台顶层路由：/论文目录/workbench（比 /:dir 更具体，优先匹配） */}
+      <Route path="/:dir/workbench" component={ThesisWorkbenchRoute} />
       <Show when={settings.general.newLayoutDesigns()}>
         <Route path="/" component={NewHome} />
         <Route path="/:dir/session/:id" component={NewLayoutLegacySessionRedirect} />

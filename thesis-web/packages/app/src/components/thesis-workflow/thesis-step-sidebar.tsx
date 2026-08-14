@@ -1,0 +1,229 @@
+// [论文助手定制] 论文工作台左侧面板。
+// 按用户要求，把原来页面顶部的栏目（返回主页 / 论文标题 / 资料）集中到这里，顶部栏已删除；
+// 会话管理也集中到侧边栏：显示“当前论文项目专属”的会话条目 + 新建会话按钮（对应项目只管对应项目的会话管理）。
+// 侧边栏从上到下：返回主页 → 论文标题 → 四步切换 → 本项目会话记录 → 底部工具（资料）。
+import type { SessionV2Info } from "@opencode-ai/sdk/v2/client"
+import { Button } from "@opencode-ai/ui/button"
+import { Icon } from "@opencode-ai/ui/icon"
+import { useQuery, useQueryClient } from "@tanstack/solid-query"
+import { DateTime } from "luxon"
+import { For, Show, startTransition } from "solid-js"
+import { useGlobal } from "@/context/global"
+import { useSDK } from "@/context/sdk"
+import { ServerConnection, useServer } from "@/context/server"
+import { useTabs } from "@/context/tabs"
+import { showToast } from "@/utils/toast"
+import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
+
+const STEPS = [
+  { key: "outline", label: "提纲助手", step: "第 1 步", icon: "bullet-list" },
+  { key: "writing", label: "辅助写作", step: "第 2 步", icon: "pencil-line" },
+  { key: "formatting", label: "论文排版", step: "第 3 步", icon: "layout-left" },
+  { key: "review", label: "论文评审", step: "第 4 步", icon: "magnifying-glass" },
+] as const
+
+export function ThesisStepSidebar(props: {
+  title: string
+  hasProject: boolean
+  onHome: () => void
+  onUpload: () => void
+}) {
+  const { state, setActiveStep } = useThesisWorkflow()
+  const sdk = useSDK()
+  const global = useGlobal()
+  const tabs = useTabs()
+  const server = useServer()
+  const queryClient = useQueryClient()
+  const active = () => state().activeStep
+  const stepStatus = (key: StepKey) => state().steps[key].status
+
+  // [论文助手定制] 会话管理（按项目隔离）：只拉取当前论文目录下的会话，最新的在前。
+  const sessions = useQuery(() => ({
+    queryKey: ["thesis", "sessions", sdk().directory],
+    queryFn: async () => {
+      const res = await sdk().client.v2.session.list({ directory: sdk().directory, limit: 20 })
+      const list = res.data?.data ?? []
+      return list.sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
+    },
+  }))
+
+  // [论文助手定制] 打开某个会话（走与主页「生成记录」对话框一致的打开逻辑：切到完整会话页）。
+  function openSession(session: { id: string; location: { directory: string } }) {
+    const conn = server.current
+    if (!conn) return
+    const ctx = global.ensureServerCtx(conn)
+    ctx.projects.open(session.location.directory)
+    ctx.projects.touch(session.location.directory)
+    void startTransition(() => {
+      const tab = tabs.addSessionTab({ server: ServerConnection.key(conn), sessionId: session.id })
+      tabs.select(tab)
+    })
+  }
+
+  // [论文助手定制] 新建会话：在当前论文目录下创建，刷新列表后打开它。
+  async function createSession() {
+    try {
+      const created = await sdk().api.session.create({ location: { directory: sdk().directory } })
+      if (!created?.id) throw new Error("创建会话失败")
+      await queryClient.invalidateQueries({ queryKey: ["thesis", "sessions", sdk().directory] })
+      const res = await sdk().client.v2.session.list({ directory: sdk().directory, limit: 20 })
+      const found = (res.data?.data ?? []).find((item) => item.id === created.id)
+      if (found) openSession(found)
+    } catch (err) {
+      showToast({
+        variant: "error",
+        icon: "circle-x",
+        title: "新建会话失败",
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  const statusLabel = (key: StepKey) => {
+    const status = stepStatus(key)
+    if (status === "done") return "已完成"
+    if (status === "generating") return "生成中…"
+    return "未开始"
+  }
+
+  return (
+    <div class="flex w-[220px] shrink-0 flex-col overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
+      {/* [论文助手定制] 顶部：返回主页 */}
+      <Button
+        type="button"
+        variant="ghost"
+        size="small"
+        icon="chevron-left"
+        class="w-full justify-start"
+        onClick={props.onHome}
+      >
+        主页
+      </Button>
+      {/* [论文助手定制] 论文标题 + 工作台标识（原来在顶部栏，现放入侧边栏） */}
+      <div class="flex items-center gap-1.5 px-3 pb-2 pt-1">
+        <Icon name="pencil-line" size="small" class="shrink-0 text-v2-text-text-base" />
+        <span class="min-w-0 flex-1 truncate text-13-medium text-v2-text-text-base">{props.title}</span>
+        <Show when={props.hasProject}>
+          <span class="shrink-0 rounded-full bg-v2-background-bg-layer-02 px-2 py-0.5 text-10-medium text-v2-text-text-faint">
+            论文工作台
+          </span>
+        </Show>
+      </div>
+      {/* 四步切换 */}
+      <div class="flex flex-col gap-1">
+        <For each={STEPS}>
+          {(item) => (
+            <button
+              type="button"
+              class="flex w-full cursor-pointer flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-colors"
+              classList={{
+                "bg-v2-background-bg-layer-01": active() === item.key,
+                "hover:bg-v2-background-bg-layer-01": active() !== item.key,
+              }}
+              onClick={() => setActiveStep(item.key)}
+            >
+              <span class="flex w-full items-center gap-1.5">
+                <Icon name={item.icon} size="small" class="shrink-0 text-v2-text-text-base" />
+                <span
+                  class="min-w-0 flex-1 truncate text-13-medium"
+                  classList={{
+                    "text-v2-text-text-accent": active() === item.key,
+                    "text-v2-text-text-base": active() !== item.key,
+                  }}
+                >
+                  {item.label}
+                </span>
+                {/* [论文助手定制] 状态圆点：完成=绿色勾，生成中=旋转，未开始=灰点 */}
+                <span class="shrink-0">
+                  <Show
+                    when={stepStatus(item.key) === "done"}
+                    fallback={
+                      <Show
+                        when={stepStatus(item.key) === "generating"}
+                        fallback={<span class="block size-2 rounded-full bg-v2-text-text-faint" />}
+                      >
+                        <span class="block size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
+                      </Show>
+                    }
+                  >
+                    <Icon name="circle-check" size="small" class="text-v2-text-text-accent" />
+                  </Show>
+                </span>
+              </span>
+              <span class="flex w-full items-center justify-between pl-5">
+                <span class="text-11-regular text-v2-text-text-faint">{item.step}</span>
+                <span
+                  class="text-11-regular"
+                  classList={{
+                    "text-v2-text-text-accent": stepStatus(item.key) === "done",
+                    "text-v2-text-text-faint": stepStatus(item.key) !== "done",
+                  }}
+                >
+                  {statusLabel(item.key)}
+                </span>
+              </span>
+            </button>
+          )}
+        </For>
+      </div>
+      {/* [论文助手定制] 本项目会话记录：条目可点击打开（当前生成会话高亮）+ 新建会话按钮 */}
+      <div class="mt-1 flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
+        <div class="flex items-center justify-between gap-1 px-2 pt-0.5">
+          <span class="text-11-regular text-v2-text-text-faint">会话记录</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="small"
+            icon="plus-small"
+            class="h-6 gap-0.5 px-1.5 text-11-medium"
+            onClick={() => void createSession()}
+          >
+            新会话
+          </Button>
+        </div>
+        <Show
+          when={sessions.data && sessions.data.length > 0}
+          fallback={
+            <div class="px-2 pb-1 pt-0.5 text-11-regular text-v2-text-text-faint">
+              暂无会话，生成或新建后会出现在这里
+            </div>
+          }
+        >
+          <For each={sessions.data}>
+            {(session) => (
+              <button
+                type="button"
+                class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
+                classList={{ "bg-v2-background-bg-layer-01": state().sessionID === session.id }}
+                onClick={() => openSession(session)}
+              >
+                <Icon name="speech-bubble" size="small" class="shrink-0 text-v2-text-text-faint" />
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-12-regular text-v2-text-text-base">
+                    {session.title || "未命名对话"}
+                  </span>
+                  <span class="block text-10-regular text-v2-text-text-faint">
+                    {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
+                  </span>
+                </span>
+              </button>
+            )}
+          </For>
+        </Show>
+      </div>
+      {/* [论文助手定制] 底部工具：资料上传 */}
+      <div class="mt-auto flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="small"
+          icon="cloud-upload"
+          class="w-full justify-start"
+          onClick={props.onUpload}
+        >
+          资料
+        </Button>
+      </div>
+    </div>
+  )
+}

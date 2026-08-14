@@ -1,27 +1,14 @@
 import { createEffect, Suspense, type ParentProps } from "solid-js"
-import { createStore } from "solid-js/store"
 import { DebugBar } from "@/components/debug-bar"
 import { TabsInfoPopup } from "@/components/help-button"
-import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
-import { usePlatform } from "@/context/platform"
 import { setV2Toast, ToastRegion } from "@/utils/toast"
+import { debugToolsVisible } from "@/utils/debug-tools"
 
 export default function NewLayout(props: ParentProps) {
-  const platform = usePlatform()
-  const [state, setState] = createStore({ debugTools: true })
-
   createEffect(() => setV2Toast(true))
 
-  const update: TitlebarUpdate = {
-    version: () => {
-      const state = platform.updater?.state()
-      if (state?.status !== "ready") return
-      return state.version
-    },
-    installing: () => platform.updater?.state().status === "installing",
-    install: () => void platform.updater?.install(),
-  }
-
+  // [论文助手定制] 顶部标题栏已整个删除（Home/标签页/新建会话等都不再显示），
+  // 各页面顶部空间被腾出来；调试栏（NAV/FPS 统计）默认隐藏，由主页上的 DEV 按钮切换。
   return (
     <div
       class="relative bg-v2-background-bg-deep flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
@@ -30,18 +17,10 @@ export default function NewLayout(props: ParentProps) {
         "padding-bottom": "env(safe-area-inset-bottom, 0px)",
       }}
     >
-      <Titlebar
-        update={update}
-        debugTools={
-          import.meta.env.DEV
-            ? { visible: state.debugTools, toggle: () => setState("debugTools", (value) => !value) }
-            : undefined
-        }
-      />
       <main class="flex-1 min-h-0 min-w-0 overflow-x-hidden flex flex-col items-start contain-strict">
         <Suspense>{props.children}</Suspense>
       </main>
-      {import.meta.env.DEV && state.debugTools && <DebugBar inline />}
+      {import.meta.env.DEV && debugToolsVisible() && <DebugBar inline />}
       <TabsInfoPopup />
       <ToastRegion v2 />
     </div>

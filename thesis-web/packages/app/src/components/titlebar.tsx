@@ -37,7 +37,6 @@ import { ServerConnection, useServer } from "@/context/server"
 import { tabKey, useTabs } from "@/context/tabs"
 import type { PromptSession } from "@/context/prompt"
 import "./titlebar.css"
-import { newTabTooltipKeybind } from "./command-tooltip-keybind"
 import { normalizeSessionInfo } from "@/utils/session"
 
 const legacyTitlebarHeight = 40
@@ -410,25 +409,6 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                   }}
                   onReorder={(keys) => tabsStoreActions.reorder(keys)}
                 />
-                <TooltipV2
-                  placement="bottom"
-                  value={
-                    <>
-                      {language.t("command.session.new")}
-                      <KeybindV2 keys={newTabTooltipKeybind(command)} variant="neutral" />
-                    </>
-                  }
-                >
-                  <IconButtonV2
-                    type="button"
-                    variant="ghost-muted"
-                    size="large"
-                    class="shrink-0"
-                    icon={<IconV2 name="plus" />}
-                    onClick={openNewTab}
-                    aria-label={language.t("command.session.new")}
-                  />
-                </TooltipV2>
                 <div class="flex-1" />
                 <TitlebarV2Right state={v2RightState()} />
               </div>
@@ -503,27 +483,6 @@ export function Titlebar(props: { update?: TitlebarUpdate; debugTools?: { visibl
                           "opacity-0 duration-120 ease-in delay-0 pointer-events-none": layout.sidebar.opened(),
                         }}
                       >
-                        <TooltipKeybind
-                          placement="bottom"
-                          title={language.t("command.session.new")}
-                          keybind={command.keybind("session.new")}
-                          openDelay={800}
-                        >
-                          <Button
-                            variant="ghost"
-                            class="titlebar-icon w-8 h-6 p-0 box-border"
-                            disabled={layout.sidebar.opened()}
-                            tabIndex={layout.sidebar.opened() ? -1 : undefined}
-                            onClick={() => {
-                              if (!params.dir) return
-                              navigate(`/${params.dir}/session`)
-                            }}
-                            aria-label={language.t("command.session.new")}
-                            aria-current={creating() ? "page" : undefined}
-                          >
-                            <IconV2 name="edit" size="small" />
-                          </Button>
-                        </TooltipKeybind>
                       </div>
                     </div>
                   </Show>
@@ -646,28 +605,33 @@ function TitlebarUpdateIconButton(props: { state: TitlebarUpdatePillState }) {
 }
 
 function ChannelIndicator(props: { debugTools?: { visible: boolean; toggle: () => void } }) {
+  const location = useLocation()
   const channel = import.meta.env.VITE_OPENCODE_CHANNEL
-  if (channel === "dev" && props.debugTools) {
-    return (
-      <button
-        type="button"
-        class="bg-icon-interactive-base text-[#FFF] font-medium px-2 rounded-sm uppercase font-mono cursor-pointer"
-        onClick={props.debugTools.toggle}
-        aria-label="Toggle debug tools"
-        aria-pressed={props.debugTools.visible}
-      >
-        DEV
-      </button>
-    )
-  }
-
+  // [论文助手定制] 频道指示（DEV 按钮/徽标）只在主页（/）显示：放在组件内部用 createMemo + Show 判断，
+  // 这样路由切换时能响应式显隐；不能放在 layout 里按路由传 undefined——标题栏组件只创建一次，
+  // 路由切换不会重渲染，旧按钮会残留；而且 prop 从对象变 undefined 会让编译出的 effect 崩溃。
+  const showChannel = createMemo(() => location.pathname === "/")
   return (
-    <>
-      {["beta", "dev"].includes(channel) && (
-        <div class="bg-icon-interactive-base text-[#FFF] font-medium px-2 rounded-sm uppercase font-mono">
-          {channel.toUpperCase()}
-        </div>
+    <Show when={showChannel()}>
+      {channel === "dev" && props.debugTools ? (
+        <button
+          type="button"
+          class="bg-icon-interactive-base text-[#FFF] font-medium px-2 rounded-sm uppercase font-mono cursor-pointer"
+          onClick={props.debugTools.toggle}
+          aria-label="Toggle debug tools"
+          aria-pressed={props.debugTools?.visible}
+        >
+          DEV
+        </button>
+      ) : (
+        <>
+          {["beta", "dev"].includes(channel) && (
+            <div class="bg-icon-interactive-base text-[#FFF] font-medium px-2 rounded-sm uppercase font-mono">
+              {channel.toUpperCase()}
+            </div>
+          )}
+        </>
       )}
-    </>
+    </Show>
   )
 }

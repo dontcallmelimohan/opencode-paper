@@ -40,12 +40,6 @@ import { showToast } from "@/utils/toast"
 import { base64Encode, checksum } from "@opencode-ai/core/util/encode"
 import { useLocation, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
-import { SessionAgentSidebar } from "@/components/session/agent-sidebar"
-// [论文助手定制] 写作模式配置面板条（显示在会话框上部，可收起）。
-import { ThesisConfigPanelStrip } from "@/components/session/thesis-mode-config-panel"
-// [论文助手定制] 每个模式一份技能清单：切换模式时自动换装输入框里的 @技能。
-import { ThesisModeSkillsSync } from "@/components/session/thesis-mode-skills"
-import { WritingModeProvider } from "@/components/session/writing-mode"
 import { ErrorPage } from "@/pages/error"
 import { CommentsProvider, useComments } from "@/context/comments"
 import { useCommand } from "@/context/command"
@@ -2063,8 +2057,6 @@ export default function Page() {
   const sessionPanelContent = () => (
     <>
       {sessionSync() ?? ""}
-      {/* [论文助手定制] 配置面板显示在会话框上部，可通过「收起」减少占位。 */}
-      <ThesisConfigPanelStrip sessionID={params.id} />
       <Show when={!isDesktop() && !!params.id && settings.general.newLayoutDesigns() && !mobileTabsBottom()}>
         {mobileTabs(true)}
       </Show>
@@ -2260,13 +2252,7 @@ export default function Page() {
           "gap-2 p-2": settings.general.newLayoutDesigns(),
         }}
       >
-        {/* [论文助手定制] WritingModeProvider 提升到整行，让侧边栏与会话框上部的配置面板共享模式状态。 */}
-        <WritingModeProvider>
-        {/* [论文助手定制] 技能与模式挂钩：同步“每模式一份技能”到输入框（不渲染 UI）。 */}
-        <ThesisModeSkillsSync prompt={prompt} />
         <Show when={!isDesktop() && !!params.id && !settings.general.newLayoutDesigns()}>{mobileTabs()}</Show>
-
-        <SessionAgentSidebar />
 
         <div
           classList={{
@@ -2391,7 +2377,6 @@ export default function Page() {
             </div>
           </Show>
         </Show>
-        </WritingModeProvider>
       </div>
 
       <Show when={!newSessionDesign()}>

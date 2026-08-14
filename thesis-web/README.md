@@ -22,13 +22,14 @@ opencode-dev/
 │       │       ├── app.tsx          # 路由表 + 全局 Provider 组装
 │       │       ├── index.css        # 全局样式
 │       │       ├── pages/           # 页面
-│       │       │   ├── home/        # 论文主页（项目列表、上传资料、对话列表）
+│       │       │   ├── home/        # 论文主页（项目列表、上传资料、生成记录、Skill 管理入口）
+│       │       │   ├── thesis-workbench.tsx  # 论文工作台（四步标准化流程，核心页面）
 │       │       │   ├── session/     # 会话页（对话界面）
 │       │       │   ├── new-session/ # 新建会话（draft）
-│       │       │   └── skills.tsx   # Skill 管理页
+│       │       │   └── skills.tsx   # Skill 管理独立页
 │       │       ├── components/      # 组件
-│       │       │   └── session/
-│       │       │       └── agent-sidebar.tsx  # ★ 会话左侧栏：写作模式/技能/亮暗切换
+│       │       │   ├── thesis-workflow/  # 论文工作台组件（四步流程、知识库、生成器）
+│       │       │   └── session/          # 会话组件（原写作模式侧边栏/配置面板已删除）
 │       │       ├── context/         # 全局状态（server、sync、settings、tabs、sdk 等）
 │       │       └── utils/           # 工具函数
 │       ├── session-ui/          # 会话 UI 库：消息列表、输入框（PromptInputV2 等）
@@ -112,8 +113,8 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 - 论文项目列表（卡片展示标题、更新时间），按更新时间排序
 - 「新建论文」：输入标题 → 后端在 `thesis-workspace/<标题>/` 下创建目录并注册为项目
 - 「上传资料」：把文件写入论文目录的 `资料/` 子目录；**PDF 上传后自动提取文本**，生成同名 `.txt`
-- 「对话列表」：查看该论文下的所有会话，点击可进入
-- 「开始写作」：打开该论文工作区并新建一个对话
+- 「生成记录」：查看该论文下的所有会话（各步生成的聊天记录）
+- 「开始写作」/点击卡片：进入该论文的「论文工作台」（四步标准化流程，见下）
 - 右上角入口：Skill 管理、设置、亮暗模式切换
 
 实现原理：
@@ -122,31 +123,50 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 - PDF 提取：上传后前端调 `client.instance.thesisPdfText` → 后端用 `unpdf` 库解析 PDF，把全文写入 `资料/<同名>.txt`，会话中可直接引用文本
 - 论文工作区路径可自定义：设置里的 `thesisWorkspace` 配置项，读取逻辑见 `thesis-home.tsx` 的 `theses` 查询
 
-### 2. 会话页（`/session`，`pages/session/`）
+### 2. 论文工作台（`/:dir/workbench`，`pages/thesis-workbench.tsx`）
+
+> 核心页面：论文生产以「四步标准化流程」为主体，不再以聊天为主导；对话只作为生成记录。
 
 功能：
 
-- 左侧栏四步写作模式：**提纲助手 → 辅助写作 → 论文排版 → 论文评审**（`components/session/agent-sidebar.tsx` 的 `WRITING_MODES`）；点击某行即切换模式，侧边栏不再放配置按钮
-- **写作模式配置面板（会话框上部）**：配置面板显示在**会话框（对话区）上部**，打开/收起/关闭按钮全部在会话页面上（侧边栏没有 ⚙）。切换写作模式会自动打开该模式自己的面板；面板头部「收起」→ 一行细栏，「展开」恢复，× 关闭；关闭后仍保留一行控制条，点「打开配置」再次展开（`components/session/thesis-mode-config-panel.tsx` 的 `ThesisConfigPanelStrip`、`thesis-outline-assistant.tsx`、`thesis-prompt-sender.ts`；会话页与新建会话页都渲染该面板条）
-- **配置与技能都是每个模式一份**：提纲助手/通用面板填的内容分别保存在各自模式名下（`writing-mode.tsx` 的 `modeConfigs`，localStorage 持久化），切换模式后回来内容还在；技能同理（`writing-mode.tsx` 的 `skillsByMode` + `components/session/thesis-mode-skills.ts` 的 `ThesisModeSkillsSync`）：切换模式时输入框里的 `@技能` 自动换成当前模式保存的那份，会话上下文始终互通
-- 侧边栏可完全收起（留一个浮动 `›` 按钮），状态存 localStorage
-- 会话内可多选 Skill：输入框上方显示已挂载的 `@skill名` 标签，可点 × 移除（`session-ui/src/v2/components/prompt-input/index.tsx` 的 `PromptInputV2SkillsMenu`）
-- 亮暗模式切换（侧边栏与主页都有入口）
+- 左侧四步流程面板：**提纲助手 → 辅助写作 → 论文排版 → 论文评审**（`components/thesis-workflow/thesis-step-sidebar.tsx`），竖向排列在左侧，点击切换，每步显示状态（未开始/生成中/已完成）
+- 每步页面 = 左侧输入表单 + 右侧产物面板（`components/thesis-workflow/thesis-workflow-ui.tsx` 的 `StepLayout`）；产物用 Markdown 渲染（`Markdown` 组件）
+- **Step 1 提纲助手**（`step-outline.tsx`）：填写综述需求、方向侧重、生成选项；**知识库面板**（`thesis-knowledge-panel.tsx`）支持手写知识条目（文件夹分类、搜索、新建/编辑/删除）与「资料」目录文件，勾选后一起打包进提示词
+- **Step 2 辅助写作**（`step-writing.tsx`）：基于提纲 + 期刊/风格/侧重/参考文献格式/长度等设定生成章节草稿，多次生成自动累积成全文稿
+- **Step 3 论文排版**（`step-formatting.tsx`）：以全文稿为源，按期刊/模板、参考文献格式、标题层级整理最终稿
+- **Step 4 论文评审**（`step-review.tsx`）：以排版稿（优先）为评审对象，输出评审报告；报告若含 ```` ```json ```` 结构化块则渲染为「评分环 + 分项指标 + 意见 + 建议」（`thesis-review-report.tsx`），否则回退 Markdown
+
+实现原理：
+
+- 每篇论文一份工作流状态（`thesis-workflow-store.ts`），存 localStorage（key 按论文工作区路径隔离）：`activeStep`、各步输入/状态/产物、专属生成会话 id
+- 每篇论文复用**一个专属会话**（`sessionID` 存工作流状态）：提纲/写作/排版/评审都在同一上下文里，模型能记住前面的产出
+- 生成调用（`thesis-generator.ts`）：把当前步的表单配置打包成提示词 → 创建/复用会话 → `session.prompt` 发送 → 轮询同步 store 等待 assistant 回复 → 文本保存为该步产物
+- 知识库条目（`thesis-knowledge-store.ts`）同样按论文隔离存 localStorage；资料文件仍从论文目录 `资料/` 读取
+- 主页卡片点击 / 「开始写作」→ `startWriting` 导航到 `/:dir/workbench`（`thesis-home.tsx`）
+
+### 3. 会话页（`/session`，`pages/session/`）
+
+> 论文工作台上线后，会话页回归 opencode 原生对话界面：**原来加在聊天里的写作模式侧边栏与配置面板已删除**（`components/session/agent-sidebar.tsx`、`thesis-mode-config-panel.tsx`、`thesis-mode-skills.ts`、`writing-mode.tsx` 等已移除）。四个写作模式的配置与流程全部在「论文工作台」里完成，会话只作为每篇论文的生成记录 / 辅助查看。
+
+功能：
+
+- 会话内可多选 Skill：输入框上方显示已挂载的 `@skill名` 标签，可点 × 移除（`session-ui/src/v2/components/prompt-input/index.tsx` 的 `PromptInputV2SkillsMenu`）；Skill 由主页管理
 - Markdown 文件预览：会话附件可切换「源码 / 渲染」视图（`pages/session/markdown-file-preview.tsx`）
 
 实现原理：
 
-- 写作模式是前端状态（localStorage 记忆），同时决定“当前使用哪个模式的面板与技能清单”；模式之间的对话上下文互通
-- 选中 skill 后以 `PromptInputV2AgentPart` 形式附加到用户消息，随 prompt 发给后端，后端会注入对应 agent 的任务指令；`ThesisModeSkillsSync` 监听输入框里的 agent 部分，模式切换时写回旧模式并装载新模式保存的清单
+- 选中 skill 后以 `PromptInputV2AgentPart` 形式附加到用户消息，随 prompt 发给后端，后端会注入对应 agent 的任务指令（多选 skill 可同时挂载）
 - 消息通过 SSE 流式返回，由 `session-ui` 渲染
 
-### 3. Skill 管理页（`/skills`，`pages/skills.tsx`）
+### 4. Skill 管理页（`/skills`，`pages/skills.tsx`）
 
 功能：
 
 - 上传 markdown 文件 → 自动解析 frontmatter 里的 `name`/`description`（没有则用文件名），创建同名 agent
 - 支持从本地文件夹导入（文件夹须包含 `SKILL.md`）
 - 安装后的 skill 列表、启用/停用
+
+入口位置：论文主页右上角「Skill 管理」按钮 → 跳转到独立页面 `/skills`（点击卡片设为当前使用的 Agent，全局生效）。
 
 实现原理（前后端配合）：
 
@@ -157,7 +177,7 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 - 写入后调用 `finalizeSkillInstall` 刷新 config / agent / skill 缓存，立即生效
 - 因此上传一个 skill 后，任何论文项目都能在输入框里选择它
 
-### 4. 全局能力
+### 5. 全局能力
 
 - 主题：`@opencode-ai/ui/theme`，亮/暗模式持久化
 - 国际化：`app/src/i18n`，内置多语言

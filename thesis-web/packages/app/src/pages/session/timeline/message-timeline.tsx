@@ -72,6 +72,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { notifySessionTabsRemoved } from "@/components/titlebar-session-events"
 import { sessionTitle } from "@/utils/session-title"
+import { backToWorkbench } from "@/utils/back-to-workbench"
 import { scheduleConnectedMeasure } from "./measure"
 import { observeElementOffsetReconnectAware } from "./observe-element-offset"
 import { createTimelineProjection } from "./projection"
@@ -1431,6 +1432,19 @@ export function MessageTimeline(props: {
             }}
           >
             <div class="h-12 w-full flex items-center justify-between gap-2">
+              {/* [论文助手定制] 顶部标题栏删除后，会话标题行左侧渲染「返回工作台」按钮，与标题并列不再遮挡 */}
+              <Show when={backToWorkbench()}>
+                {(item) => (
+                  <button
+                    type="button"
+                    data-action="back-to-workbench"
+                    class="ml-1 flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-base transition-colors hover:bg-v2-overlay-simple-overlay-hover"
+                    onClick={item().onClick}
+                  >
+                    ← 返回工作台
+                  </button>
+                )}
+              </Show>
               <div
                 classList={{
                   "flex items-center gap-1 min-w-0 flex-1": true,
