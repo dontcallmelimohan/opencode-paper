@@ -219,6 +219,9 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     onAbort: props.onAbort,
     onSubmit: props.onSubmit,
     model: props.controls.model.selection,
+    // [论文助手定制] 透传嵌入模式：工作台会话视图复用专属会话、发送后不跳转。
+    embedded: props.embedded,
+    onSessionCreated: props.onSessionCreated,
   })
 
   const referenceDescription = (reference: ReferenceInfo) =>

@@ -1,29 +1,68 @@
 // [论文助手定制] 论文工作台产物区域的「会话」视图：
-// 在展示文稿的同一个位置切换为“该论文专属会话”的聊天记录，
-// 生成过程中可以实时看到模型输出进度（消息/文本增量通过 sync 数据流式刷新）。
-import { Button } from "@opencode-ai/ui/button"
+// 在展示文稿的同一个位置显示该论文专属会话的聊天记录，并支持直接继续对话：
+//   - 底部输入框：与主会话页同款完整对话框（PromptInputV2），带模型选择、skill 选择、
+//     @引用/附件等；发送后复用该论文的专属会话（还没有则自动创建），模型回复流式显示；
+//   - 每条助手消息可「存为当前文稿」：把该回复采纳为当前步骤的产物，支持反复修改迭代。
 import { Icon } from "@opencode-ai/ui/icon"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Message } from "@opencode-ai/session-ui/message-part"
-import { useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, For, onMount, Show } from "solid-js"
-import { base64Encode } from "@opencode-ai/core/util/encode"
+import type { AssistantMessage } from "@opencode-ai/sdk/v2"
+import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
+import { useServerSync } from "@/context/server-sync"
+import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { createPromptInputController } from "@/pages/session/composer"
+import { createPromptModelSelection } from "@/pages/session/composer/prompt-model-selection"
+import { useSessionKey } from "@/pages/session/session-layout"
+import { useComposerCommands } from "@/pages/session/use-composer-commands"
+import { showToast } from "@/utils/toast"
 import { normalizeSessionMessages } from "@/utils/session-message"
+import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
 
 export function ThesisSessionView() {
   const sdk = useSDK()
   const sync = useSync()
-  const navigate = useNavigate()
-  const { state } = useThesisWorkflow()
+  const local = useLocal()
+  const serverSync = useServerSync()
+  const { state, setSessionID, setStepResult } = useThesisWorkflow()
+  // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到 正文/<step>.md。
+  const manuscript = useThesisManuscriptFile(sdk().directory)
   const sessionID = () => state().sessionID
+  const route = useSessionKey()
 
   // [论文助手定制] 复用主会话页的自动滚动 Hook：内容渲染完成后（ResizeObserver 在布局后触发）
   // 自动保持底部，用户上翻时暂停跟随，回到底部后恢复。这样每次切到「会话」视图都会定位到最底部，
   // 生成中的流式内容增长也不会把视图留在顶部。
   const autoScroll = createAutoScroll({ working: () => true, overflowAnchor: "none" })
+
+  // [论文助手定制] 与主会话页一致的模型选择器（读取当前 agent 的配置模型，支持最近使用/回退）。
+  const model = createPromptModelSelection({ agent: () => local.agent.current() })
+  // [论文助手定制] 注册输入框快捷键/命令（模型选择、agent 循环等），与主会话页保持一致。
+  useComposerCommands({ model })
+
+  // [论文助手定制] 完整输入框控制器：agent/skill 列表、模型、会话信息都从这里取；
+  // sessionKey 用工作区级 key（路由里没有会话 id），sessionID 直接用论文工作流的专属会话。
+  const controls = createPromptInputController({
+    sessionKey: route.sessionKey,
+    sessionID,
+    queryOptions: serverSync().queryOptions,
+    model,
+  })
+
+  // [论文助手定制] 完整会话输入框（PromptInputV2Composer）：
+  // embedded 模式=复用本论文专属会话继续对话、发送后不跳转页面；
+  // 首次发送（还没有专属会话）时自动创建，onSessionCreated 把新会话写回工作流状态。
+  const input = usePromptInputV2Controller({
+    get controls() {
+      return controls()
+    },
+    embedded: true,
+    onSessionCreated: (id) => setSessionID(id),
+    onSubmit: () => autoScroll.resume(),
+  })
 
   // [论文助手定制] 打开会话视图时确保该会话已同步（先拉历史消息，之后 SSE 增量继续写入）。
   createEffect(() => {
@@ -48,52 +87,83 @@ export function ThesisSessionView() {
     autoScroll.resume()
   })
 
-  const openFullSession = () => {
-    const id = sessionID()
-    if (!id) return
-    navigate(`/${base64Encode(sdk().directory)}/session/${id}`)
+  // [论文助手定制] 提取某条助手消息的纯文本（读流式 part store，与生成器取回复文本的方式一致）。
+  const assistantText = (messageId: string) => {
+    const parts = sync().data.part[messageId] ?? []
+    return parts
+      .filter((part) => part.type === "text" && "text" in part)
+      .map((part) => (part as { text: string }).text)
+      .join("")
+      .trim()
+  }
+
+  // [论文助手定制] 采纳回复：把该条助手消息的文本存为当前步骤的文稿（反复修改的落点）。
+  const saveAsResult = async (messageId: string) => {
+    const text = assistantText(messageId)
+    if (!text) {
+      showToast({ variant: "error", icon: "circle-x", title: "这条回复还没有文本内容" })
+      return
+    }
+    // [论文助手定制] 先落盘再更新 result：文稿视图重读文件时能读到新内容。
+    await manuscript.save(state().activeStep, text)
+    setStepResult(state().activeStep, text)
+    showToast({ variant: "success", icon: "circle-check", title: "已存为当前步骤文稿" })
   }
 
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
-      <Show
-        when={sessionID()}
-        fallback={
-          <div class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <Icon name="speech-bubble" size="large" class="text-v2-text-text-faint" />
-            <div class="text-12-regular text-v2-text-text-faint">
-              还没有会话记录，先生成一次，即可在这里切换查看对话过程。
+      <div class="flex shrink-0 items-center justify-between gap-2 border-b border-v2-border-border-base px-3 py-2">
+        <span class="text-12-regular text-v2-text-text-faint">该论文的专属会话 · 可继续对话修改</span>
+      </div>
+      <div ref={autoScroll.scrollRef} onScroll={autoScroll.handleScroll} class="min-h-0 flex-1 overflow-y-auto">
+        <Show
+          when={normalized().messages.length > 0}
+          fallback={
+            <div class="flex h-full items-center justify-center px-6 text-center text-12-regular text-v2-text-text-faint">
+              {sessionID()
+                ? "会话已创建，等待生成内容…"
+                : "还没有会话，可以在下方输入内容直接开始对话，或先在左侧表单里「生成」。"}
             </div>
-          </div>
-        }
-      >
-        <div class="flex shrink-0 items-center justify-between gap-2 border-b border-v2-border-border-base px-3 py-2">
-          <span class="text-12-regular text-v2-text-text-faint">该论文的专属会话 · 实时生成记录</span>
-          <Button type="button" variant="ghost" size="small" icon="square-arrow-top-right" onClick={openFullSession}>
-            打开完整会话
-          </Button>
-        </div>
-        <div ref={autoScroll.scrollRef} onScroll={autoScroll.handleScroll} class="min-h-0 flex-1 overflow-y-auto">
-          <Show
-            when={normalized().messages.length > 0}
-            fallback={
-              <div class="flex h-full items-center justify-center px-6 text-center text-12-regular text-v2-text-text-faint">
-                会话已创建，等待生成内容…
-              </div>
-            }
-          >
-            <div ref={autoScroll.contentRef} class="flex flex-col">
-              <For each={normalized().messages}>
-                {(message) => (
+          }
+        >
+          <div ref={autoScroll.contentRef} class="flex flex-col">
+            <For each={normalized().messages}>
+              {(message) => {
+                // [论文助手定制] 类型收窄：只有助手消息才有 finish/error，用于「存为当前文稿」按钮。
+                const assistant = message.role === "assistant" ? (message as AssistantMessage) : undefined
+                // [论文助手定制] 完成判定：该后端消息完成可能只带 time.completed（没有 finish），两个都认。
+                const done = !!assistant && (!!assistant.finish || !!assistant.time.completed)
+                return (
                   <div class="px-4 py-2 md:px-5">
+                    {/* [论文助手定制] 助手消息完成且无错误时，提供「存为当前文稿」：把该回复采纳为当前步骤产物 */}
+                    <Show when={assistant && !assistant.error}>
+                      <div class="flex items-center justify-end pb-1">
+                        <button
+                          type="button"
+                          data-action="save-message-as-result"
+                          class="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-11-medium text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
+                          classList={{ "cursor-default opacity-40": !done }}
+                          disabled={!done}
+                          onClick={() => void saveAsResult(assistant!.id)}
+                        >
+                          <Icon name="circle-check" size="small" />
+                          {done ? "存为当前文稿" : "生成中…"}
+                        </button>
+                      </div>
+                    </Show>
                     <Message message={message} parts={sync().data.part[message.id] ?? []} useV2Actions />
                   </div>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-      </Show>
+                )
+              }}
+            </For>
+          </div>
+        </Show>
+      </div>
+      {/* [论文助手定制] 底部完整会话输入框：与主会话页同款（模型选择、skill 选择、@引用/附件、
+          发送/停止）；embedded 模式复用本论文专属会话、发送后不跳转。 */}
+      <div class="shrink-0 border-t border-v2-border-border-base p-2">
+        <PromptInputV2Composer controller={input} borderUnderlay />
+      </div>
     </div>
   )
 }

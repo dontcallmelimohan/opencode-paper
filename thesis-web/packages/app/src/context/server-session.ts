@@ -249,7 +249,19 @@ export function createServerSession(
 
   const indexLegacyMessage = (message: Message) => {
     const current = data.session_message[message.sessionID] ?? []
-    if (current.some((item) => item.id === message.id)) return
+    // [论文助手定制] 修复：消息已存在时不再直接跳过，而是用最新的 legacy 状态合并 time
+    // （message.updated 事件会先发“shell”版本、再发带 time.completed 的最终版本，
+    // 原逻辑丢弃后者导致会话消息永远停留在“未完成”状态——生成/继续对话都无法结束等待）。
+    if (current.some((item) => item.id === message.id)) {
+      const updated = legacyMessageSource([{ info: message, parts: [] }])[0]
+      if (updated)
+        setData("session_message", message.sessionID, (messages) =>
+          (messages ?? []).map((item) =>
+            item.id === message.id && item.type === updated.type ? { ...item, time: updated.time } : item,
+          ),
+        )
+      return
+    }
     setData(
       "session_message",
       message.sessionID,

@@ -12,10 +12,20 @@ import { LSP } from "@/lsp/lsp"
 import { Project } from "@/project/project"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
-import { Effect } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ApiSkillInstallError, ApiThesisError, ApiVcsApplyError } from "../groups/instance"
+import {
+  ApiSkillInstallError,
+  ApiThesisError,
+  ApiVcsApplyError,
+  ThesisDeleteBody,
+  ThesisExportDocxBody,
+  ThesisSaveManuscriptBody,
+} from "../groups/instance"
+import { markdownToDocx } from "../thesis-docx"
+import { htmlToPdf } from "../thesis-pdf"
+import type { ThesisDocxOptions } from "../thesis-docx"
 import { markInstanceForDisposal } from "../lifecycle"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import path from "path"
@@ -223,8 +233,135 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* finalizeSkillInstall(name)
     })
 
+    // [论文助手定制] Skill 管理：卸载。删除全局 skills/<name> 目录与 agent/<name>.md，
+    // 然后重载 agent/skill 列表，使会话侧与 Skill 管理页立即不再出现该 skill。
+    const uninstallSkill = Effect.fn("InstanceHttpApi.skillUninstall")(function* (ctx: {
+      payload: { name: string }
+    }) {
+      const name = ctx.payload.name.trim()
+      if (!/^[\p{L}\p{N}_-]+$/u.test(name) || name.startsWith(".")) {
+        return yield* Effect.fail(skillInstallError(`Invalid skill name: "${name}". Use letters, numbers, _ or -`))
+      }
+      const skillPath = path.join(Global.Path.config, "skills", name)
+      const agentPath = path.join(Global.Path.config, "agent", `${name}.md`)
+      yield* fs.remove(skillPath, { recursive: true }).pipe(Effect.catch(() => Effect.void))
+      yield* fs.remove(agentPath).pipe(Effect.catch(() => Effect.void))
+      yield* config.invalidateAll()
+      yield* agent.reloadAll()
+      yield* skill.reloadAll()
+      return { name }
+    })
+
+    // [论文助手定制] Skill 管理：zip 安装。前端把 zip 解压成 { path, content } 文件树上传，
+    // 后端校验路径安全后写入全局 skills/<name>（含 SKILL.md / references / static 等），
+    // 并创建同名 agent，行为与「选择本地 Skill 文件夹」一致，只是数据来源是 zip。
+    const installSkillZip = Effect.fn("InstanceHttpApi.skillInstallZip")(function* (ctx: {
+      payload: { name: string; description?: string; files: readonly { readonly path: string; readonly content: string }[] }
+    }) {
+      const { name, description, files } = ctx.payload
+      const trimmed = name.trim()
+      if (!/^[\p{L}\p{N}_-]+$/u.test(trimmed) || trimmed.startsWith(".")) {
+        return yield* Effect.fail(skillInstallError(`Invalid skill name: "${name}". Use letters, numbers, _ or -`))
+      }
+      // 防路径穿越：只允许相对路径，禁止 .. 与绝对路径。
+      for (const file of files) {
+        const rel = file.path.replace(/\\/g, "/")
+        if (rel.startsWith("/") || rel.split("/").some((segment) => segment === "..")) {
+          return yield* Effect.fail(skillInstallError(`Invalid file path in zip: "${file.path}"`))
+        }
+      }
+      const writeError = (error: unknown) =>
+        new ApiSkillInstallError({
+          name: "SkillInstallError",
+          data: { message: `Failed to write skill files: ${error instanceof Error ? error.message : String(error)}` },
+        })
+      const target = path.join(Global.Path.config, "skills", trimmed)
+      yield* fs.remove(target, { recursive: true }).pipe(Effect.catch(() => Effect.void))
+      for (const file of files) {
+        const filePath = path.join(target, file.path)
+        yield* fs.writeWithDirs(filePath, file.content).pipe(Effect.mapError(writeError))
+      }
+      yield* fs
+        .writeWithDirs(
+          path.join(Global.Path.config, "agent", `${trimmed}.md`),
+          `---\nmode: primary\ndescription: ${description ?? ""}\n---\n\nYou are the ${trimmed} agent. Always follow the instructions in the ${trimmed} skill to complete the user's request.\n`,
+        )
+        .pipe(Effect.mapError(writeError))
+      return yield* finalizeSkillInstall(trimmed)
+    })
+
     const thesisError = (message: string) =>
       new ApiThesisError({ name: "ThesisError", data: { message } })
+
+    // [论文助手定制] 论文工作区根目录：优先用设置里的 thesisWorkspace，否则默认 ~/thesis-workspace。
+    const thesisRoot = Effect.fn("InstanceHttpApi.thesisRoot")(function* () {
+      const cfg = yield* config.get()
+      const configured = cfg.thesisWorkspace?.trim()
+      return configured
+        ? configured.replace(/^~(?=\/|$)/, Global.Path.home)
+        : path.join(Global.Path.home, "thesis-workspace")
+    })
+
+    // [论文助手定制] 扫描目录下所有文件（含子目录，跳过 .git），返回最新 mtime（毫秒）；目录不存在/无文件返回 0。
+    // 用来表示「论文内容最后编辑时间」——只有真实修改了正文/资料里的文件，这个时间才会变。
+    const thesisContentUpdatedAt = Effect.fn("InstanceHttpApi.thesisContentUpdatedAt")(function* (directory: string) {
+      let latest = 0
+      const scan = (current: string): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          const entries = yield* fs
+            .readDirectoryEntries(current)
+            .pipe(Effect.catch(() => Effect.succeed([] as FSUtil.DirEntry[])))
+          for (const entry of entries) {
+            if (entry.name === ".git") continue
+            const child = path.join(current, entry.name)
+            if (entry.type === "directory") {
+              yield* scan(child)
+            } else if (entry.type === "file") {
+              const info = yield* fs.stat(child).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (info) latest = Math.max(latest, Option.getOrElse(() => new Date(0))(info.mtime).getTime())
+            }
+          }
+        })
+      yield* scan(directory)
+      return latest
+    })
+
+    // [论文助手定制] 论文项目列表：复用 project.list() 过滤出论文工作区下的项目，
+    // 为每项计算 contentUpdatedAt（正文/资料目录文件的最新 mtime）。
+    const listThesis = Effect.fn("InstanceHttpApi.thesisList")(function* () {
+      const root = yield* thesisRoot()
+      const projects = yield* project.list()
+      const theses = projects.filter((item) => item.worktree.startsWith(`${root}/`))
+      return yield* Effect.forEach(
+        theses,
+        (item) =>
+          Effect.gen(function* () {
+            const manuscripts = yield* thesisContentUpdatedAt(path.join(item.worktree, "正文"))
+            const materials = yield* thesisContentUpdatedAt(path.join(item.worktree, "资料"))
+            return { ...item, contentUpdatedAt: Math.max(manuscripts, materials) }
+          }),
+        { concurrency: "unbounded" },
+      )
+    })
+
+    // [论文助手定制] 删除论文项目：先删数据库记录（会话/目录映射级联清理），再删工作区磁盘目录。
+    // 只允许删除论文工作区内的项目，防止误删其他目录。
+    const deleteThesis = Effect.fn("InstanceHttpApi.thesisDelete")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof ThesisDeleteBody>
+    }) {
+      const projectID = ProjectV2.ID.make(ctx.payload.projectID)
+      const proj = yield* project.get(projectID)
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const root = yield* thesisRoot()
+      if (!proj.worktree.startsWith(`${root}/`)) {
+        return yield* Effect.fail(thesisError("只能删除论文工作区内的项目"))
+      }
+      yield* project.remove(projectID).pipe(Effect.mapError(() => thesisError("删除项目记录失败")))
+      yield* fs.remove(proj.worktree, { recursive: true }).pipe(
+        Effect.mapError(() => thesisError("删除项目目录失败")),
+      )
+      return { projectID: ctx.payload.projectID }
+    })
 
     const createThesis = Effect.fn("InstanceHttpApi.thesisCreate")(function* (ctx: {
       payload: { title: string; description?: string }
@@ -320,6 +457,77 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return { filename: outputName, chars: text.length }
     })
 
+    // [论文助手定制] 导出 Word：把 Markdown 文稿按排版参数（字体/字号/行距/页边距/标题编号/封面）
+    // 排成 .docx 写入项目「正文」目录。options 来自 Step 3 排版参数面板。
+    const exportThesisDocx = Effect.fn("InstanceHttpApi.thesisExportDocx")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof ThesisExportDocxBody>
+    }) {
+      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const name = path.basename(ctx.payload.filename).trim()
+      if (!name) return yield* Effect.fail(thesisError("文件名无效"))
+      const content = ctx.payload.content
+      if (!content.trim()) return yield* Effect.fail(thesisError("文稿内容为空，无法导出"))
+      const buffer = yield* Effect.tryPromise({
+        // [论文助手定制] schema 的 pageMargin 是宽类型 LiteralValue，这里显式收窄为排版参数类型
+        // （运行时已由 ThesisDocxOptionsSchema 校验为 standard/narrow/thesis 三者之一）。
+        try: () => markdownToDocx(content, (ctx.payload.options ?? {}) as ThesisDocxOptions),
+        catch: (cause: unknown) => thesisError(`生成 Word 文档失败: ${String(cause)}`),
+      })
+      const target = path.join(proj.worktree, "正文", name.endsWith(".docx") ? name : `${name}.docx`)
+      yield* fs.writeWithDirs(target, buffer).pipe(
+        Effect.mapError((error) => thesisError(`写入 Word 文档失败: ${String(error)}`)),
+      )
+      return { filename: path.basename(target), path: target }
+    })
+
+    // [论文助手定制] 文稿落盘：把某步骤的正文写入「正文」目录的 .md 文件（提纲/全文稿/排版稿/评审报告）。
+    // 落盘后文稿成为真实文件产物：随论文工作区 git 管理、可在「正文」面板预览、可被 Word/PDF 导出直接引用。
+    const MANUSCRIPT_FILENAMES = {
+      outline: "提纲.md",
+      writing: "全文稿.md",
+      formatting: "排版稿.md",
+      review: "评审报告.md",
+    } as const
+
+    const saveThesisManuscript = Effect.fn("InstanceHttpApi.thesisSaveManuscript")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof ThesisSaveManuscriptBody>
+    }) {
+      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      if (!ctx.payload.content.trim()) return yield* Effect.fail(thesisError("文稿内容为空"))
+      const filename = MANUSCRIPT_FILENAMES[ctx.payload.step]
+      const target = path.join(proj.worktree, "正文", filename)
+      yield* fs.writeWithDirs(target, Buffer.from(ctx.payload.content, "utf8")).pipe(
+        Effect.mapError((error) => thesisError(`写入文稿失败: ${String(error)}`)),
+      )
+      return { filename, path: target }
+    })
+
+    // [论文助手定制] 导出 PDF：把前端渲染好的 HTML 用 Chrome headless 打印成 .pdf 写入「正文」目录。
+    const exportThesisPdf = Effect.fn("InstanceHttpApi.thesisExportPdf")(function* (ctx: {
+      payload: { projectID: string; filename: string; html: string }
+    }) {
+      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const name = path.basename(ctx.payload.filename).trim()
+      if (!name) return yield* Effect.fail(thesisError("文件名无效"))
+      if (!ctx.payload.html.trim()) return yield* Effect.fail(thesisError("文稿内容为空，无法导出"))
+      const buffer = yield* Effect.tryPromise({
+        try: () => htmlToPdf(ctx.payload.html),
+        catch: (cause: unknown) => {
+          let message = String(cause)
+          if (cause && typeof cause === "object" && "message" in cause) message = String((cause as { message: unknown }).message)
+          return thesisError(`生成 PDF 失败: ${message}`)
+        },
+      })
+      const target = path.join(proj.worktree, "正文", name.endsWith(".pdf") ? name : `${name}.pdf`)
+      yield* fs.writeWithDirs(target, buffer).pipe(
+        Effect.mapError((error) => thesisError(`写入 PDF 失败: ${String(error)}`)),
+      )
+      return { filename: path.basename(target), path: target }
+    })
+
     const getLsp = Effect.fn("InstanceHttpApi.lsp")(function* () {
       return yield* lsp.status()
     })
@@ -341,9 +549,16 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("skill", getSkill)
       .handle("skillInstall", installSkill)
       .handle("skillInstallDirectory", installSkillDirectory)
+      .handle("skillUninstall", uninstallSkill)
+      .handle("skillInstallZip", installSkillZip)
       .handle("thesisCreate", createThesis)
       .handle("thesisUpload", uploadThesisFile)
       .handle("thesisPdfText", pdfTextThesis)
+      .handle("thesisSaveManuscript", saveThesisManuscript)
+      .handle("thesisList", listThesis)
+      .handle("thesisDelete", deleteThesis)
+      .handle("thesisExportDocx", exportThesisDocx)
+      .handle("thesisExportPdf", exportThesisPdf)
       .handle("lsp", getLsp)
       .handle("formatter", getFormatter)
   }),

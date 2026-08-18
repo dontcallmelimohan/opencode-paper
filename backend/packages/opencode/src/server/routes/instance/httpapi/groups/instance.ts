@@ -57,9 +57,45 @@ const SkillInstallResult = Schema.Struct({
   skill: Skill.Info,
 })
 
+// [论文助手定制] Skill 管理：卸载（删除全局 skills/<name> 目录与 agent/<name>.md）。
+const SkillUninstallBody = Schema.Struct({
+  name: Schema.String,
+})
+const SkillUninstallResult = Schema.Struct({
+  name: Schema.String,
+})
+
+// [论文助手定制] Skill 管理：从 zip 安装（前端解压后传文件树，后端写入全局 skills/<name>）。
+const SkillInstallZipFile = Schema.Struct({
+  path: Schema.String,
+  content: Schema.String,
+})
+const SkillInstallZipBody = Schema.Struct({
+  name: Schema.String,
+  description: Schema.optional(Schema.String),
+  files: Schema.Array(SkillInstallZipFile),
+})
+
 const ThesisCreateBody = Schema.Struct({
   title: Schema.String,
   description: Schema.optional(Schema.String),
+})
+
+// [论文助手定制] 论文项目列表项：复用 Project.Info 的全部字段，另加 contentUpdatedAt——
+// 该值由后端扫描「正文」「资料」目录里文件的最新修改时间得到，表示「论文内容最后编辑时间」，
+// 而不是 opencode 项目自带的“最近打开时间”（后者会在每次打开项目时被刷新，导致“没编辑却显示刚刚”）。
+const ThesisListEntry = Schema.Struct({
+  ...Project.Info.fields,
+  contentUpdatedAt: Schema.Number,
+})
+
+// [论文助手定制] 删除论文项目：只接收 projectID，后端负责校验工作区归属、删除磁盘目录与数据库记录。
+export const ThesisDeleteBody = Schema.Struct({
+  projectID: Schema.String,
+})
+
+const ThesisDeleteResult = Schema.Struct({
+  projectID: Schema.String,
 })
 
 const ThesisUploadBody = Schema.Struct({
@@ -76,6 +112,64 @@ const ThesisPdfTextBody = Schema.Struct({
 const ThesisPdfTextResult = Schema.Struct({
   filename: Schema.String,
   chars: Schema.Number,
+})
+
+// [论文助手定制] 论文导出 Word：接收 Markdown 文稿文本 + 排版参数（Step 3 面板），
+// 由后端 docx 引擎排版成可直接提交的 .docx 写入项目「正文」目录。
+const ThesisDocxCoverSchema = Schema.Struct({
+  title: Schema.optional(Schema.String),
+  author: Schema.optional(Schema.String),
+  affiliation: Schema.optional(Schema.String),
+  date: Schema.optional(Schema.String),
+})
+
+const ThesisDocxOptionsSchema = Schema.Struct({
+  paperType: Schema.optional(Schema.String),
+  fontFamily: Schema.optional(Schema.String),
+  fontSize: Schema.optional(Schema.Number),
+  lineSpacing: Schema.optional(Schema.Number),
+  pageMargin: Schema.optional(Schema.Literals(["standard", "narrow", "thesis"])),
+  titleNumbering: Schema.optional(Schema.Boolean),
+  cover: Schema.optional(ThesisDocxCoverSchema),
+})
+
+export const ThesisExportDocxBody = Schema.Struct({
+  projectID: Schema.String,
+  filename: Schema.String,
+  content: Schema.String,
+  options: Schema.optional(ThesisDocxOptionsSchema),
+})
+
+const ThesisExportDocxResult = Schema.Struct({
+  filename: Schema.String,
+  path: Schema.String,
+})
+
+// [论文助手定制] 论文文稿落盘：把某步骤的正文写入项目「正文」目录
+// （outline→提纲.md，writing→全文稿.md，formatting→排版稿.md，review→评审报告.md）。
+// 让“文稿”成为真实的文件产物（随论文工作区 git 管理、可下载、可被导出直接引用），
+// 而不是从聊天回复里抠出来的文本。
+export const ThesisSaveManuscriptBody = Schema.Struct({
+  projectID: Schema.String,
+  step: Schema.Literals(["outline", "writing", "formatting", "review"]),
+  content: Schema.String,
+})
+
+const ThesisSaveManuscriptResult = Schema.Struct({
+  filename: Schema.String,
+  path: Schema.String,
+})
+
+// [论文助手定制] 论文导出 PDF：接收排版好的 HTML（前端已渲染 Markdown），转成 .pdf 写入项目「正文」目录。
+const ThesisExportPdfBody = Schema.Struct({
+  projectID: Schema.String,
+  filename: Schema.String,
+  html: Schema.String,
+})
+
+const ThesisExportPdfResult = Schema.Struct({
+  filename: Schema.String,
+  path: Schema.String,
 })
 
 export class ApiSkillInstallError extends Schema.ErrorClass<ApiSkillInstallError>("SkillInstallError")(
@@ -107,9 +201,16 @@ export const InstancePaths = {
   skill: "/skill",
   skillInstall: "/skill/install",
   skillInstallDirectory: "/skill/install-directory",
+  skillUninstall: "/skill/uninstall",
+  skillInstallZip: "/skill/install-zip",
   thesisCreate: "/thesis/create",
   thesisUpload: "/thesis/upload",
   thesisPdfText: "/thesis/pdf-text",
+  thesisSaveManuscript: "/thesis/save-manuscript",
+  thesisList: "/thesis/list",
+  thesisDelete: "/thesis/delete",
+  thesisExportDocx: "/thesis/export-docx",
+  thesisExportPdf: "/thesis/export-pdf",
   lsp: "/lsp",
   formatter: "/formatter",
 } as const
@@ -250,6 +351,32 @@ export const InstanceApi = HttpApi.make("instance")
               "Copies the whole skill folder (SKILL.md, manifest.yaml, references, static) into the global skills directory, then creates its agent.",
           }),
         ),
+        // [论文助手定制] Skill 管理：卸载（删除全局 skill 目录与同名 agent 配置）。
+        HttpApiEndpoint.post("skillUninstall", InstancePaths.skillUninstall, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillUninstallBody,
+          success: described(SkillUninstallResult, "Uninstalled skill and agent"),
+          error: ApiSkillInstallError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.skillUninstall",
+            summary: "Uninstall a skill and its agent",
+            description: "Deletes the global skill directory and the agent config, then reloads agents and skills.",
+          }),
+        ),
+        // [论文助手定制] Skill 管理：zip 安装（前端解压 zip 后以文件树形式上传，后端写盘并创建 agent）。
+        HttpApiEndpoint.post("skillInstallZip", InstancePaths.skillInstallZip, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillInstallZipBody,
+          success: described(SkillInstallResult, "Installed skill and agent from a zip archive"),
+          error: ApiSkillInstallError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.skillInstallZip",
+            summary: "Install a skill and its agent from an unzipped file tree",
+            description: "Writes the given file tree under the global skills directory, then creates its agent.",
+          }),
+        ),
         HttpApiEndpoint.post("thesisCreate", InstancePaths.thesisCreate, {
           payload: ThesisCreateBody,
           success: described(Project.Info, "Created thesis project"),
@@ -284,6 +411,67 @@ export const InstanceApi = HttpApi.make("instance")
             summary: "Extract text from a thesis PDF reference",
             description:
               "Extracts text from a PDF in the thesis 资料 directory and writes it to a sibling .txt file so agents can read it.",
+          }),
+        ),
+        HttpApiEndpoint.post("thesisSaveManuscript", InstancePaths.thesisSaveManuscript, {
+          payload: ThesisSaveManuscriptBody,
+          success: described(ThesisSaveManuscriptResult, "Saved manuscript file name and path"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisSaveManuscript",
+            summary: "Save thesis manuscript as a Markdown file",
+            description:
+              "Writes the manuscript body of a thesis step into the thesis workspace 正文 directory as a .md file (提纲/全文稿/排版稿/评审报告).",
+          }),
+        ),
+        // [论文助手定制] 论文项目列表：返回论文工作区下的项目及其「内容最后编辑时间」（正文/资料文件 mtime）。
+        HttpApiEndpoint.get("thesisList", InstancePaths.thesisList, {
+          success: described(Schema.Array(ThesisListEntry), "Thesis projects with content updated time"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisList",
+            summary: "List thesis projects",
+            description:
+              "Lists projects under the thesis workspace, each with contentUpdatedAt computed from the latest file mtime in the 正文 and 资料 directories.",
+          }),
+        ),
+        // [论文助手定制] 删除论文项目：删除工作区目录 + 数据库记录（会话等级联清理）。
+        HttpApiEndpoint.post("thesisDelete", InstancePaths.thesisDelete, {
+          payload: ThesisDeleteBody,
+          success: described(ThesisDeleteResult, "Deleted thesis project id"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisDelete",
+            summary: "Delete a thesis project",
+            description:
+              "Deletes the thesis workspace directory and its project/session records. Only projects under the thesis workspace can be deleted.",
+          }),
+        ),
+        HttpApiEndpoint.post("thesisExportDocx", InstancePaths.thesisExportDocx, {
+          payload: ThesisExportDocxBody,
+          success: described(ThesisExportDocxResult, "Exported docx file name and path"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisExportDocx",
+            summary: "Export thesis manuscript as a Word document",
+            description:
+              "Converts Markdown manuscript text into a .docx file and writes it into the thesis workspace 正文 directory.",
+          }),
+        ),
+        HttpApiEndpoint.post("thesisExportPdf", InstancePaths.thesisExportPdf, {
+          payload: ThesisExportPdfBody,
+          success: described(ThesisExportPdfResult, "Exported pdf file name and path"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisExportPdf",
+            summary: "Export thesis manuscript as a PDF",
+            description:
+              "Prints a rendered HTML manuscript into a .pdf file and writes it into the thesis workspace 正文 directory.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {

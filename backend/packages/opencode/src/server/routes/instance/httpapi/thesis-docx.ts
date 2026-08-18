@@ -1,0 +1,397 @@
+// [论文助手定制] 论文导出 Word：把 Markdown 文稿排版成可直接提交的 .docx。
+// 定位：docx 是论文平台的主交付物，因此这里做的是「结构化排版」而非简单的语法映射：
+//   - 标题 → Word 内置 Heading 样式 + 多级自动编号（1 / 1.1 / 1.1.1；参考文献/摘要/致谢等不编号）
+//   - 正文 → 中文字体 + 首行缩进 2 字符 + 行距/字号可配
+//   - 表格 → 学术三线表（表头上下粗线、表底粗线、无竖线）
+//   - 参考文献 → [1]… 悬挂缩进
+//   - 毕业论文类型 → 自动加封面（题目/作者/单位/日期）与页脚居中页码
+// 所有视觉参数通过 ThesisDocxOptions 传入（来自 Step 3 排版参数面板）。
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  Footer,
+  HeadingLevel,
+  LevelFormat,
+  Packer,
+  PageBreak,
+  PageNumber,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  WidthType,
+  convertInchesToTwip,
+} from "docx"
+import type { IParagraphOptions, IRunOptions } from "docx"
+
+// [论文助手定制] 排版参数：由前端 Step 3 面板传入，控制 docx 的视觉规范。
+export type ThesisDocxOptions = {
+  paperType?: string
+  fontFamily?: string
+  fontSize?: number
+  lineSpacing?: number
+  pageMargin?: "standard" | "narrow" | "thesis"
+  titleNumbering?: boolean
+  cover?: { title?: string; author?: string; affiliation?: string; date?: string }
+}
+
+const DEFAULTS: Required<Pick<ThesisDocxOptions, "fontFamily" | "fontSize" | "lineSpacing" | "pageMargin" | "titleNumbering">> = {
+  fontFamily: "宋体",
+  fontSize: 12,
+  lineSpacing: 1.5,
+  pageMargin: "standard",
+  titleNumbering: true,
+}
+
+// [论文助手定制] 页边距预设（twips）：标准 / 窄 / 毕业论文规范（上 3.0 下 2.5 左 3.0 右 2.5cm）。
+const MARGINS = {
+  standard: { top: convertInchesToTwip(1), bottom: convertInchesToTwip(1), left: convertInchesToTwip(1.25), right: convertInchesToTwip(1.25) },
+  narrow: { top: convertInchesToTwip(0.5), bottom: convertInchesToTwip(0.5), left: convertInchesToTwip(0.5), right: convertInchesToTwip(0.5) },
+  thesis: { top: 1701, bottom: 1418, left: 1701, right: 1418 },
+} as const
+
+// [论文助手定制] 不参与自动编号的章节标题（摘要/目录/参考文献/致谢/附录等）。
+const NO_NUMBER_TITLE = /^(摘要|目录|参考文献|致谢|附录|Abstract|References|Acknowledgments?)/i
+
+type InlineToken = { text: string; bold?: boolean; italic?: boolean; code?: boolean; link?: string }
+
+// [论文助手定制] 解析行内格式：**加粗**、*斜体*、`行内代码`、[文字](链接)。
+const INLINE_RE = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]\n]+]\([^)\n]+\))/g
+
+export function parseInline(text: string): InlineToken[] {
+  const tokens: InlineToken[] = []
+  let index = 0
+  for (const match of text.matchAll(INLINE_RE)) {
+    const raw = match[0]
+    if (match.index !== undefined && match.index > index) tokens.push({ text: text.slice(index, match.index) })
+    index = (match.index ?? 0) + raw.length
+    if (raw.startsWith("**")) tokens.push({ text: raw.slice(2, -2), bold: true })
+    else if (raw.startsWith("`")) tokens.push({ text: raw.slice(1, -1), code: true })
+    else if (raw.startsWith("*")) tokens.push({ text: raw.slice(1, -1), italic: true })
+    else {
+      const label = raw.match(/^\[([^\]\n]+)]/)?.[1] ?? raw
+      const link = raw.match(/]\(([^)\n]+)\)$/)?.[1]
+      tokens.push({ text: label, link })
+    }
+  }
+  if (index < text.length) tokens.push({ text: text.slice(index) })
+  return tokens
+}
+
+const inlineRuns = (text: string, base: Partial<IRunOptions> = {}): TextRun[] =>
+  parseInline(text).map((token) => {
+    if (token.code)
+      return new TextRun({ text: token.text, font: { ascii: "Consolas", hAnsi: "Consolas", eastAsia: "宋体" }, size: 20, shading: { type: "clear", fill: "F2F2F2" } })
+    return new TextRun({
+      text: token.text,
+      bold: token.bold,
+      italics: token.italic,
+      ...base,
+      ...(token.link ? { style: "Hyperlink" } : {}),
+    })
+  })
+
+const isTableSeparator = (line: string) => /^\s*\|?[\s:|-]+\|?\s*$/.test(line) && line.includes("-") && line.includes("|")
+
+// [论文助手定制] 把表格行切成单元格（去掉首尾空单元格，兼容无首尾竖线写法）。
+const splitRow = (line: string): string[] => {
+  const trimmed = line.trim().replace(/^\||\|$/g, "")
+  return trimmed.split("|").map((cell) => cell.trim())
+}
+
+// [论文助手定制] 行内标记还原为纯文本（用于列表项/表格的判断）。
+const plainText = (text: string) => text.replace(INLINE_RE, (raw) => raw.replace(/\*\*|\*|`/g, "")).replace(/\[([^\]\n]+)]\([^)\n]+\)/g, "$1")
+
+const headingLevels = {
+  1: HeadingLevel.HEADING_1,
+  2: HeadingLevel.HEADING_2,
+  3: HeadingLevel.HEADING_3,
+  4: HeadingLevel.HEADING_4,
+  5: HeadingLevel.HEADING_5,
+  6: HeadingLevel.HEADING_6,
+} as const
+
+// [论文助手定制] 三线表：表头行上下细线（底为细线）、首行上粗线、末行下粗线，其余无边框。
+const threeLineTable = (rows: string[][], width: number): Table => {
+  const cellWidth = 9360 / Math.max(width, 1)
+  const cell = (text: string, opts: { header?: boolean; top?: boolean; bottom?: boolean }): TableCell =>
+    new TableCell({
+      width: { size: cellWidth, type: WidthType.DXA },
+      borders: {
+        ...(opts.top
+          ? { top: { style: BorderStyle.SINGLE, size: 12, color: "000000" } }
+          : { top: { style: BorderStyle.NONE } }),
+        ...(opts.header ? { bottom: { style: BorderStyle.SINGLE, size: 6, color: "000000" } } : {}),
+        ...(opts.bottom ? { bottom: { style: BorderStyle.SINGLE, size: 12, color: "000000" } } : {}),
+        left: { style: BorderStyle.NONE },
+        right: { style: BorderStyle.NONE },
+      },
+      margins: { top: 60, bottom: 60, left: 100, right: 100 },
+      children: [
+        new Paragraph({
+          alignment: opts.header ? AlignmentType.CENTER : AlignmentType.LEFT,
+          spacing: { after: 0, line: 300 },
+          children: inlineRuns(text),
+        }),
+      ],
+    })
+  const row = (values: string[], index: number): TableRow =>
+    new TableRow({
+      children: values.map((value, col) =>
+        cell(value, {
+          header: index === 0,
+          top: index === 0,
+          bottom: index === rows.length - 1,
+        }),
+      ),
+    })
+  return new Table({
+    width: { size: 9360, type: WidthType.DXA },
+    rows: rows.map((values, index) => row(values, index)),
+  })
+}
+
+// [论文助手定制] 参考文献段（[1]…）悬挂缩进；识别「参考文献」标题之后的编号段落。
+const isReferenceItem = (text: string) => /^\[\d+]\s*/.test(text)
+
+// [论文助手定制] 主转换函数：Markdown 文本 + 排版参数 → docx Buffer。
+export async function markdownToDocx(markdown: string, options: ThesisDocxOptions = {}): Promise<Buffer> {
+  const fontFamily = options.fontFamily || DEFAULTS.fontFamily
+  const fontSize = options.fontSize || DEFAULTS.fontSize
+  const lineSpacing = options.lineSpacing || DEFAULTS.lineSpacing
+  const pageMargin = options.pageMargin || DEFAULTS.pageMargin
+  const titleNumbering = options.titleNumbering ?? DEFAULTS.titleNumbering
+  const headingFont = fontFamily === "宋体" ? "黑体" : fontFamily
+  const firstLineIndent = Math.round(fontSize * 40) // 首行缩进 2 字符（1 字符 = 20 twip × 字号 pt）
+
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n")
+  const children: (Paragraph | Table)[] = []
+  let index = 0
+
+  // [论文助手定制] 封面：毕业论文等类型需要时插入，标题居中二号黑体，信息三号宋体，末尾分页。
+  if (options.cover?.title) {
+    const coverLines: (Paragraph | Table)[] = []
+    for (let i = 0; i < 4; i += 1) coverLines.push(new Paragraph({ children: [] }))
+    coverLines.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 480, line: 480 },
+      children: [new TextRun({ text: options.cover.title, font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: headingFont }, size: 44, bold: true })],
+    }))
+    for (let i = 0; i < 3; i += 1) coverLines.push(new Paragraph({ children: [] }))
+    for (const [label, value] of [["作者", options.cover.author], ["单位", options.cover.affiliation], ["日期", options.cover.date]] as const) {
+      if (value) {
+        coverLines.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 240, line: 480 },
+          children: [new TextRun({ text: `${label}：${value}`, font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: fontFamily }, size: 32 })],
+        }))
+      }
+    }
+    coverLines.push(new Paragraph({ children: [new TextRun({ children: [new PageBreak()] })] }))
+    children.push(...coverLines)
+  }
+
+  const pushParagraph = (runs: TextRun[], opts: Partial<IParagraphOptions> = {}, text = "") => {
+    // [论文助手定制] 普通正文段：首行缩进 2 字符；参考文献条目改为悬挂缩进；列表/引用等由调用方传 indent 覆盖。
+    const isRef = isReferenceItem(text)
+    const indent = opts.indent ?? (isRef
+      ? { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.4) }
+      : { firstLine: firstLineIndent })
+    children.push(new Paragraph({
+      children: runs,
+      spacing: { after: 120, line: Math.round(240 * lineSpacing) },
+      ...opts,
+      indent,
+    }))
+  }
+
+  while (index < lines.length) {
+    const line = lines[index]
+
+    // 代码块
+    if (/^\s*```/.test(line)) {
+      const code: string[] = []
+      index += 1
+      while (index < lines.length && !/^\s*```/.test(lines[index])) {
+        code.push(lines[index])
+        index += 1
+      }
+      index += 1
+      pushParagraph([
+        new TextRun({
+          text: code.join("\n"),
+          font: { ascii: "Consolas", hAnsi: "Consolas", eastAsia: "宋体" },
+          size: Math.round(fontSize * 1.5),
+        }),
+      ], {
+        spacing: { before: 120, after: 120, line: Math.round(240 * lineSpacing) },
+        shading: { type: "clear", fill: "F7F7F7" },
+        indent: { left: convertInchesToTwip(0.2), right: convertInchesToTwip(0.2) },
+      })
+      continue
+    }
+
+    // 表格：收集连续的表格行（第二行为分隔行），转三线表。
+    if (line.includes("|") && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
+      const rows: string[][] = [splitRow(line)]
+      index += 2
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim() !== "" && !isTableSeparator(lines[index])) {
+        rows.push(splitRow(lines[index]))
+        index += 1
+      }
+      const width = Math.max(...rows.map((row) => row.length))
+      const normalized = rows.map((row) => [...row, ...Array<string>(width - row.length).fill("")])
+      children.push(threeLineTable(normalized, width))
+      continue
+    }
+
+    // 标题
+    const heading = line.match(/^(#{1,6})\s+(.*)$/)
+    if (heading) {
+      const level = heading[1].length as 1 | 2 | 3 | 4 | 5 | 6
+      const text = heading[2].trim()
+      // [论文助手定制] 摘要/参考文献/致谢等标题不参与自动编号；编号开关关闭时全部不编号。
+      const numbered = titleNumbering && !NO_NUMBER_TITLE.test(text) && level <= 3
+      children.push(new Paragraph({
+        heading: headingLevels[level],
+        numbering: numbered ? { reference: "thesis-headings", level: (level - 1) as 0 | 1 | 2 } : undefined,
+        spacing: { before: 260, after: 160, line: Math.round(240 * lineSpacing) },
+        children: inlineRuns(text),
+      }))
+      index += 1
+      continue
+    }
+
+    // 分割线
+    if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) {
+      children.push(new Paragraph({
+        spacing: { before: 120, after: 120 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "999999" } },
+        children: [],
+      }))
+      index += 1
+      continue
+    }
+
+    // 引用
+    if (/^\s*>\s?/.test(line)) {
+      const quote: string[] = []
+      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+        quote.push(lines[index].replace(/^\s*>\s?/, ""))
+        index += 1
+      }
+      pushParagraph(inlineRuns(quote.join("\n")), {
+        indent: { left: convertInchesToTwip(0.3) },
+        border: { left: { style: BorderStyle.SINGLE, size: 12, color: "BBBBBB", space: 8 } },
+        shading: { type: "clear", fill: "FAFAFA" },
+      })
+      continue
+    }
+
+    // 无序列表
+    const bullet = line.match(/^\s*([-*+])\s+(.*)$/)
+    if (bullet && !/^\s*[-*+]\s*$/.test(line)) {
+      children.push(new Paragraph({
+        numbering: { reference: "thesis-bullets", level: 0 },
+        spacing: { after: 60, line: Math.round(240 * lineSpacing) },
+        indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) },
+        children: inlineRuns(bullet[2]),
+      }))
+      index += 1
+      continue
+    }
+
+    // 有序列表
+    const ordered = line.match(/^\s*(\d+)[.)]\s+(.*)$/)
+    if (ordered) {
+      children.push(new Paragraph({
+        numbering: { reference: "thesis-numbers", level: 0 },
+        spacing: { after: 60, line: Math.round(240 * lineSpacing) },
+        indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) },
+        children: inlineRuns(ordered[2]),
+      }))
+      index += 1
+      continue
+    }
+
+    // 普通段落（含空行跳过）
+    const text = plainText(line).trim()
+    if (text) {
+      pushParagraph(inlineRuns(line.trim()), {}, text)
+    }
+    index += 1
+  }
+
+  const doc = new Document({
+    numbering: {
+      config: [
+        {
+          reference: "thesis-bullets",
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.BULLET,
+              text: "•",
+              alignment: AlignmentType.LEFT,
+              style: { paragraph: { indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) } } },
+            },
+          ],
+        },
+        {
+          reference: "thesis-numbers",
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.DECIMAL,
+              text: "%1.",
+              alignment: AlignmentType.LEFT,
+              style: { paragraph: { indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) } } },
+            },
+          ],
+        },
+        // [论文助手定制] 标题多级自动编号：1 / 1.1 / 1.1.1，只启用前三级。
+        ...(titleNumbering
+          ? [{
+              reference: "thesis-headings",
+              levels: [
+                { level: 0, format: LevelFormat.DECIMAL, text: "%1", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 0, hanging: 0 } } } },
+                { level: 1, format: LevelFormat.DECIMAL, text: "%1.%2", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 0, hanging: 0 } } } },
+                { level: 2, format: LevelFormat.DECIMAL, text: "%1.%2.%3", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 0, hanging: 0 } } } },
+              ],
+            }]
+          : []),
+      ],
+    },
+    styles: {
+      default: {
+        document: {
+          run: {
+            font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: fontFamily },
+            size: Math.round(fontSize * 2), // pt → half-points
+          },
+          paragraph: { spacing: { line: Math.round(240 * lineSpacing), after: 120 } },
+        },
+        heading1: { run: { font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: headingFont }, size: 32, bold: true } },
+        heading2: { run: { font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: headingFont }, size: 28, bold: true } },
+        heading3: { run: { font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: headingFont }, size: 24, bold: true } },
+        heading4: { run: { font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: headingFont }, size: 22, bold: true } },
+      },
+    },
+    sections: [{
+      properties: { page: { margin: MARGINS[pageMargin] } },
+      footers: {
+        default: new Footer({
+          children: [new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ children: [PageNumber.CURRENT] })],
+          })],
+        }),
+      },
+      children,
+    }],
+  })
+
+  return Packer.toBuffer(doc)
+}

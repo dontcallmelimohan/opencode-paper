@@ -229,6 +229,10 @@ type PromptSubmitInput = {
   onAbort?: () => void
   onSubmit?: () => void
   model?: ModelSelection
+  // [论文助手定制] 嵌入模式（论文工作台会话视图）：路由里没有 session id，
+  // 发送后不跳转会话页；会话不存在时自动创建，并通过 onSessionCreated 把新会话回传。
+  embedded?: boolean
+  onSessionCreated?: (sessionID: string, sessionDirectory: string) => void
 }
 
 export function createPromptSubmit(input: PromptSubmitInput) {
@@ -257,7 +261,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   }
 
   const abort = async () => {
-    const sessionID = params.id
+    // [论文助手定制] 嵌入模式下路由无 id，退而取当前会话（input.info），
+    // 这样工作台里点击「停止」也能中断正在生成的回复。
+    const sessionID = params.id ?? input.info()?.id
     if (!sessionID) return Promise.resolve()
 
     serverSync().session.set("todo", sessionID, [])
@@ -352,7 +358,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     const projectDirectory = sdk().directory
     const permissionState = permission.currentServerState()
-    const isNewSession = !params.id
+    // [论文助手定制] 嵌入模式（工作台会话视图）：即使路由没有 session id 也不算新会话，
+    // 避免触发“新会话自动建目录/跳转”的逻辑；会话由 input.info() 或下方创建逻辑提供。
+    const embedded = !!input.embedded
+    const isNewSession = !params.id && !embedded
     const shouldAutoAccept = isNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
@@ -399,7 +408,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     let session = input.info()
-    if (!session && isNewSession) {
+    // [论文助手定制] 嵌入模式下首次发送（还没有专属会话）同样允许创建，只是不跳转。
+    if (!session && (isNewSession || embedded)) {
       const created = await sdk()
         .api.session.create({
           agent: currentAgent.name,
@@ -419,6 +429,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         session = created
         await startTransition(() => {
           if (!session) return
+          if (embedded) {
+            // [论文助手定制] 嵌入模式：不写标签栏、不跳转会话页，
+            // 只把新会话 ID 回传给调用方（工作台写入论文 workflow state，后续继续对话复用）。
+            input.onSessionCreated?.(session.id, sessionDirectory)
+            submission.retarget(prompt.capture({ dir: base64Encode(sessionDirectory), id: session.id }))
+            return
+          }
           if (shouldAutoAccept) permissionState.enableAutoAccept(session.id, sessionDirectory)
           local.session.promote(sessionDirectory, session.id, {
             agent: currentAgent.name,

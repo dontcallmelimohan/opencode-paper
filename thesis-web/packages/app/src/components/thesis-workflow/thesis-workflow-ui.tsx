@@ -2,16 +2,37 @@
 // 左侧“输入表单” + 右侧“产物面板”，产物用 Markdown 渲染。
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
-import { createSignal, Show, type JSX } from "solid-js"
-import type { StepStatus } from "./thesis-workflow-store"
+import { PromptInputV2SkillsMenu } from "@opencode-ai/session-ui/v2/prompt-input"
+import { createEffect, createResource, createSignal, Show, type JSX } from "solid-js"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { MANUSCRIPT_FILENAMES, type ManuscriptStep } from "./thesis-manuscript-file"
+import { usePersistentWidth } from "./thesis-panel-layout"
+import type { StepKey, StepStatus } from "./thesis-workflow-store"
 import { useThesisWorkflow } from "./thesis-workflow-store"
 import { ThesisSessionView } from "./thesis-session-view"
 
 export function StepLayout(props: { form: JSX.Element; product: JSX.Element }) {
+  // [论文助手定制] 可拖拽布局：左侧「输入表单」宽度可拖拽调整（默认 340，范围 240~560，
+  // localStorage 记住），右侧「产物」面板自动占满剩余空间。
+  const formWidth = usePersistentWidth("thesis-workbench.formWidth", 340)
   return (
     <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 md:flex-row">
-      <div class="w-full shrink-0 md:w-[340px] md:overflow-y-auto">{props.form}</div>
+      <div class="relative flex w-full shrink-0 md:w-auto" style={{ width: `min(${formWidth.width()}px, 100%)` }}>
+        {/* [论文助手定制] 修复滚动：内层必须是 flex-1 + min-h-0 + overflow-y-auto，
+            否则高度跟随内容（auto）撑开，overflow-y-auto 永不触发，配置面板就无法上下滚动。 */}
+        <div class="min-h-0 flex-1 overflow-y-auto">{props.form}</div>
+        <ResizeHandle
+          direction="horizontal"
+          edge="end"
+          size={formWidth.width()}
+          min={240}
+          max={560}
+          onResize={formWidth.setWidth}
+        />
+      </div>
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">{props.product}</div>
     </div>
   )
@@ -33,9 +54,54 @@ export function StepFormPanel(props: {
           <div class="text-12-regular text-v2-text-text-faint">{props.subtitle}</div>
         </Show>
       </div>
-      <div class="flex min-h-0 flex-1 flex-col gap-3">{props.children}</div>
+      {/* [论文助手定制] 修复按钮重叠：配置内容超高时必须在自己区域内滚动（overflow-y-auto），
+          否则内容会溢出到下方 footer（生成/下一步按钮）区域，视觉上与按钮重叠。 */}
+      <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">{props.children}</div>
       <Show when={props.footer}>{props.footer}</Show>
     </div>
+  )
+}
+
+// [论文助手定制] 配置面板共用的「选择 Skill」区块：
+// 直接复用会话输入框同一个 PromptInputV2SkillsMenu（sparkles 按钮 + 弹窗多选），
+// 不自己画勾选框，这样以后添加新 Skill 会自动出现在同一个列表里，无需改代码。
+// Skill 来源与会话输入框一致：sync().data.agent 里 native === false 且未隐藏的即自定义 Skill。
+// 勾选结果写入该步骤 input.skills；生成时 thesis-generator 把选中 Skill 的 SKILL.md 指令随提示词一起注入。
+export function ThesisSkillPicker(props: { step: StepKey }) {
+  const sync = useSync()
+  const { state, updateInput } = useThesisWorkflow()
+  const selected = () => state().steps[props.step].input.skills
+  const options = () =>
+    sync()
+      .data.agent.filter((agent) => !agent.hidden && agent.native === false)
+      .map((agent) => ({ id: agent.name, label: agent.name }))
+  const toggle = (name: string) => {
+    const current = selected()
+    updateInput(props.step, {
+      skills: current.includes(name) ? current.filter((item) => item !== name) : [...current, name],
+    })
+  }
+  return (
+    // [论文助手定制] data-action 便于自动化定位该区块（与代码库其它可交互区块的约定一致）。
+    <section data-action="thesis-skill-picker" class="flex items-center justify-between gap-2 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2">
+      <div class="min-w-0 flex flex-col gap-0.5">
+        <div class="text-12-medium text-v2-text-text-base">选择 Skill（可多选）</div>
+        <Show
+          when={selected().length > 0}
+          fallback={<div class="truncate text-11-regular text-v2-text-text-faint">生成时按选中 Skill 的指令执行</div>}
+        >
+          <div class="truncate text-11-regular text-v2-text-text-faint">已选：{selected().join("、")}</div>
+        </Show>
+      </div>
+      <PromptInputV2SkillsMenu
+        title="选择技能"
+        emptyLabel="暂无 Skill，可到主页「Skill 管理」添加"
+        confirmLabel="完成"
+        options={options}
+        selected={selected}
+        onToggle={toggle}
+      />
+    </section>
   )
 }
 
@@ -46,13 +112,61 @@ export function StepProductPanel(props: {
   result?: string
   emptyHint: string
   footer?: JSX.Element
+  // [论文助手定制] 可选导出回调：有产物文本且传了回调时，标题栏显示对应导出按钮（Word/PDF）。
+  onExportDocx?: () => void
+  onExportPdf?: () => void
   // [论文助手定制] 可选自定义产物渲染（如评审报告的结构化展示），默认 Markdown。
   render?: (result: string) => JSX.Element
+  // [论文助手定制] 文稿文件化：传入步骤名与项目目录后，完成态从「正文/<step>.md」文件读取渲染，
+  // 生成中仍用流式 progress 实时显示；文件缺失时回退显示 result（与文件内容一致）。
+  manuscript?: { directory: string; step: ManuscriptStep }
 }) {
   // [论文助手定制] 产物区域顶部加「文稿 / 会话」切换：会话视图在同一个位置显示该论文专属会话的聊天记录，
   // 生成过程中可以来回切换看“文稿进度”和“对话过程”。
   const { state } = useThesisWorkflow()
+  const sdk = useSDK()
   const [view, setView] = createSignal<"document" | "session">("document")
+
+  // [论文助手定制] 豆包式「自动切到文稿输出」：一次生成中，模型正文（progress）第一次出现时，
+  // 如果当前停在「会话」视图，自动切回「文稿」视图，让正文像豆包一样自动落到文稿画布里。
+  // 只自动切一次（生成期间用户仍可手动切到会话看对话过程，不会被反复抢走）；下一次生成开始会重置。
+  let autoSwitched = false
+  createEffect(() => {
+    const hasText = (props.progressText ?? "").trim().length > 0
+    if (props.status === "generating") {
+      if (hasText && view() === "session" && !autoSwitched) {
+        autoSwitched = true
+        setView("document")
+      }
+    } else {
+      autoSwitched = false
+    }
+  })
+
+  // [论文助手定制] 完成态读文件：source 里带上 updatedAt，落盘（setStepResult 更新 updatedAt）后自动重读，
+  // 保证「文稿=文件内容」；文件还没写或读失败时返回 undefined，由渲染处回退 result。
+  const [fileContent] = createResource(
+    () =>
+      props.manuscript && props.status === "done"
+        ? `${props.manuscript.directory}\u0000${props.manuscript.step}\u0000${state().steps[props.manuscript.step].updatedAt ?? 0}`
+        : undefined,
+    async () => {
+      const target = props.manuscript
+      if (!target) return undefined
+      const res = await sdk().client.file.read({
+        directory: target.directory,
+        path: `正文/${MANUSCRIPT_FILENAMES[target.step]}`,
+      })
+      if (res.error || res.data?.type !== "text") return undefined
+      return res.data.content
+    },
+  )
+
+  // [论文助手定制] 文稿正文源：生成中 = result + 流式 progress；完成且有文件 = 文件内容（缺失时回退 result）。
+  const manuscriptText = () => {
+    if (props.manuscript && props.status === "done") return fileContent() ?? props.result ?? ""
+    return [props.result, props.progressText].filter(Boolean).join("\n\n")
+  }
 
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
@@ -75,6 +189,33 @@ export function StepProductPanel(props: {
             </span>
           </Show>
         </span>
+        {/* [论文助手定制] 导出 Word / PDF：把当前步骤的文稿保存到项目「正文」目录。 */}
+        <Show when={(props.onExportDocx || props.onExportPdf) && props.result && props.status === "done"}>
+          <div class="flex shrink-0 items-center gap-0.5">
+            <Show when={props.onExportDocx}>
+              <button
+                type="button"
+                data-action="export-docx"
+                class="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
+                onClick={() => props.onExportDocx?.()}
+              >
+                <Icon name="download" size="small" />
+                导出 Word
+              </button>
+            </Show>
+            <Show when={props.onExportPdf}>
+              <button
+                type="button"
+                data-action="export-pdf"
+                class="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
+                onClick={() => props.onExportPdf?.()}
+              >
+                <Icon name="download" size="small" />
+                导出 PDF
+              </button>
+            </Show>
+          </div>
+        </Show>
         {/* [论文助手定制] 文稿 / 会话切换按钮；没有会话前「会话」不可点。 */}
         <div class="flex shrink-0 items-center gap-0.5 rounded-md bg-v2-background-bg-layer-01 p-0.5">
           <button
@@ -95,7 +236,6 @@ export function StepProductPanel(props: {
               "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "session",
               "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "session",
             }}
-            disabled={!state().sessionID}
             onClick={() => setView("session")}
           >
             会话
@@ -116,28 +256,40 @@ export function StepProductPanel(props: {
               </div>
             }
           >
-            {/* [论文助手定制] 只有“生成中且还没有任何文本”才显示转圈；有流式 progress 时直接渲染内容。 */}
+            {/* [论文助手定制] 生成中且还没有任何文本：显示“等待输出”占位（不再是全屏“模型生成中请稍候”转圈），
+                模型正文一出现就会走下面的 Markdown 流式渲染，看起来就像自动落到文稿画布。 */}
             <Show
-              when={props.status === "generating" && !props.result && !props.progressText}
+              when={props.status === "generating" && !manuscriptText()}
               fallback={
-                <Show when={props.render} fallback={
-                  <div class="mx-auto w-full max-w-3xl px-5 py-5">
-                    {/* [论文助手定制] 边生成边显示：result（上次完成的全文）+ progress（本次正在生成的文本）拼接渲染。 */}
-                    <Markdown
-                      text={[props.result, props.progressText].filter(Boolean).join("\n\n")}
-                      cacheKey={`${props.result ?? ""}\u0000${props.progressText ?? ""}`}
-                      class="thesis-markdown-preview"
-                      style={{ "font-size": "15px", "line-height": "1.8" }}
-                    />
-                  </div>
-                }>
-                  {props.render!(props.result ?? props.progressText ?? "")}
-                </Show>
+                <div class="mx-auto w-full max-w-3xl px-5 py-5">
+                  <Show when={props.render} fallback={
+                    <>
+                      {/* [论文助手定制] 边生成边显示：result（上次完成的全文）+ progress（本次正在生成的文本）拼接渲染。 */}
+                      <Markdown
+                        text={manuscriptText()}
+                        cacheKey={`${manuscriptText()}`}
+                        class="thesis-markdown-preview"
+                        style={{ "font-size": "15px", "line-height": "1.8" }}
+                      />
+                      {/* [论文助手定制] 完成态提示：文稿已作为文件保存在项目「正文」目录。 */}
+                      <Show when={props.manuscript && props.status === "done"}>
+                        <div class="mt-2 flex items-center gap-1 text-11-regular text-v2-text-text-faint">
+                          <Icon name="open-file" size="small" class="shrink-0" />
+                          已保存到 正文/{MANUSCRIPT_FILENAMES[props.manuscript!.step]}
+                        </div>
+                      </Show>
+                    </>
+                  }>
+                    {props.render!(manuscriptText())}
+                  </Show>
+                </div>
               }
             >
-              <div class="flex h-full items-center justify-center gap-2 px-6 text-12-regular text-v2-text-text-faint">
+              <div class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
                 <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
-                模型生成中，请稍候…
+                <div class="text-12-regular text-v2-text-text-faint">
+                  模型正在输出，正文会实时显示在这里…
+                </div>
               </div>
             </Show>
           </Show>

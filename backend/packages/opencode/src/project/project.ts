@@ -97,6 +97,9 @@ export interface Interface {
   readonly sandboxes: (id: ProjectV2.ID) => Effect.Effect<string[]>
   readonly addSandbox: (id: ProjectV2.ID, directory: string) => Effect.Effect<void>
   readonly removeSandbox: (id: ProjectV2.ID, directory: string) => Effect.Effect<void>
+  // [论文助手定制] 删除项目：移除项目数据库记录（sessions/project_directory 由外键级联清理），
+  // 供「论文助手」删除论文项目时调用（磁盘目录的删除在 handler 层完成）。
+  readonly remove: (id: ProjectV2.ID) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Project") {}
@@ -447,6 +450,15 @@ const layer = Layer.effect(
       yield* emitUpdated(fromRow(result))
     })
 
+    // [论文助手定制] 删除项目记录：直接删 ProjectTable 行。
+    // SessionTable / ProjectDirectoryTable 都声明了 references(ProjectTable.id, { onDelete: "cascade" })，
+    // 因此该项目的会话、消息、目录映射会自动级联删除。
+    const remove = Effect.fn("Project.remove")(function* (id: ProjectV2.ID) {
+      const row = yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get().pipe(Effect.orDie)
+      if (!row) return
+      yield* db.delete(ProjectTable).where(eq(ProjectTable.id, id)).run().pipe(Effect.orDie)
+    })
+
     return Service.of({
       init,
       fromDirectory,
@@ -459,6 +471,7 @@ const layer = Layer.effect(
       sandboxes,
       addSandbox,
       removeSandbox,
+      remove,
     })
   }),
 )

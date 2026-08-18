@@ -10,9 +10,11 @@ import { useSDK } from "@/context/sdk"
 import { showToast } from "@/utils/toast"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisKnowledge } from "./thesis-knowledge-store"
+import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { ThesisKnowledgePanel } from "./thesis-knowledge-panel"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { StepFormPanel, StepLayout, StepProductPanel } from "./thesis-workflow-ui"
+import { StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 
 // [论文助手定制] 方向侧重选项（写入提示词）。
 const DIRECTIONS = [
@@ -22,6 +24,12 @@ const DIRECTIONS = [
   { key: "clue", label: "论文线索", hint: "标注各章节相关的论文线索" },
 ] as const
 
+// [论文助手定制] Step 1 论文设定选项：类型 / 语言 / 图表 / 目标字数（全部写入提示词）。
+const PAPER_TYPES = ["期刊论文", "毕业论文", "会议论文", "综述论文", "其他"] as const
+const LANGUAGES = ["中文", "英文"] as const
+const HAS_FIGURES = ["有图表", "无图表"] as const
+const TARGET_WORDS = ["3000", "5000", "8000", "12000", "15000", "20000"] as const
+
 type DirectionKey = (typeof DIRECTIONS)[number]["key"]
 
 export function StepOutline() {
@@ -29,6 +37,12 @@ export function StepOutline() {
   const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setSessionID, setActiveStep } =
     useThesisWorkflow()
   const generator = useThesisGenerator()
+  // [论文助手定制] 文稿文件化：生成完成后把正文写入项目「正文/提纲.md」。
+  const manuscript = useThesisManuscriptFile(sdk().directory)
+  // [论文助手定制] 导出 Word：把生成的大纲转成 .docx 保存到项目「正文」目录。
+  const { exportDocx } = useThesisDocxExport("提纲")
+  // [论文助手定制] 导出 PDF：把生成的大纲渲染成 PDF 保存到项目「正文」目录。
+  const { exportPdf } = useThesisPdfExport("提纲")
   const outline = () => state().steps.outline
   const input = () => outline().input
 
@@ -95,7 +109,15 @@ export function StepOutline() {
     lines.push("## 一、综述需求")
     lines.push(values.needs.trim())
     lines.push("")
-    lines.push("## 二、方向侧重")
+    // [论文助手定制] 论文设定（类型 / 语言 / 图表 / 字数）作为独立小节打包给模型，
+    // 让大纲结构、篇幅规划与图表章节安排都匹配这些设定。
+    lines.push("## 二、论文设定")
+    lines.push(`- 论文类型：${values.paperType}`)
+    lines.push(`- 论文语言：${values.language}`)
+    lines.push(`- 图表要求：${values.hasFigures}`)
+    lines.push(`- 目标篇幅：约 ${values.targetWords} 字`)
+    lines.push("")
+    lines.push("## 三、方向侧重")
     const chosen = values.directions.map((key) => {
       const item = DIRECTIONS.find((direction) => direction.key === key)
       return item ? `${item.label}（${item.hint}）` : key
@@ -104,13 +126,15 @@ export function StepOutline() {
     if (values.aiSuggest) lines.push("- 请为每个章节给出 AI 建议（写作要点与提示）")
     if (values.optimize) lines.push("- 请在最后给出提纲优化提醒")
     lines.push("")
-    lines.push("## 三、参考材料（知识库）")
+    lines.push("## 四、参考材料（知识库）")
     const materialsText = await readMaterials()
     lines.push(materialsText || "（未选择材料）")
     lines.push("")
-    lines.push("## 四、输出要求")
+    lines.push("## 五、输出要求")
     lines.push(
-      "按章节输出综述大纲：每个章节包含标题、写作要点、相关论文线索与写作建议，结构清晰，可直接用于后续辅助写作。",
+      `按「${values.language}」学术写作习惯输出综述大纲：每个章节包含标题、写作要点、相关论文线索与写作建议，结构清晰，可直接用于后续辅助写作。` +
+        (values.hasFigures === "有图表" ? "请在合适的章节规划图表 / 表格，并标注图表用途。" : "") +
+        "严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；上文已包含全部所需材料，直接输出正文本身。",
     )
     return lines.join("\n")
   }
@@ -126,6 +150,8 @@ export function StepOutline() {
       const prompt = await buildPrompt()
       const { sessionID, text } = await generator.generate({
         prompt,
+        // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
+        skills: input().skills,
         sessionID: state().sessionID,
         // [论文助手定制] 边生成边显示：把当前已生成的文本实时写入 store.progress。
         // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。
@@ -133,6 +159,8 @@ export function StepOutline() {
         onProgress: (partial) => setStepProgress("outline", partial),
       })
       setSessionID(sessionID)
+      // [论文助手定制] 落盘：提纲正文写入 正文/提纲.md（文稿视图随后从文件读取）。
+      await manuscript.save("outline", text)
       setStepResult("outline", text)
       showToast({ variant: "success", icon: "circle-check", title: "提纲已生成，可进入辅助写作" })
     } catch {
@@ -170,6 +198,52 @@ export function StepOutline() {
               onChange={(value) => updateInput("outline", { needs: value })}
             />
           </section>
+          {/* [论文助手定制] 论文设定：类型 / 语言 / 图表 / 字数，两列下拉，改动即时写入 store 并参与生成。 */}
+          <section class="flex flex-col gap-1.5">
+            <div class="text-12-medium text-v2-text-text-base">论文设定</div>
+            <div class="grid grid-cols-2 gap-2">
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">论文类型</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().paperType}
+                  onChange={(event) => updateInput("outline", { paperType: event.currentTarget.value })}
+                >
+                  <For each={PAPER_TYPES}>{(item) => <option value={item}>{item}</option>}</For>
+                </select>
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">论文语言</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().language}
+                  onChange={(event) => updateInput("outline", { language: event.currentTarget.value })}
+                >
+                  <For each={LANGUAGES}>{(item) => <option value={item}>{item}</option>}</For>
+                </select>
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">图表</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().hasFigures}
+                  onChange={(event) => updateInput("outline", { hasFigures: event.currentTarget.value })}
+                >
+                  <For each={HAS_FIGURES}>{(item) => <option value={item}>{item}</option>}</For>
+                </select>
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">大约字数</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().targetWords}
+                  onChange={(event) => updateInput("outline", { targetWords: event.currentTarget.value })}
+                >
+                  <For each={TARGET_WORDS}>{(item) => <option value={item}>{item}</option>}</For>
+                </select>
+              </section>
+            </div>
+          </section>
           <section class="flex flex-col gap-1.5">
             <div class="text-12-medium text-v2-text-text-base">方向</div>
             <div class="flex flex-col gap-1">
@@ -191,6 +265,8 @@ export function StepOutline() {
               提纲优化提醒
             </Checkbox>
           </section>
+          {/* [论文助手定制] Skill 多选：勾选的 Skill 在生成时注入提示词（见 thesis-generator）。 */}
+          <ThesisSkillPicker step="outline" />
           <section class="flex flex-col gap-1.5">
             {/* [论文助手定制] 知识库面板：文件夹筛选 + 搜索 + 手写条目 + 资料文件，统一勾选参与生成 */}
             <ThesisKnowledgePanel
@@ -208,7 +284,10 @@ export function StepOutline() {
           status={outline().status}
           progressText={outline().progress}
           result={outline().result}
+          onExportDocx={() => void exportDocx(outline().result ?? "")}
+          onExportPdf={() => void exportPdf(outline().result ?? "")}
           emptyHint="填写左侧需求后点击「生成提纲」，大纲会显示在这里，并用于下一步辅助写作。"
+          manuscript={{ directory: sdk().directory, step: "outline" }}
         />
       }
     />

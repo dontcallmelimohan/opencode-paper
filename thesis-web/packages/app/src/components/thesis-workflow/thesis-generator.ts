@@ -14,7 +14,8 @@ const GENERATE_TIMEOUT_MS = 600_000
 // [论文助手定制] 等待模型回复：轮询 sync store 里该会话的消息列表，
 // 找到发送之后出现的 assistant 消息；文本内容从 data.part[消息id] 读取
 // （流式回复的文本片段存在 part store 里），直到消息完成（finish/time.completed）。
-function waitForAssistantReply(
+// [论文助手定制] 导出给工作台内嵌会话视图复用：继续对话（发送消息后）同样用轮询等待模型回复。
+export function waitForAssistantReply(
   sync: ReturnType<typeof useSync>,
   sessionID: string,
   sinceIndex: number,
@@ -45,10 +46,18 @@ function waitForAssistantReply(
           .filter((part) => part.type === "text")
           .map((part) => part.text)
           .join("")
-        const text = parts
-          .filter((part) => part.type === "text" && "text" in part)
-          .map((part) => (part as { text: string }).text)
-          .join("") || inlineText
+        // [论文助手定制] 流式文本读取：优先用 part store 里实时累积的 text；
+        // 若 part.text 还没更新（某些协议下 delta 只进 part_text_accum_delta），
+        // 用 delta 累积值兜底。保证“边生成边显示”在 v1/v2 事件下都能读到中间文本。
+        const text =
+          parts
+            .filter((part) => part.type === "text" && "text" in part)
+            .map((part) => {
+              const delta = sync().data.part_text_accum_delta?.[part.id]
+              const current = (part as { text: string }).text
+              return typeof delta === "string" && delta.length > current.length ? delta : current
+            })
+            .join("") || inlineText
         onProgress?.(text)
         if (message.error) {
           finish(undefined, new Error(message.error.message ?? "模型返回错误"))
@@ -60,8 +69,36 @@ function waitForAssistantReply(
         }
         break
       }
-    }, 250)
+    }, 150)
   })
+}
+
+// [论文助手定制] 把选中 Skill 的 SKILL.md 指令注入提示词（纯前端方案）。
+// 后端 prompt_async 只有单个 agent 参数、没有 skills[] 列表；会话输入框选 Skill
+// 是作为 agent part 提交、由后端按 skill 工具加载。工作台生成禁用了全部工具
+// （tools: { "*": false }，保证正文一出现就能流式显示），所以这里直接调 GET /skill
+// 把选中 Skill 的 content（SKILL.md 正文，frontmatter 已剥离）拼进提示词，
+// 模型按指令执行，又不会触发多轮工具调用打断流式输出。
+async function buildSkillSection(
+  sdk: ReturnType<typeof useSDK>,
+  skills: string[],
+): Promise<string> {
+  if (skills.length === 0) return ""
+  const res = await sdk().client.app.skills({ directory: sdk().directory })
+  if (res.error) return ""
+  const byName = new Map((res.data ?? []).map((item) => [item.name, item]))
+  const lines: string[] = [
+    "",
+    "## 启用的 Skill 指令（必须遵循）",
+    "以下是本次任务必须遵循的 Skill 指令，内容已内嵌在提示词中，无需也不能再调用任何工具或 skill：",
+  ]
+  for (const name of skills) {
+    const skill = byName.get(name)
+    if (!skill) continue
+    lines.push("", `### Skill：${skill.name}`, skill.content.trim())
+  }
+  if (lines.length <= 3) return ""
+  return lines.join("\n")
 }
 
 export function useThesisGenerator() {
@@ -73,6 +110,8 @@ export function useThesisGenerator() {
   // [论文助手定制] 核心生成函数：返回 { sessionID, text }。
   const generate = async (options: {
     prompt: string
+    // [论文助手定制] 本步配置面板选中的 Skill（可多选）：生成时把 SKILL.md 指令注入提示词。
+    skills?: string[]
     sessionID?: string
     // [论文助手定制] 会话一确定（新建或复用）就回调，让工作台立刻启用「会话」切换，
     // 生成过程中就能切过去看实时对话；不用等模型回复完。
@@ -95,13 +134,27 @@ export function useThesisGenerator() {
       const before = (sync().data.session_message[sessionID] ?? []).length
       const agent = local.agent.current()
       const model = local.model.current()
-      const res = await sdk().client.session.prompt({
+      // [论文助手定制] 用 prompt_async（异步受理，立即返回）而不是同步 prompt：
+      // 同步接口会阻塞到模型回复完成才返回，导致 waitForAssistantReply 只能在生成结束后
+      // 才开始轮询——事件流（message.part.delta）虽然实时到达前端 store，却没人读取，
+      // 文稿面板就只能“等会话输出完一次性显示”。异步受理后轮询立刻开始，
+      // 每 150ms 读取 store 里实时累积的文本，实现“边生成边显示”。
+      // [论文助手定制] 把选中 Skill 的 SKILL.md 指令追加到提示词末尾（见 buildSkillSection）。
+      const prompt = options.skills?.length
+        ? options.prompt + (await buildSkillSection(sdk, options.skills))
+        : options.prompt
+      const res = await sdk().client.session.promptAsync({
         sessionID,
         directory: sdk().directory,
         messageID: Identifier.ascending("message"),
         agent: agent?.name,
         model: model ? { providerID: model.provider.id, modelID: model.id } : undefined,
-        parts: [{ type: "text", text: options.prompt }],
+        // [论文助手定制] 工作台生成禁用所有工具（* 通配 deny）：
+        // 参考材料已经由各步骤打包进 prompt（知识库内容内嵌），不再需要模型自己去读项目文件。
+        // 否则 build agent 会先做多轮工具调用（读正文/资料），期间没有任何 text 输出，
+        // 文稿面板只能一直显示“等待输出”，体验不到豆包式“正文一出现就流式显示”。
+        tools: { "*": false },
+        parts: [{ type: "text", text: prompt }],
       })
       if (res.error) throw res.error
       const text = await waitForAssistantReply(sync, sessionID, before, options.onProgress)

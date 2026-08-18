@@ -91,13 +91,20 @@ function ThesisWorkbenchRoute() {
           <ServerSyncProvider>
             {/* [论文助手定制] LayoutProvider：让工作台在旧版布局（无侧边栏外壳）下也能读取项目列表 */}
             <LayoutProvider>
-              <SDKProvider directory={dir}>
-                <DirectoryDataProvider directory={dir}>
-                  <Suspense fallback={<div class="size-full" />}>
-                    <ThesisWorkbench />
-                  </Suspense>
-                </DirectoryDataProvider>
-              </SDKProvider>
+              {/* [论文助手定制] ModelsProvider：完整会话输入框（PromptInputV2）的模型选择依赖它 */}
+              <ModelsProvider directory={() => dir}>
+                <SDKProvider directory={dir}>
+                  <DirectoryDataProvider directory={dir}>
+                    {/* [论文助手定制] DraftProviders（File/Prompt/Comments）：PromptInput 依赖文件搜索、
+                        prompt 状态与评论上下文；会话视图接入完整输入框后必须提供，否则输入框组件会报错。 */}
+                    <DraftProviders>
+                      <Suspense fallback={<div class="size-full" />}>
+                        <ThesisWorkbench />
+                      </Suspense>
+                    </DraftProviders>
+                  </DirectoryDataProvider>
+                </SDKProvider>
+              </ModelsProvider>
             </LayoutProvider>
           </ServerSyncProvider>
         </ServerSDKProvider>

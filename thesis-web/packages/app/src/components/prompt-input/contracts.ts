@@ -54,4 +54,8 @@ export interface PromptInputProps {
   onQueue?: (draft: FollowupDraft) => void
   onAbort?: () => void
   onSubmit?: () => void
+  // [论文助手定制] 嵌入模式（论文工作台会话视图）：
+  // 复用已有 sessionID 继续对话、发送后不跳转；首次发送自动创建会话并回调。
+  embedded?: boolean
+  onSessionCreated?: (sessionID: string, sessionDirectory: string) => void
 }

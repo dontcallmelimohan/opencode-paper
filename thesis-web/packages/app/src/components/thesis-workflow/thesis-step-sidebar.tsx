@@ -4,6 +4,7 @@
 // 侧边栏从上到下：返回主页 → 论文标题 → 四步切换 → 本项目会话记录 → 底部工具（资料）。
 import type { SessionV2Info } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useQuery, useQueryClient } from "@tanstack/solid-query"
 import { DateTime } from "luxon"
@@ -13,6 +14,7 @@ import { useSDK } from "@/context/sdk"
 import { ServerConnection, useServer } from "@/context/server"
 import { useTabs } from "@/context/tabs"
 import { showToast } from "@/utils/toast"
+import { ThesisManuscriptDialog } from "./thesis-manuscript-preview"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
 
 const STEPS = [
@@ -34,6 +36,7 @@ export function ThesisStepSidebar(props: {
   const tabs = useTabs()
   const server = useServer()
   const queryClient = useQueryClient()
+  const dialog = useDialog()
   const active = () => state().activeStep
   const stepStatus = (key: StepKey) => state().steps[key].status
 
@@ -87,7 +90,8 @@ export function ThesisStepSidebar(props: {
   }
 
   return (
-    <div class="flex w-[220px] shrink-0 flex-col overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
+    // [论文助手定制] 可拖拽布局：宽度由外层容器（thesis-workbench.tsx 的 ResizeHandle）控制，这里不再写死 220px。
+    <div class="flex w-full shrink-0 flex-col overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
       {/* [论文助手定制] 顶部：返回主页 */}
       <Button
         type="button"
@@ -211,7 +215,7 @@ export function ThesisStepSidebar(props: {
           </For>
         </Show>
       </div>
-      {/* [论文助手定制] 底部工具：资料上传 */}
+      {/* [论文助手定制] 底部工具：资料上传 + 正文预览（点击弹悬浮面板，预览「正文」目录里的 Word/PDF/Markdown 文稿） */}
       <div class="mt-auto flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
         <Button
           type="button"
@@ -222,6 +226,16 @@ export function ThesisStepSidebar(props: {
           onClick={props.onUpload}
         >
           资料
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="small"
+          icon="open-file"
+          class="w-full justify-start"
+          onClick={() => dialog.show(() => <ThesisManuscriptDialog directory={sdk().directory} />)}
+        >
+          正文
         </Button>
       </div>
     </div>

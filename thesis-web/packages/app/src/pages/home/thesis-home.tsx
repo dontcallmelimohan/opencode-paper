@@ -22,7 +22,6 @@ import { useServerSync } from "@/context/server-sync"
 import { useTabs } from "@/context/tabs"
 import { showToast } from "@/utils/toast"
 
-const THESIS_MARKER = "thesis-workspace"
 const THESIS_QUERY_KEY = ["thesis", "projects"] as const
 
 const thesisErrorMessage = (error: unknown, fallback: string) => {
@@ -41,7 +40,13 @@ const thesisErrorMessage = (error: unknown, fallback: string) => {
 const isPdf = (entry: { name: string }) => /\.pdf$/i.test(entry.name)
 
 export const thesisName = (thesis: Project) => thesis.name?.trim() || thesis.worktree.split("/").pop() || thesis.worktree
-export const thesisUpdatedAt = (thesis: Project) => thesis.time.updated ?? thesis.time.created
+
+// [论文助手定制] 论文卡片时间：优先用后端算好的 contentUpdatedAt（正文/资料里文件的最新修改时间，
+// 真正“编辑过”才会变化）；没编辑过的项目回退到创建时间。不再用 project.time.updated——
+// 那会在每次打开项目时被后端 fromDirectory 刷新，导致“没编辑却显示刚刚”。
+export type ThesisWithContentTime = Project & { contentUpdatedAt?: number }
+export const thesisUpdatedAt = (thesis: ThesisWithContentTime) =>
+  thesis.contentUpdatedAt || thesis.time.created || thesis.time.updated || 0
 
 function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
   const dialog = useDialog()
@@ -336,6 +341,58 @@ function ThesisSessionsDialog(props: { thesis: Project }) {
   )
 }
 
+// [论文助手定制] 删除论文确认框：调后端 /thesis/delete（删除工作区目录 + 数据库记录，不可恢复），
+// 成功后刷新主页列表。删除按钮只放在论文卡片上，避免误触。
+function ThesisDeleteDialog(props: { thesis: ThesisWithContentTime }) {
+  const dialog = useDialog()
+  const sdk = useServerSDK()
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string | undefined>(undefined)
+
+  const remove = async () => {
+    if (busy()) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const res = await sdk().client.instance.thesisDelete({ projectID: props.thesis.id })
+      if (res.error) throw new Error(thesisErrorMessage(res.error, "删除论文失败"))
+      dialog.close()
+      void queryClient.invalidateQueries({ queryKey: THESIS_QUERY_KEY })
+      showToast({ variant: "success", icon: "circle-check", title: `已删除论文「${thesisName(props.thesis)}」` })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog
+      title="删除论文"
+      description={`确定删除「${thesisName(props.thesis)}」吗？将删除该项目的工作区文件夹、正文、资料与全部生成记录，且不可恢复。`}
+    >
+      <form
+        class="flex flex-col gap-4 px-2.5 pb-4"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void remove()
+        }}
+      >
+        {error() ? <div class="text-12-regular text-v2-text-text-error">{error()}</div> : null}
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => dialog.close()}>
+            取消
+          </Button>
+          <Button type="submit" variant="primary" disabled={busy()} icon="trash">
+            {busy() ? "删除中…" : "确认删除"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
 export function ThesisHome() {
   const sdk = useServerSDK()
   const server = useServer()
@@ -352,22 +409,10 @@ export function ThesisHome() {
   const theses = useQuery(() => ({
     queryKey: [...THESIS_QUERY_KEY, home()],
     queryFn: async () => {
-      const [configRes, res] = await Promise.all([
-        sdk().client.global.config.get(),
-        sdk().client.project.list(),
-      ])
-      const configured = configRes.data?.thesisWorkspace?.trim()
-      const root = configured
-        ? configured.replace(/^~(?=\/|$)/, home())
-        : home()
-          ? `${home()}/thesis-workspace`
-          : undefined
-      const projects = res.data ?? []
-      return projects
-        .filter((project) =>
-          root ? project.worktree.startsWith(`${root}/`) : project.worktree.includes(THESIS_MARKER),
-        )
-        .sort((a, b) => thesisUpdatedAt(b) - thesisUpdatedAt(a))
+      // [论文助手定制] 列表直接走后端 /thesis/list：后端负责过滤论文工作区项目，
+      // 并计算每项的 contentUpdatedAt（正文/资料文件最新修改时间），前端只负责排序显示。
+      const res = await sdk().client.instance.thesisList()
+      return (res.data ?? []).sort((a, b) => thesisUpdatedAt(b) - thesisUpdatedAt(a))
     },
   }))
 
@@ -490,6 +535,18 @@ export function ThesisHome() {
                 <Button size="small" variant="primary" onClick={() => startWriting(thesis.worktree)}>
                   开始写作
                 </Button>
+                {/* [论文助手定制] 删除论文：确认后删除工作区与全部记录（不可恢复）。 */}
+                <TooltipV2 placement="bottom" value="删除论文">
+                  <IconButton
+                    type="button"
+                    data-action="thesis-delete"
+                    icon="trash"
+                    size="small"
+                    variant="ghost"
+                    aria-label="删除论文"
+                    onClick={() => dialog.show(() => <ThesisDeleteDialog thesis={thesis} />)}
+                  />
+                </TooltipV2>
               </div>
             )}
           </For>

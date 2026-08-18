@@ -99,10 +99,25 @@ import type {
   InstanceSkillInstallDirectoryResponses,
   InstanceSkillInstallErrors,
   InstanceSkillInstallResponses,
+  InstanceSkillInstallZipErrors,
+  InstanceSkillInstallZipResponses,
+  InstanceSkillUninstallErrors,
+  InstanceSkillUninstallResponses,
   InstanceThesisCreateErrors,
   InstanceThesisCreateResponses,
+  InstanceThesisDeleteErrors,
+  InstanceThesisDeleteResponses,
+  InstanceThesisExportDocxErrors,
+  InstanceThesisExportDocxOptions,
+  InstanceThesisExportDocxResponses,
+  InstanceThesisExportPdfErrors,
+  InstanceThesisExportPdfResponses,
+  InstanceThesisListErrors,
+  InstanceThesisListResponses,
   InstanceThesisPdfTextErrors,
   InstanceThesisPdfTextResponses,
+  InstanceThesisSaveManuscriptErrors,
+  InstanceThesisSaveManuscriptResponses,
   InstanceThesisUploadErrors,
   InstanceThesisUploadResponses,
   LocationRef,
@@ -2174,6 +2189,95 @@ export class Instance extends HeyApiClient {
   }
 
   /**
+   * Uninstall a skill and its agent
+   *
+   * Deletes the global skill directory and the agent config, then reloads agents and skills.
+   */
+  public skillUninstall<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceSkillUninstallResponses,
+      InstanceSkillUninstallErrors,
+      ThrowOnError
+    >({
+      url: "/skill/uninstall",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Install a skill and its agent from an unzipped file tree
+   *
+   * Writes the given file tree under the global skills directory, then creates its agent.
+   */
+  public skillInstallZip<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      description?: string
+      files?: {
+        path: string
+        content: string
+      }[]
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "description" },
+            { in: "body", key: "files" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceSkillInstallZipResponses,
+      InstanceSkillInstallZipErrors,
+      ThrowOnError
+    >({
+      url: "/skill/install-zip",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Create a thesis project
    *
    * Creates a named thesis workspace directory under the user's thesis-workspace folder and registers it as a project.
@@ -2282,6 +2386,182 @@ export class Instance extends HeyApiClient {
       ThrowOnError
     >({
       url: "/thesis/pdf-text",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Save thesis manuscript as a Markdown file
+   *
+   * Writes the manuscript body of a thesis step into the thesis workspace 正文 directory as a .md file (提纲/全文稿/排版稿/评审报告).
+   */
+  public thesisSaveManuscript<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      step?: "outline" | "writing" | "formatting" | "review"
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "step" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisSaveManuscriptResponses,
+      InstanceThesisSaveManuscriptErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/save-manuscript",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List thesis projects
+   *
+   * Lists projects under the thesis workspace, each with contentUpdatedAt computed from the latest file mtime in the 正文 and 资料 directories.
+   */
+  public thesisList<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      InstanceThesisListResponses,
+      InstanceThesisListErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/list",
+      ...options,
+    })
+  }
+
+  /**
+   * Delete a thesis project
+   *
+   * Deletes the thesis workspace directory and its project/session records. Only projects under the thesis workspace can be deleted.
+   */
+  public thesisDelete<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [{ in: "body", key: "projectID" }],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisDeleteResponses,
+      InstanceThesisDeleteErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/delete",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Export thesis manuscript as a Word document
+   *
+   * Converts Markdown manuscript text into a .docx file and writes it into the thesis workspace 正文 directory.
+   */
+  public thesisExportDocx<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      filename?: string
+      content?: string
+      options?: InstanceThesisExportDocxOptions
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "content" },
+            { in: "body", key: "options" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisExportDocxResponses,
+      InstanceThesisExportDocxErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/export-docx",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Export thesis manuscript as a PDF
+   *
+   * Prints a rendered HTML manuscript into a .pdf file and writes it into the thesis workspace 正文 directory.
+   */
+  public thesisExportPdf<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      filename?: string
+      html?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "filename" },
+            { in: "body", key: "html" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisExportPdfResponses,
+      InstanceThesisExportPdfErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/export-pdf",
       ...options,
       ...params,
       headers: {

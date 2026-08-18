@@ -8598,6 +8598,85 @@ export type InstanceSkillInstallDirectoryResponses = {
 export type InstanceSkillInstallDirectoryResponse =
   InstanceSkillInstallDirectoryResponses[keyof InstanceSkillInstallDirectoryResponses]
 
+export type InstanceSkillUninstallData = {
+  body?: {
+    name: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/uninstall"
+}
+
+export type InstanceSkillUninstallErrors = {
+  /**
+   * SkillInstallError | InvalidRequestError
+   */
+  400: SkillInstallError | InvalidRequestError
+}
+
+export type InstanceSkillUninstallError =
+  InstanceSkillUninstallErrors[keyof InstanceSkillUninstallErrors]
+
+export type InstanceSkillUninstallResponses = {
+  /**
+   * Uninstalled skill and agent
+   */
+  200: {
+    name: string
+  }
+}
+
+export type InstanceSkillUninstallResponse =
+  InstanceSkillUninstallResponses[keyof InstanceSkillUninstallResponses]
+
+export type InstanceSkillInstallZipData = {
+  body?: {
+    name: string
+    description?: string
+    files: {
+      path: string
+      content: string
+    }[]
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/install-zip"
+}
+
+export type InstanceSkillInstallZipErrors = {
+  /**
+   * SkillInstallError | InvalidRequestError
+   */
+  400: SkillInstallError | InvalidRequestError
+}
+
+export type InstanceSkillInstallZipError =
+  InstanceSkillInstallZipErrors[keyof InstanceSkillInstallZipErrors]
+
+export type InstanceSkillInstallZipResponses = {
+  /**
+   * Installed skill and agent from a zip archive
+   */
+  200: {
+    agent: Agent
+    skill: {
+      name: string
+      description?: string
+      location: string
+      content: string
+    }
+  }
+}
+
+export type InstanceSkillInstallZipResponse =
+  InstanceSkillInstallZipResponses[keyof InstanceSkillInstallZipResponses]
+
 export type InstanceThesisCreateData = {
   body?: {
     title: string
@@ -8698,6 +8777,194 @@ export type InstanceThesisPdfTextResponses = {
 
 export type InstanceThesisPdfTextResponse =
   InstanceThesisPdfTextResponses[keyof InstanceThesisPdfTextResponses]
+
+// [论文助手定制] 论文文稿落盘：把某步骤的正文写入项目「正文」目录的 .md 文件。
+export type InstanceThesisSaveManuscriptData = {
+  body?: {
+    projectID: string
+    step: "outline" | "writing" | "formatting" | "review"
+    content: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/save-manuscript"
+}
+
+export type InstanceThesisSaveManuscriptErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisSaveManuscriptError =
+  InstanceThesisSaveManuscriptErrors[keyof InstanceThesisSaveManuscriptErrors]
+
+export type InstanceThesisSaveManuscriptResponses = {
+  /**
+   * Saved manuscript file name and path
+   */
+  200: {
+    filename: string
+    path: string
+  }
+}
+
+export type InstanceThesisSaveManuscriptResponse =
+  InstanceThesisSaveManuscriptResponses[keyof InstanceThesisSaveManuscriptResponses]
+
+// [论文助手定制] 论文项目列表项：Project 全部字段 + contentUpdatedAt
+// （正文/资料目录里文件的最新修改时间，表示“论文内容最后编辑时间”，避免“打开过就算刚刚”）。
+export type InstanceThesisListEntry = Project & {
+  contentUpdatedAt: number
+}
+
+export type InstanceThesisListData = {
+  path?: never
+  query?: never
+  url: "/thesis/list"
+}
+
+export type InstanceThesisListErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisListError =
+  InstanceThesisListErrors[keyof InstanceThesisListErrors]
+
+export type InstanceThesisListResponses = {
+  /**
+   * Thesis projects with content updated time
+   */
+  200: Array<InstanceThesisListEntry>
+}
+
+export type InstanceThesisListResponse =
+  InstanceThesisListResponses[keyof InstanceThesisListResponses]
+
+// [论文助手定制] 删除论文项目：删除工作区目录与数据库记录（会话等级联清理）。
+export type InstanceThesisDeleteData = {
+  body?: {
+    projectID: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/delete"
+}
+
+export type InstanceThesisDeleteErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisDeleteError =
+  InstanceThesisDeleteErrors[keyof InstanceThesisDeleteErrors]
+
+export type InstanceThesisDeleteResponses = {
+  /**
+   * Deleted thesis project id
+   */
+  200: {
+    projectID: string
+  }
+}
+
+export type InstanceThesisDeleteResponse =
+  InstanceThesisDeleteResponses[keyof InstanceThesisDeleteResponses]
+
+// [论文助手定制] 论文导出 Word：Markdown 文稿按排版参数（字体/字号/行距/页边距/标题编号/封面）
+// 排成 .docx 写入项目「正文」目录。options 由 Step 3 排版参数面板生成。
+export type InstanceThesisExportDocxCover = {
+  title?: string
+  author?: string
+  affiliation?: string
+  date?: string
+}
+
+export type InstanceThesisExportDocxOptions = {
+  paperType?: string
+  fontFamily?: string
+  fontSize?: number
+  lineSpacing?: number
+  pageMargin?: "standard" | "narrow" | "thesis"
+  titleNumbering?: boolean
+  cover?: InstanceThesisExportDocxCover
+}
+
+export type InstanceThesisExportDocxData = {
+  body?: {
+    projectID: string
+    filename: string
+    content: string
+    options?: InstanceThesisExportDocxOptions
+  }
+  path?: never
+  query?: never
+  url: "/thesis/export-docx"
+}
+
+export type InstanceThesisExportDocxErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisExportDocxError =
+  InstanceThesisExportDocxErrors[keyof InstanceThesisExportDocxErrors]
+
+export type InstanceThesisExportDocxResponses = {
+  /**
+   * Exported docx file name and path
+   */
+  200: {
+    filename: string
+    path: string
+  }
+}
+
+export type InstanceThesisExportDocxResponse =
+  InstanceThesisExportDocxResponses[keyof InstanceThesisExportDocxResponses]
+
+// [论文助手定制] 论文导出 PDF：前端渲染好的 HTML 打印成 .pdf 写入项目「正文」目录。
+export type InstanceThesisExportPdfData = {
+  body?: {
+    projectID: string
+    filename: string
+    html: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/export-pdf"
+}
+
+export type InstanceThesisExportPdfErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisExportPdfError =
+  InstanceThesisExportPdfErrors[keyof InstanceThesisExportPdfErrors]
+
+export type InstanceThesisExportPdfResponses = {
+  /**
+   * Exported pdf file name and path
+   */
+  200: {
+    filename: string
+    path: string
+  }
+}
+
+export type InstanceThesisExportPdfResponse =
+  InstanceThesisExportPdfResponses[keyof InstanceThesisExportPdfResponses]
 
 export type LspStatusData = {
   body?: never

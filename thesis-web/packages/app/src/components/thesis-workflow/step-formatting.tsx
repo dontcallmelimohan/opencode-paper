@@ -4,20 +4,64 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { For, Show } from "solid-js"
+import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
+import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { StepFormPanel, StepLayout, StepProductPanel } from "./thesis-workflow-ui"
+import { StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { showToast } from "@/utils/toast"
 
 const PAPER_TYPES = ["综述论文", "课程论文", "毕业论文", "期刊投稿稿"]
 const REFERENCE_STYLES = ["GB/T 7714-2015", "APA 7th", "MLA 9th", "Vancouver", "IEEE"]
 const HEADING_STYLES = ["三级标题", "二级标题", "四号标题层级", "英文小标题"]
 const TYPOGRAPHIES = ["中文学术默认", "中文核心期刊风格", "英文 SCI 风格", "毕业论文模板"]
+// [论文助手定制] docx 排版参数选项（导出 Word 时生效，控制后端 docx 引擎的视觉规范）。
+const FONT_FAMILIES = ["宋体", "黑体", "楷体", "仿宋"]
+const FONT_SIZES = [
+  { label: "五号（10.5pt）", value: "10.5" },
+  { label: "小四（12pt）", value: "12" },
+  { label: "四号（14pt）", value: "14" },
+]
+const LINE_SPACINGS = [
+  { label: "单倍", value: "1" },
+  { label: "1.5 倍", value: "1.5" },
+  { label: "双倍", value: "2" },
+]
+const PAGE_MARGINS = [
+  { label: "标准", value: "standard" },
+  { label: "窄边距", value: "narrow" },
+  { label: "毕业论文规范", value: "thesis" },
+]
 
 export function StepFormatting() {
+  const sdk = useSDK()
   const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setSessionID, setActiveStep } =
     useThesisWorkflow()
   const generator = useThesisGenerator()
+  // [论文助手定制] 文稿文件化：排版稿写入项目「正文/排版稿.md」。
+  const manuscript = useThesisManuscriptFile(sdk().directory)
+  // [论文助手定制] 导出 Word：把排版后的最终稿转成 .docx 保存到项目「正文」目录。
+  // 把 Step 3 面板的排版参数（字体/字号/行距/页边距/标题编号/封面）随导出传给后端 docx 引擎。
+  const { exportDocx } = useThesisDocxExport("排版稿", () => ({
+    paperType: input().paperType,
+    fontFamily: input().fontFamily,
+    fontSize: Number(input().fontSize),
+    lineSpacing: Number(input().lineSpacing),
+    pageMargin: input().pageMargin as "standard" | "narrow" | "thesis",
+    titleNumbering: input().titleNumbering,
+    cover:
+      input().coverTitle.trim() || input().coverAuthor.trim() || input().coverAffiliation.trim() || input().coverDate.trim()
+        ? {
+            title: input().coverTitle.trim() || undefined,
+            author: input().coverAuthor.trim() || undefined,
+            affiliation: input().coverAffiliation.trim() || undefined,
+            date: input().coverDate.trim() || undefined,
+          }
+        : undefined,
+  }))
+  // [论文助手定制] 导出 PDF：把排版后的最终稿渲染成 PDF 保存到项目「正文」目录。
+  const { exportPdf } = useThesisPdfExport("排版稿")
   const formatting = () => state().steps.formatting
   const input = () => formatting().input
   const sourcePaper = () => state().steps.writing.result ?? ""
@@ -40,7 +84,8 @@ export function StepFormatting() {
     lines.push("")
     lines.push("## 输出要求")
     lines.push(
-      "输出排版后的完整论文（Markdown 格式）：统一标题层级与编号、段首缩进、图表编号、参考文献列表按指定格式排列。",
+      "只输出排版后的论文正文本身（Markdown 格式）：统一标题层级与编号、段首缩进、图表编号、参考文献列表按指定格式排列。" +
+        "禁止输出任何排版说明、页眉页脚设置说明、字体字号说明、注释或标注；正文之前不要有任何标题性文字；严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；上文已包含全部所需材料，直接输出正文本身。",
     )
     return lines.join("\n")
   }
@@ -51,6 +96,8 @@ export function StepFormatting() {
     try {
       const { sessionID, text } = await generator.generate({
         prompt: buildPrompt(),
+        // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
+        skills: input().skills,
         sessionID: state().sessionID,
         // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
         // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。
@@ -58,6 +105,8 @@ export function StepFormatting() {
         onProgress: (partial) => setStepProgress("formatting", partial),
       })
       setSessionID(sessionID)
+      // [论文助手定制] 落盘：排版稿写入 正文/排版稿.md（文稿视图随后从文件读取）。
+      await manuscript.save("formatting", text)
       setStepResult("formatting", text)
       showToast({ variant: "success", icon: "circle-check", title: "排版稿已生成，可进入论文评审" })
     } catch {
@@ -144,6 +193,104 @@ export function StepFormatting() {
               onChange={(value) => updateInput("formatting", { requirements: value })}
             />
           </section>
+          {/* [论文助手定制] docx 排版参数：控制导出的 Word 视觉规范（字体/字号/行距/页边距/标题编号），
+              直接存进 workflow store 并在导出时传给后端；改这里不会影响 AI 排版，只影响 docx 成品。 */}
+          <section class="flex flex-col gap-1.5">
+            <div class="text-12-medium text-v2-text-text-base">docx 排版参数</div>
+            <div class="grid grid-cols-2 gap-2">
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">正文中文字体</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().fontFamily}
+                  onChange={(event) => updateInput("formatting", { fontFamily: event.currentTarget.value })}
+                >
+                  <For each={FONT_FAMILIES}>{(item) => <option value={item}>{item}</option>}</For>
+                </select>
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">正文字号</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().fontSize}
+                  onChange={(event) => updateInput("formatting", { fontSize: event.currentTarget.value })}
+                >
+                  <For each={FONT_SIZES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                </select>
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">行距</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().lineSpacing}
+                  onChange={(event) => updateInput("formatting", { lineSpacing: event.currentTarget.value })}
+                >
+                  <For each={LINE_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                </select>
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">页边距</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().pageMargin}
+                  onChange={(event) => updateInput("formatting", { pageMargin: event.currentTarget.value })}
+                >
+                  <For each={PAGE_MARGINS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                </select>
+              </section>
+            </div>
+            <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
+              <input
+                type="checkbox"
+                class="size-4 accent-[var(--v2-text-text-accent)]"
+                checked={input().titleNumbering}
+                onChange={(event) => updateInput("formatting", { titleNumbering: event.currentTarget.checked })}
+              />
+              标题自动编号（1 / 1.1 / 1.1.1，摘要/参考文献/致谢除外）
+            </label>
+          </section>
+          {/* [论文助手定制] 封面信息：毕业论文类型可填写，填了题目才会生成封面页，其余留空则不生成。 */}
+          <section class="flex flex-col gap-1.5">
+            <div class="text-12-medium text-v2-text-text-base">封面信息（可选，毕业论文需要）</div>
+            <div class="grid grid-cols-2 gap-2">
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">论文题目</div>
+                <TextField
+                  type="text"
+                  placeholder="填了才会生成封面页"
+                  value={input().coverTitle}
+                  onChange={(value) => updateInput("formatting", { coverTitle: value })}
+                />
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">作者</div>
+                <TextField
+                  type="text"
+                  value={input().coverAuthor}
+                  onChange={(value) => updateInput("formatting", { coverAuthor: value })}
+                />
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">单位</div>
+                <TextField
+                  type="text"
+                  value={input().coverAffiliation}
+                  onChange={(value) => updateInput("formatting", { coverAffiliation: value })}
+                />
+              </section>
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">日期</div>
+                <TextField
+                  type="text"
+                  placeholder="如 2026 年 6 月"
+                  value={input().coverDate}
+                  onChange={(value) => updateInput("formatting", { coverDate: value })}
+                />
+              </section>
+            </div>
+          </section>
+          {/* [论文助手定制] Skill 多选：勾选的 Skill 在生成时注入提示词（见 thesis-generator）。 */}
+          <ThesisSkillPicker step="formatting" />
           <Show when={!sourcePaper()}>
             <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">
               还没有全文稿，建议先完成 Step 2「辅助写作」。
@@ -157,7 +304,10 @@ export function StepFormatting() {
           status={formatting().status}
           progressText={formatting().progress}
           result={formatting().result}
+          onExportDocx={() => void exportDocx(formatting().result ?? "")}
+          onExportPdf={() => void exportPdf(formatting().result ?? "")}
           emptyHint="设定排版要求后点击「生成排版稿」，最终稿会显示在这里。"
+          manuscript={{ directory: sdk().directory, step: "formatting" }}
         />
       }
     />
