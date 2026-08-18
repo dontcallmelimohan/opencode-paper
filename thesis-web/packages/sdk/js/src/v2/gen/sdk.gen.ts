@@ -106,6 +106,8 @@ import type {
   InstanceThesisCreateErrors,
   InstanceThesisCreateResponses,
   InstanceThesisDeleteErrors,
+  InstanceThesisDeleteMaterialErrors,
+  InstanceThesisDeleteMaterialResponses,
   InstanceThesisDeleteResponses,
   InstanceThesisExportDocxErrors,
   InstanceThesisExportDocxOptions,
@@ -2386,6 +2388,45 @@ export class Instance extends HeyApiClient {
       ThrowOnError
     >({
       url: "/thesis/pdf-text",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete a thesis reference file
+   *
+   * Deletes a file from the thesis workspace 资料 directory (and its extracted PDF text file).
+   */
+  public thesisDeleteMaterial<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      filename?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "filename" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisDeleteMaterialResponses,
+      InstanceThesisDeleteMaterialErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/material-delete",
       ...options,
       ...params,
       headers: {

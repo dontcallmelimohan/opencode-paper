@@ -114,6 +114,17 @@ const ThesisPdfTextResult = Schema.Struct({
   chars: Schema.Number,
 })
 
+// [论文助手定制] 删除资料文件：只接收 projectID + 文件名，后端删除「资料」目录里对应文件
+// （若为 PDF，同时删除由 thesisPdfText 生成的同名 .txt 提取文本，避免残留）。
+export const ThesisDeleteMaterialBody = Schema.Struct({
+  projectID: Schema.String,
+  filename: Schema.String,
+})
+
+const ThesisDeleteMaterialResult = Schema.Struct({
+  filename: Schema.String,
+})
+
 // [论文助手定制] 论文导出 Word：接收 Markdown 文稿文本 + 排版参数（Step 3 面板），
 // 由后端 docx 引擎排版成可直接提交的 .docx 写入项目「正文」目录。
 const ThesisDocxCoverSchema = Schema.Struct({
@@ -131,6 +142,12 @@ const ThesisDocxOptionsSchema = Schema.Struct({
   pageMargin: Schema.optional(Schema.Literals(["standard", "narrow", "thesis"])),
   titleNumbering: Schema.optional(Schema.Boolean),
   cover: Schema.optional(ThesisDocxCoverSchema),
+  // [论文助手定制] 扩充排版参数：页眉文字 / 标题字体 / 首行缩进字符数 / 段后间距(pt) / 页脚页码开关。
+  headerText: Schema.optional(Schema.String),
+  headingFont: Schema.optional(Schema.String),
+  firstLineIndent: Schema.optional(Schema.Number),
+  paragraphSpacing: Schema.optional(Schema.Number),
+  pageNumber: Schema.optional(Schema.Boolean),
 })
 
 export const ThesisExportDocxBody = Schema.Struct({
@@ -206,6 +223,7 @@ export const InstancePaths = {
   thesisCreate: "/thesis/create",
   thesisUpload: "/thesis/upload",
   thesisPdfText: "/thesis/pdf-text",
+  thesisDeleteMaterial: "/thesis/material-delete",
   thesisSaveManuscript: "/thesis/save-manuscript",
   thesisList: "/thesis/list",
   thesisDelete: "/thesis/delete",
@@ -411,6 +429,18 @@ export const InstanceApi = HttpApi.make("instance")
             summary: "Extract text from a thesis PDF reference",
             description:
               "Extracts text from a PDF in the thesis 资料 directory and writes it to a sibling .txt file so agents can read it.",
+          }),
+        ),
+        HttpApiEndpoint.post("thesisDeleteMaterial", InstancePaths.thesisDeleteMaterial, {
+          payload: ThesisDeleteMaterialBody,
+          success: described(ThesisDeleteMaterialResult, "Deleted material file name"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisDeleteMaterial",
+            summary: "Delete a thesis reference file",
+            description:
+              "Deletes a file from the thesis workspace 资料 directory (and its extracted PDF text file).",
           }),
         ),
         HttpApiEndpoint.post("thesisSaveManuscript", InstancePaths.thesisSaveManuscript, {

@@ -16,14 +16,14 @@ import type { FileNode } from "@opencode-ai/sdk/v2/client"
 import { useSDK } from "@/context/sdk"
 
 // [论文助手定制] base64 → Uint8Array（浏览器环境没有 Node Buffer，用 atob 解码）。
-const base64ToBytes = (base64: string) => {
+export const base64ToBytes = (base64: string) => {
   const binary = atob(base64)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
   return bytes
 }
 
-const extension = (path: string) => path.split(".").pop()?.toLowerCase() ?? ""
+export const extension = (path: string) => path.split(".").pop()?.toLowerCase() ?? ""
 
 // [论文助手定制] 预览结果类型：文本 / Markdown / docx（本地查看）/ PDF Blob URL / 不支持。
 type ManuscriptPreview =
@@ -33,15 +33,15 @@ type ManuscriptPreview =
   | { kind: "pdf"; url: string; filename: string }
   | { kind: "unsupported"; reason: string }
 
-const errorMessage = (err: unknown) => {
+export const errorMessage = (err: unknown) => {
   if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message)
   return String(err)
 }
 
-const basename = (path: string) => path.split("/").pop() ?? "文稿"
+export const basename = (path: string) => path.split("/").pop() ?? "文稿"
 
 // [论文助手定制] 「本地查看」：把内容转成 Blob 下载到本地（md/txt 用文本，docx 用字节）。
-const downloadBlob = (blob: Blob, filename: string) => {
+export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
@@ -49,7 +49,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
   a.click()
   URL.revokeObjectURL(url)
 }
-const downloadBytes = (bytes: Uint8Array, filename: string, mime: string) =>
+export const downloadBytes = (bytes: Uint8Array, filename: string, mime: string) =>
   // TS 5.7 把 Uint8Array 泛型化为 Uint8Array<ArrayBufferLike>，直接传 Blob 会类型不匹配，这里显式转 BlobPart。
   downloadBlob(new Blob([bytes as BlobPart], { type: mime }), filename)
 

@@ -8778,6 +8778,39 @@ export type InstanceThesisPdfTextResponses = {
 export type InstanceThesisPdfTextResponse =
   InstanceThesisPdfTextResponses[keyof InstanceThesisPdfTextResponses]
 
+// [论文助手定制] 删除资料文件：删除「资料」目录里的文件（PDF 时连同提取文本一起删）。
+export type InstanceThesisDeleteMaterialData = {
+  body?: {
+    projectID: string
+    filename: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/material-delete"
+}
+
+export type InstanceThesisDeleteMaterialErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisDeleteMaterialError =
+  InstanceThesisDeleteMaterialErrors[keyof InstanceThesisDeleteMaterialErrors]
+
+export type InstanceThesisDeleteMaterialResponses = {
+  /**
+   * Deleted material file name
+   */
+  200: {
+    filename: string
+  }
+}
+
+export type InstanceThesisDeleteMaterialResponse =
+  InstanceThesisDeleteMaterialResponses[keyof InstanceThesisDeleteMaterialResponses]
+
 // [论文助手定制] 论文文稿落盘：把某步骤的正文写入项目「正文」目录的 .md 文件。
 export type InstanceThesisSaveManuscriptData = {
   body?: {
@@ -8894,6 +8927,12 @@ export type InstanceThesisExportDocxOptions = {
   pageMargin?: "standard" | "narrow" | "thesis"
   titleNumbering?: boolean
   cover?: InstanceThesisExportDocxCover
+  // [论文助手定制] 扩充排版参数：页眉文字 / 标题字体 / 首行缩进字符数 / 段后间距(pt) / 页脚页码开关。
+  headerText?: string
+  headingFont?: string
+  firstLineIndent?: number
+  paragraphSpacing?: number
+  pageNumber?: boolean
 }
 
 export type InstanceThesisExportDocxData = {

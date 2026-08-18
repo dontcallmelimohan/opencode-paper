@@ -20,6 +20,7 @@ import {
   ApiThesisError,
   ApiVcsApplyError,
   ThesisDeleteBody,
+  ThesisDeleteMaterialBody,
   ThesisExportDocxBody,
   ThesisSaveManuscriptBody,
 } from "../groups/instance"
@@ -457,6 +458,27 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return { filename: outputName, chars: text.length }
     })
 
+    // [论文助手定制] 删除资料文件：校验项目存在后删除「资料」目录里的文件；
+    // 若是 PDF，顺带删除其提取文本（同名 .txt），避免资料列表残留孤立文件。
+    const deleteThesisMaterial = Effect.fn("InstanceHttpApi.thesisDeleteMaterial")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof ThesisDeleteMaterialBody>
+    }) {
+      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const name = path.basename(ctx.payload.filename).trim()
+      if (!name) return yield* Effect.fail(thesisError("文件名无效"))
+      const target = path.join(proj.worktree, "资料", name)
+      yield* fs.remove(target).pipe(
+        Effect.mapError((error) => thesisError(`删除资料失败: ${String(error)}`)),
+      )
+      if (/\.pdf$/i.test(name)) {
+        const textName = name.replace(/\.pdf$/i, "") + ".txt"
+        const textPath = path.join(proj.worktree, "资料", textName)
+        yield* fs.remove(textPath).pipe(Effect.catch(() => Effect.void))
+      }
+      return { filename: name }
+    })
+
     // [论文助手定制] 导出 Word：把 Markdown 文稿按排版参数（字体/字号/行距/页边距/标题编号/封面）
     // 排成 .docx 写入项目「正文」目录。options 来自 Step 3 排版参数面板。
     const exportThesisDocx = Effect.fn("InstanceHttpApi.thesisExportDocx")(function* (ctx: {
@@ -554,6 +576,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("thesisCreate", createThesis)
       .handle("thesisUpload", uploadThesisFile)
       .handle("thesisPdfText", pdfTextThesis)
+      .handle("thesisDeleteMaterial", deleteThesisMaterial)
       .handle("thesisSaveManuscript", saveThesisManuscript)
       .handle("thesisList", listThesis)
       .handle("thesisDelete", deleteThesis)

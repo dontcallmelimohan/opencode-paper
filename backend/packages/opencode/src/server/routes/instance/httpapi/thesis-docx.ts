@@ -5,12 +5,14 @@
 //   - 表格 → 学术三线表（表头上下粗线、表底粗线、无竖线）
 //   - 参考文献 → [1]… 悬挂缩进
 //   - 毕业论文类型 → 自动加封面（题目/作者/单位/日期）与页脚居中页码
+//   - 页眉（可选）：居中显示页眉文字 + 下边框细线
 // 所有视觉参数通过 ThesisDocxOptions 传入（来自 Step 3 排版参数面板）。
 import {
   AlignmentType,
   BorderStyle,
   Document,
   Footer,
+  Header,
   HeadingLevel,
   LevelFormat,
   Packer,
@@ -35,14 +37,24 @@ export type ThesisDocxOptions = {
   pageMargin?: "standard" | "narrow" | "thesis"
   titleNumbering?: boolean
   cover?: { title?: string; author?: string; affiliation?: string; date?: string }
+  // [论文助手定制] 扩充排版参数：页眉文字 / 标题字体 / 首行缩进字符数 / 段后间距(pt) / 页脚页码开关。
+  headerText?: string
+  headingFont?: string
+  firstLineIndent?: number
+  paragraphSpacing?: number
+  pageNumber?: boolean
 }
 
-const DEFAULTS: Required<Pick<ThesisDocxOptions, "fontFamily" | "fontSize" | "lineSpacing" | "pageMargin" | "titleNumbering">> = {
+const DEFAULTS: Required<Pick<ThesisDocxOptions, "fontFamily" | "fontSize" | "lineSpacing" | "pageMargin" | "titleNumbering" | "headingFont" | "firstLineIndent" | "paragraphSpacing" | "pageNumber">> = {
   fontFamily: "宋体",
   fontSize: 12,
   lineSpacing: 1.5,
   pageMargin: "standard",
   titleNumbering: true,
+  headingFont: "黑体",
+  firstLineIndent: 2,
+  paragraphSpacing: 6,
+  pageNumber: true,
 }
 
 // [论文助手定制] 页边距预设（twips）：标准 / 窄 / 毕业论文规范（上 3.0 下 2.5 左 3.0 右 2.5cm）。
@@ -163,8 +175,12 @@ export async function markdownToDocx(markdown: string, options: ThesisDocxOption
   const lineSpacing = options.lineSpacing || DEFAULTS.lineSpacing
   const pageMargin = options.pageMargin || DEFAULTS.pageMargin
   const titleNumbering = options.titleNumbering ?? DEFAULTS.titleNumbering
-  const headingFont = fontFamily === "宋体" ? "黑体" : fontFamily
-  const firstLineIndent = Math.round(fontSize * 40) // 首行缩进 2 字符（1 字符 = 20 twip × 字号 pt）
+  // [论文助手定制] 标题字体可配（默认黑体；兼容旧请求：未传且正文是宋体时沿用黑体）。
+  const headingFont = options.headingFont?.trim() || (fontFamily === "宋体" ? DEFAULTS.headingFont : fontFamily)
+  // [论文助手定制] 首行缩进字符数可配（1 字符 = 20 twip × 字号 pt，默认 2 字符）。
+  const firstLineIndent = Math.round(fontSize * 20 * (options.firstLineIndent ?? DEFAULTS.firstLineIndent))
+  // [论文助手定制] 段后间距可配（单位 pt，1pt = 20 twip，默认 6pt）。
+  const paragraphSpacing = (options.paragraphSpacing ?? DEFAULTS.paragraphSpacing) * 20
 
   const lines = markdown.replace(/\r\n/g, "\n").split("\n")
   const children: (Paragraph | Table)[] = []
@@ -201,7 +217,7 @@ export async function markdownToDocx(markdown: string, options: ThesisDocxOption
       : { firstLine: firstLineIndent })
     children.push(new Paragraph({
       children: runs,
-      spacing: { after: 120, line: Math.round(240 * lineSpacing) },
+      spacing: { after: Math.round(paragraphSpacing), line: Math.round(240 * lineSpacing) },
       ...opts,
       indent,
     }))
@@ -371,7 +387,7 @@ export async function markdownToDocx(markdown: string, options: ThesisDocxOption
             font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: fontFamily },
             size: Math.round(fontSize * 2), // pt → half-points
           },
-          paragraph: { spacing: { line: Math.round(240 * lineSpacing), after: 120 } },
+          paragraph: { spacing: { line: Math.round(240 * lineSpacing), after: Math.round(paragraphSpacing) } },
         },
         heading1: { run: { font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: headingFont }, size: 32, bold: true } },
         heading2: { run: { font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: headingFont }, size: 28, bold: true } },
@@ -381,14 +397,33 @@ export async function markdownToDocx(markdown: string, options: ThesisDocxOption
     },
     sections: [{
       properties: { page: { margin: MARGINS[pageMargin] } },
-      footers: {
-        default: new Footer({
-          children: [new Paragraph({
-            alignment: AlignmentType.CENTER,
-            children: [new TextRun({ children: [PageNumber.CURRENT] })],
-          })],
-        }),
-      },
+      // [论文助手定制] 页眉：填了页眉文字才生成（居中 + 下边框细线，9pt 正文同字体）。
+      headers: options.headerText?.trim()
+        ? {
+            default: new Header({
+              children: [new Paragraph({
+                alignment: AlignmentType.CENTER,
+                border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: "000000", space: 1 } },
+                children: [new TextRun({
+                  text: options.headerText.trim(),
+                  font: { ascii: "Times New Roman", hAnsi: "Times New Roman", eastAsia: fontFamily },
+                  size: 18, // 9pt
+                })],
+              })],
+            }),
+          }
+        : undefined,
+      // [论文助手定制] 页脚页码可关闭（默认开启，居中当前页）。
+      footers: options.pageNumber === false
+        ? undefined
+        : {
+            default: new Footer({
+              children: [new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [new TextRun({ children: [PageNumber.CURRENT] })],
+              })],
+            }),
+          },
       children,
     }],
   })

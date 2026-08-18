@@ -4,15 +4,23 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query"
 import { useNavigate } from "@solidjs/router"
 import { DateTime } from "luxon"
-import { For, Show, createSignal, startTransition } from "solid-js"
+import { For, Show, createResource, createSignal, onCleanup, startTransition } from "solid-js"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useSettingsDialog } from "@/components/settings-dialog"
+import {
+  base64ToBytes,
+  basename,
+  downloadBytes,
+  errorMessage,
+  extension,
+} from "@/components/thesis-workflow/thesis-manuscript-preview"
 import { debugToolsVisible, setDebugToolsVisible } from "@/utils/debug-tools"
 import { useGlobal } from "@/context/global"
 import { useLayout } from "@/context/layout"
@@ -107,6 +115,178 @@ function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
   )
 }
 
+// [论文助手定制] 资料预览（内嵌在资料弹窗里显示，不开新弹窗——dialog.show 会替换当前弹窗）：
+// md/txt 直接渲染内容，pdf 提供「本地查看 / 新标签页打开」，docx 提供「本地查看（下载）」，
+// 其它格式提示暂不支持但仍可下载。
+function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () => void }) {
+  const sdk = useServerSDK()
+  let lastPdfUrl: string | undefined
+  const [preview] = createResource(() => props.path, async (path) => {
+    if (lastPdfUrl) {
+      URL.revokeObjectURL(lastPdfUrl)
+      lastPdfUrl = undefined
+    }
+    const res = await sdk().client.file.read({ directory: props.thesis.worktree, path })
+    if (res.error) throw new Error(errorMessage(res.error))
+    const data = res.data
+    if (!data) throw new Error("读取文件失败")
+    const filename = basename(path)
+    if (data.type === "text") {
+      return extension(path) === "md"
+        ? { kind: "markdown" as const, text: data.content, filename }
+        : { kind: "text" as const, text: data.content, filename }
+    }
+    const bytes = base64ToBytes(data.content ?? "")
+    const ext = extension(path)
+    if (ext === "docx") return { kind: "docx" as const, bytes, filename }
+    if (ext === "pdf") {
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
+      lastPdfUrl = url
+      return { kind: "pdf" as const, url, filename, bytes }
+    }
+    return { kind: "unsupported" as const, reason: `暂不支持预览 .${ext} 文件，可下载后用本地软件查看`, filename, bytes }
+  })
+  onCleanup(() => {
+    if (lastPdfUrl) URL.revokeObjectURL(lastPdfUrl)
+  })
+
+  return (
+    <div class="flex min-h-0 flex-col gap-3">
+      <div class="flex items-center justify-between gap-2">
+        <Button size="small" variant="ghost" icon="arrow-left" onClick={props.onBack}>
+          返回资料列表
+        </Button>
+        <Show when={preview()}>
+          <span class="min-w-0 truncate text-12-regular text-v2-text-text-faint">{preview()?.filename}</span>
+        </Show>
+      </div>
+      <Show when={preview.state === "ready" && preview()} fallback={
+        <div class="py-10 text-center text-12-regular text-v2-text-text-faint">
+          {preview.error ? `读取失败：${errorMessage(preview.error)}` : "加载中…"}
+        </div>
+      }>
+        {(() => {
+          const item = preview()!
+          if (item.kind === "markdown") {
+            return (
+              <>
+                <div class="flex items-center justify-end gap-2">
+                  <Button size="small" variant="ghost" icon="download" onClick={() => downloadBytes(new TextEncoder().encode(item.text), item.filename, "text/markdown")}>
+                    本地查看
+                  </Button>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto rounded-md border border-v2-border-border-base p-3">
+                  <Markdown text={item.text} cacheKey={item.text} class="text-13-regular" />
+                </div>
+              </>
+            )
+          }
+          if (item.kind === "text") {
+            return (
+              <>
+                <div class="flex items-center justify-end gap-2">
+                  <Button size="small" variant="ghost" icon="download" onClick={() => downloadBytes(new TextEncoder().encode(item.text), item.filename, "text/plain")}>
+                    本地查看
+                  </Button>
+                </div>
+                <pre class="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-md border border-v2-border-border-base p-3 text-13-regular">
+                  {item.text}
+                </pre>
+              </>
+            )
+          }
+          if (item.kind === "pdf") {
+            return (
+              <div class="flex flex-col items-center gap-3 py-10 text-center">
+                <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
+                <div class="text-12-regular text-v2-text-text-faint">PDF 请在本地或新标签页中查看</div>
+                <div class="flex items-center gap-2">
+                  <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/pdf")}>
+                    本地查看
+                  </Button>
+                  <a href={item.url} target="_blank" rel="noreferrer" class="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-12-medium text-v2-text-text-accent hover:underline">
+                    在新标签页打开
+                  </a>
+                </div>
+              </div>
+            )
+          }
+          if (item.kind === "docx") {
+            return (
+              <div class="flex flex-col items-center gap-3 py-10 text-center">
+                <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
+                <div class="text-12-regular text-v2-text-text-faint">docx 文件请在本地查看（下载后用 Word/WPS 打开）</div>
+                <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>
+                  本地查看
+                </Button>
+              </div>
+            )
+          }
+          return (
+            <div class="flex flex-col items-center gap-3 py-10 text-center">
+              <Icon name="circle-x" size="large" class="text-v2-text-text-faint" />
+              <div class="text-12-regular text-v2-text-text-faint">{item.reason}</div>
+              <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/octet-stream")}>
+                下载文件
+              </Button>
+            </div>
+          )
+        })()}
+      </Show>
+    </div>
+  )
+}
+
+// [论文助手定制] 资料删除确认（内嵌在资料弹窗里显示）：调 /thesis/material-delete 删除文件
+// （PDF 时其提取文本也一并删除），成功后刷新资料列表。
+function MaterialDeleteBody(props: { thesis: Project; name: string; onDone: () => void; onCancel: () => void }) {
+  const sdk = useServerSDK()
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string | undefined>(undefined)
+
+  const remove = async () => {
+    if (busy()) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const res = await sdk().client.instance.thesisDeleteMaterial({ projectID: props.thesis.id, filename: props.name })
+      if (res.error) throw new Error(thesisErrorMessage(res.error, "删除失败"))
+      props.onDone()
+      void queryClient.invalidateQueries({ queryKey: ["thesis", "materials", props.thesis.id] })
+      void queryClient.invalidateQueries({ queryKey: THESIS_QUERY_KEY })
+      showToast({ variant: "success", icon: "circle-check", title: `已删除资料「${props.name}」` })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div class="flex flex-col gap-4">
+      <div class="flex flex-col gap-1.5">
+        <div class="text-14-medium text-v2-text-text-strong">删除资料</div>
+        <div class="text-13-regular text-v2-text-text-weak">
+          确定删除「{props.name}」吗？
+          {isPdf({ name: props.name }) ? "若为 PDF，其提取文本也会一并删除。" : ""}删除后不可恢复。
+        </div>
+      </div>
+      <Show when={error()}>
+        <div class="text-12-regular text-v2-text-text-error">{error()}</div>
+      </Show>
+      <div class="flex justify-end gap-2">
+        <Button variant="ghost" onClick={props.onCancel}>
+          取消
+        </Button>
+        <Button type="button" variant="primary" icon="circle-x" disabled={busy()} onClick={() => void remove()}>
+          {busy() ? "删除中…" : "确认删除"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function ThesisUploadDialog(props: { thesis: Project }) {
   const dialog = useDialog()
   const sdk = useServerSDK()
@@ -115,6 +295,9 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
   const [selected, setSelected] = createSignal<File[]>([])
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string | undefined>(undefined)
+  // [论文助手定制] 资料弹窗内部视图切换：预览某文件 / 删除某文件（不新开弹窗，避免 dialog.show 替换当前弹窗）。
+  const [previewPath, setPreviewPath] = createSignal<string | undefined>(undefined)
+  const [deleteName, setDeleteName] = createSignal<string | undefined>(undefined)
 
   const materials = useQuery(() => ({
     queryKey: ["thesis", "materials", props.thesis.id],
@@ -194,7 +377,19 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
 
   return (
     <Dialog title="论文资料" description={`${thesisName(props.thesis)} · 上传的参考资料会存放在论文工作空间的「资料」目录`}>
-      <div class="flex max-h-[65vh] flex-col gap-4 overflow-y-auto px-2.5 pb-4">
+      <div class="flex max-h-[65vh] min-h-[45vh] flex-col gap-4 overflow-y-auto px-2.5 pb-4">
+        <Show when={previewPath()}>
+          <MaterialPreviewBody thesis={props.thesis} path={previewPath()!} onBack={() => setPreviewPath(undefined)} />
+        </Show>
+        <Show when={!previewPath() && deleteName()}>
+          <MaterialDeleteBody
+            thesis={props.thesis}
+            name={deleteName()!}
+            onDone={() => setDeleteName(undefined)}
+            onCancel={() => setDeleteName(undefined)}
+          />
+        </Show>
+        <Show when={!previewPath() && !deleteName()}>
         <div class="flex flex-col gap-1.5">
           <div class="text-13-regular text-v2-text-text-weak">已上传资料</div>
           <Show
@@ -217,6 +412,23 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
                         {extracting() === entry.name ? "提取中…" : "提取文本"}
                       </button>
                     </Show>
+                    {/* [论文助手定制] 资料操作：查看（预览 md/txt/pdf/docx）+ 删除（确认后删除文件）。 */}
+                    <IconButton
+                      type="button"
+                      icon="open-file"
+                      size="small"
+                      variant="ghost"
+                      aria-label={`查看 ${entry.name}`}
+                      onClick={() => setPreviewPath(entry.path)}
+                    />
+                    <IconButton
+                      type="button"
+                      icon="circle-x"
+                      size="small"
+                      variant="ghost"
+                      aria-label={`删除 ${entry.name}`}
+                      onClick={() => setDeleteName(entry.name)}
+                    />
                   </li>
                 )}
               </For>
@@ -260,6 +472,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
             {busy() ? "上传中…" : "上传资料"}
           </Button>
         </div>
+      </Show>
       </div>
     </Dialog>
   )

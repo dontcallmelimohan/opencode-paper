@@ -33,6 +33,20 @@ const PAGE_MARGINS = [
   { label: "窄边距", value: "narrow" },
   { label: "毕业论文规范", value: "thesis" },
 ]
+// [论文助手定制] 扩充 docx 排版参数选项：标题字体 / 首行缩进字符数 / 段后间距。
+const HEADING_FONTS = ["黑体", "宋体", "楷体", "仿宋", "微软雅黑"]
+const FIRST_LINE_INDENTS = [
+  { label: "不缩进", value: "0" },
+  { label: "1 字符", value: "1" },
+  { label: "2 字符（默认）", value: "2" },
+  { label: "4 字符", value: "4" },
+]
+const PARAGRAPH_SPACINGS = [
+  { label: "紧凑（0pt）", value: "0" },
+  { label: "默认（6pt）", value: "6" },
+  { label: "宽松（12pt）", value: "12" },
+  { label: "很宽（24pt）", value: "24" },
+]
 
 export function StepFormatting() {
   const sdk = useSDK()
@@ -43,13 +57,19 @@ export function StepFormatting() {
   const manuscript = useThesisManuscriptFile(sdk().directory)
   // [论文助手定制] 导出 Word：把排版后的最终稿转成 .docx 保存到项目「正文」目录。
   // 把 Step 3 面板的排版参数（字体/字号/行距/页边距/标题编号/封面）随导出传给后端 docx 引擎。
-  const { exportDocx } = useThesisDocxExport("排版稿", () => ({
+  const { exportDocx, exporting: docxExporting } = useThesisDocxExport("排版稿", () => ({
     paperType: input().paperType,
     fontFamily: input().fontFamily,
     fontSize: Number(input().fontSize),
     lineSpacing: Number(input().lineSpacing),
     pageMargin: input().pageMargin as "standard" | "narrow" | "thesis",
     titleNumbering: input().titleNumbering,
+    // [论文助手定制] 扩充参数随导出一起传给后端 docx 引擎（页眉/标题字体/缩进/段间距/页码）。
+    headerText: input().headerText.trim() || undefined,
+    headingFont: input().headingFont,
+    firstLineIndent: Number(input().firstLineIndent),
+    paragraphSpacing: Number(input().paragraphSpacing),
+    pageNumber: input().pageNumber,
     cover:
       input().coverTitle.trim() || input().coverAuthor.trim() || input().coverAffiliation.trim() || input().coverDate.trim()
         ? {
@@ -238,16 +258,90 @@ export function StepFormatting() {
                   <For each={PAGE_MARGINS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
                 </select>
               </section>
+              {/* [论文助手定制] 扩充：标题字体（默认黑体，独立于正文中文字体）。 */}
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">标题字体</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().headingFont}
+                  onChange={(event) => updateInput("formatting", { headingFont: event.currentTarget.value })}
+                >
+                  <For each={HEADING_FONTS}>{(item) => <option value={item}>{item}</option>}</For>
+                </select>
+              </section>
+              {/* [论文助手定制] 扩充：首行缩进字符数（正文段落，默认 2 字符）。 */}
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">正文首行缩进</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().firstLineIndent}
+                  onChange={(event) => updateInput("formatting", { firstLineIndent: event.currentTarget.value })}
+                >
+                  <For each={FIRST_LINE_INDENTS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                </select>
+              </section>
+              {/* [论文助手定制] 扩充：正文段后间距（pt）。 */}
+              <section class="flex min-w-0 flex-col gap-1.5">
+                <div class="text-11-regular text-v2-text-text-faint">段后间距</div>
+                <select
+                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                  value={input().paragraphSpacing}
+                  onChange={(event) => updateInput("formatting", { paragraphSpacing: event.currentTarget.value })}
+                >
+                  <For each={PARAGRAPH_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                </select>
+              </section>
             </div>
-            <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
-              <input
-                type="checkbox"
-                class="size-4 accent-[var(--v2-text-text-accent)]"
-                checked={input().titleNumbering}
-                onChange={(event) => updateInput("formatting", { titleNumbering: event.currentTarget.checked })}
-              />
-              标题自动编号（1 / 1.1 / 1.1.1，摘要/参考文献/致谢除外）
-            </label>
+            <div class="flex flex-col gap-1.5">
+              <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
+                <input
+                  type="checkbox"
+                  class="size-4 accent-[var(--v2-text-text-accent)]"
+                  checked={input().titleNumbering}
+                  onChange={(event) => updateInput("formatting", { titleNumbering: event.currentTarget.checked })}
+                />
+                标题自动编号（1 / 1.1 / 1.1.1，摘要/参考文献/致谢除外）
+              </label>
+              {/* [论文助手定制] 扩充：页脚页码开关（默认开启）。 */}
+              <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
+                <input
+                  type="checkbox"
+                  class="size-4 accent-[var(--v2-text-text-accent)]"
+                  checked={input().pageNumber}
+                  onChange={(event) => updateInput("formatting", { pageNumber: event.currentTarget.checked })}
+                />
+                页脚居中页码
+              </label>
+            </div>
+          </section>
+          {/* [论文助手定制] 扩充：页眉文字（可选，填了才在每页顶部生成居中页眉 + 下边框）。 */}
+          <section class="flex flex-col gap-1.5">
+            <div class="text-12-medium text-v2-text-text-base">页眉（可选）</div>
+            <TextField
+              type="text"
+              placeholder="如：本科毕业论文（设计）或论文标题，留空则不生成页眉"
+              value={input().headerText}
+              onChange={(value) => updateInput("formatting", { headerText: value })}
+            />
+            <div class="text-11-regular text-v2-text-text-faint">填了就在每页顶部居中显示页眉文字（9pt 加下边框细线）。</div>
+          </section>
+          {/* [论文助手定制] 直接重新导出：只改上面的 docx 排版参数时，无需重新跑一遍 AI 生成排版稿，
+              点这里就按当前参数把已有排版稿（Markdown）重新导出成 Word。 */}
+          <section class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2.5">
+            <div class="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                icon="download"
+                disabled={generator.generating() || !formatting().result}
+                onClick={() => void exportDocx(formatting().result ?? "")}
+              >
+                {docxExporting() ? "导出中…" : "按当前参数重新导出 Word"}
+              </Button>
+            </div>
+            {/* <div class="text-11-regular text-v2-text-text-faint">
+              改完上面的 docx 排版参数直接点这里，按新参数重新导出，不需要重新生成 AI 排版稿。
+            </div> */}
           </section>
           {/* [论文助手定制] 封面信息：毕业论文类型可填写，填了题目才会生成封面页，其余留空则不生成。 */}
           <section class="flex flex-col gap-1.5">

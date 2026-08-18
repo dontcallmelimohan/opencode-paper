@@ -16,6 +16,7 @@ import { StepReview } from "@/components/thesis-workflow/step-review"
 import { StepWriting } from "@/components/thesis-workflow/step-writing"
 import { ThesisKnowledgeProvider } from "@/components/thesis-workflow/thesis-knowledge-store"
 import { useThesisManuscriptFile } from "@/components/thesis-workflow/thesis-manuscript-file"
+import { useThesisProject } from "@/components/thesis-workflow/thesis-export"
 import { usePersistentWidth } from "@/components/thesis-workflow/thesis-panel-layout"
 import { ThesisStepSidebar } from "@/components/thesis-workflow/thesis-step-sidebar"
 import { ThesisWorkflowProvider, useThesisWorkflow } from "@/components/thesis-workflow/thesis-workflow-store"
@@ -61,6 +62,8 @@ function ThesisWorkbenchInner() {
   const project = createMemo(() =>
     layout.projects.list().find((item) => item.worktree === sdk().directory),
   )
+  // [论文助手定制] 解析当前论文项目（layout 优先，服务端兜底），供资料上传弹窗使用。
+  const resolveProject = useThesisProject()
   // [论文助手定制] layout 里的项目是 Partial 类型，这里按 SDK Project 使用（工作台里的论文一定来自服务端，有 id）。
   const title = createMemo(() =>
     project() ? thesisName(project() as unknown as Project) : getFilename(sdk().directory),
@@ -79,8 +82,10 @@ function ThesisWorkbenchInner() {
             hasProject={!!project()}
             onHome={() => navigate("/")}
             onUpload={() => {
-              const current = project()
-              if (current) dialog.show(() => <ThesisUploadDialog thesis={current as unknown as Project} />)
+              // [论文助手定制] 直接访问工作台 URL 时 layout 可能还没加载项目，用 useThesisProject 兜底查询服务端。
+              void resolveProject().then((current) => {
+                if (current) dialog.show(() => <ThesisUploadDialog thesis={current} />)
+              })
             }}
           />
           <ResizeHandle

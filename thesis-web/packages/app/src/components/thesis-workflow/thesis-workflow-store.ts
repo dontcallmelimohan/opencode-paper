@@ -128,6 +128,12 @@ export type FormattingInput = {
   coverAuthor: string
   coverAffiliation: string
   coverDate: string
+  // [论文助手定制] 扩充 docx 排版参数：页眉文字 / 标题字体 / 首行缩进字符数 / 段后间距(pt) / 页脚页码开关。
+  headerText: string
+  headingFont: string
+  firstLineIndent: string
+  paragraphSpacing: string
+  pageNumber: boolean
 }
 export type ReviewInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
@@ -206,6 +212,11 @@ const DEFAULT_INPUTS: {
     coverAuthor: "",
     coverAffiliation: "",
     coverDate: "",
+    headerText: "",
+    headingFont: "黑体",
+    firstLineIndent: "2",
+    paragraphSpacing: "6",
+    pageNumber: true,
   },
   review: { skills: [], journal: "", mode: "全面评审", focus: "" },
 }
