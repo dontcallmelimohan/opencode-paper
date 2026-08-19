@@ -7,6 +7,9 @@
 
 前端技术栈：SolidJS + Vite + Tailwind CSS + TanStack Query + Effect，使用 Bun 管理 monorepo。
 
+> **本地运行步骤见仓库根目录 [`README.md`](../README.md)**（安装依赖、配置模型、启动前后端）。
+> 本文件只讲前端代码结构与实现细节。
+
 ---
 
 ## 一、项目结构
