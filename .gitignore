@@ -1,7 +1,24 @@
-# 井号=注释，不会生效
-# 文件夹写末尾斜杠 /
-node_modules/      # 忽略整个node_modules文件夹
-*.log              # *通配符，所有 .log结尾文件
-.env               # 精确匹配文件名
-**/dist            # ** 代表任意层级目录下的dist文件夹
-!keep.txt          # ! 取反：本来被忽略，强制要纳入git
+# Dependencies
+node_modules/
+
+# Build output
+**/dist/
+
+# Environment files
+.env
+.env.*
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor configs (personal)
+.vscode/settings.json
+.vscode/launch.json
+.zed/
+
+# Test / personal files
+test.tex
