@@ -1,8 +1,14 @@
 # Dependencies
 node_modules/
+**/node_modules/
 
 # Build output
 **/dist/
+**/.turbo
+**/.vite
+**/.output
+**/coverage
+.opencode/
 
 # Environment files
 .env
@@ -15,10 +21,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Editor configs (personal)
-.vscode/settings.json
-.vscode/launch.json
+# Editor personal configs
+.vscode/
 .zed/
 
-# Test / personal files
+# Test / personal temp files
 test.tex
+提纲助手.md
