@@ -81,19 +81,38 @@ bun run dev
 3. 进入「论文工作台」→ 四个步骤（提纲助手 → 辅助写作 → 论文排版 → 论文评审）依次生成
 4. 会话页里选择模型（对话框底部），确认能正常对话
 
-> 也可以直接访问 `http://localhost:4096`，后端会把非 API 请求代理到 3000 前端；开发时推荐用 3000（HMR）。
+### 前后端关系
+
+- **前端 3000**（`thesis-web/packages/app`，Vite dev server）：负责页面渲染与交互，开发时访问 **http://localhost:3000**（带 HMR 热更新）。
+- **后端 4096**（`backend/packages/opencode`）：提供全部 API，同时把「非 API 的页面请求」**反向代理**到前端 3000（见 `backend/packages/opencode/src/server/shared/ui.ts` 的 `UI_UPSTREAM`）。本项目没有内置打包好的前端（`opencode-web-ui.gen.ts` 不存在），所以后端**不会**自带界面。
+- 因此**开发时必须两个进程都跑**：只跑后端、前端没启动时，访问 `http://localhost:4096` 会返回 **500**（代理找不到 3000），前端页面是打不开的。
+- 想少开一个终端、不要 HMR：先 `cd thesis-web/packages/app && bun run build`，再用静态服务占住 3000（二选一）：
+
+  ```bash
+  bunx serve dist -l 3000        # 方式一：任意静态服务器
+  bun run serve --port 3000      # 方式二：vite preview（同样读 dist）
+  ```
+
+  后端代理逻辑不变，依然访问 3000；区别只是 3000 从「开发服务器」变成了「构建产物静态托管」，启动更快、可长期挂着。
 
 ## 配置说明
 
 | 配置项 | 说明 | 默认值 |
 |---|---|---|
 | `VITE_OPENCODE_SERVER_HOST` / `VITE_OPENCODE_SERVER_PORT` | 前端连接的后端地址（启动前端前设置） | `localhost` / `4096` |
+| `OPENCODE_SERVER_PASSWORD` / `OPENCODE_SERVER_USERNAME` | 后端 Basic 认证（当前已在代码中注释禁用，访问无需登录） | 不设 / `opencode` |
 | 论文工作区路径 | 论文项目的根目录，可在应用「设置」里修改（对应配置 `thesisWorkspace`） | `~/thesis-workspace` |
 | Skill 全局目录 | 上传的 skill 存这里，所有论文项目通用 | `~/.config/opencode/skills/<name>/SKILL.md` |
 | Agent 全局目录 | 上传 skill 时同步生成的 agent | `~/.config/opencode/agent/<name>.md` |
 | PDF 提取 | 上传 PDF 自动提取文本（内置 unpdf 库，**无需**系统安装 pdftotext） | 自动 |
 
 后端地址解析逻辑在 `thesis-web/packages/app/src/entry.tsx` 的 `getCurrentUrl()`。
+
+> **后端认证**：Basic 认证（用户名/密码）当前已在代码中注释禁用，任何请求都直接放行、无需登录。
+> 禁用点：`backend/packages/opencode/src/server/routes/instance/httpapi/middleware/authorization.ts`
+> 与 `backend/packages/server/src/middleware/authorization.ts`（均带 `[论文助手定制]` 注释）。
+> 后续有需要时取消注释即可恢复：设置 `OPENCODE_SERVER_PASSWORD` 后后端会要求 Basic 登录，
+> 前端在「设置 → 服务器」里填同样的用户名/密码即可，所有请求会自动带上认证头。
 
 ## Windows 运行说明
 
@@ -221,7 +240,9 @@ app ──> client、sdk、session-ui、ui、core
 
 | 现象 | 处理 |
 |---|---|
-| 前端打开空白 | 后端 4096 是否已启动；`curl http://127.0.0.1:4096/` 应为 200 |
+| 前端打开空白 | 后端 4096 **和** 前端 3000 都要启动；`curl http://127.0.0.1:4096/` 需在 3000 也在跑时才返回 200 |
+| 访问 `http://localhost:4096` 返回 500 | 前端 3000 没启动，后端只是把页面请求代理到 3000；先启动前端，或 build 后用静态服务占住 3000（见「前后端关系」） |
+| 弹窗提示输入用户名/密码（401） | Basic 认证已在代码中注释禁用；若仍出现，说明有旧的后端进程还在运行，重启后端即可 |
 | 对话报 401 / 无权限 / 免费模型不可用 | 检查第 3 步的模型配置（API key / 环境变量），或在会话页换一个可用模型 |
 | 端口被占用 | 换端口启动：后端 `--port 4097`，前端 `VITE_OPENCODE_SERVER_PORT=4097 bun run dev` |
 | PDF 提取失败 | 上传的 PDF 需是文本型（扫描件无 OCR）；提取不依赖系统命令 |

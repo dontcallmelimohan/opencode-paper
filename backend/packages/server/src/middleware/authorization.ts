@@ -38,21 +38,24 @@ function credentialFromRequest(request: HttpServerRequest.HttpServerRequest) {
 export const authorizationLayer = Layer.effect(
   Authorization,
   Effect.gen(function* () {
-    const config = yield* ServerAuth.Config
-    if (!ServerAuth.required(config)) return Authorization.of((effect) => effect)
-    return Authorization.of((effect) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest
-        // Browsers cannot set headers on WebSocket upgrades, so a ticketed PTY connect skips
-        // credential checks here; the connect handler consumes and validates the ticket.
-        if (hasPtyConnectTicketURL(new URL(request.url, "http://localhost"))) return yield* effect
-        const credential = yield* credentialFromRequest(request)
-        if (ServerAuth.authorized(credential, config)) return yield* effect
-        yield* HttpEffect.appendPreResponseHandler((_request, response) =>
-          Effect.succeed(HttpServerResponse.setHeader(response, "www-authenticate", WWW_AUTHENTICATE)),
-        )
-        return yield* new UnauthorizedError({ message: "Authentication required" })
-      }),
-    )
+    // [论文助手定制] 暂时禁用 Basic 认证（用户名/密码），直接放行所有请求。
+    // 后续需要恢复认证时，取消下面被注释的校验逻辑即可。
+    return Authorization.of((effect) => effect)
+    // const config = yield* ServerAuth.Config
+    // if (!ServerAuth.required(config)) return Authorization.of((effect) => effect)
+    // return Authorization.of((effect) =>
+    //   Effect.gen(function* () {
+    //     const request = yield* HttpServerRequest.HttpServerRequest
+    //     // Browsers cannot set headers on WebSocket upgrades, so a ticketed PTY connect skips
+    //     // credential checks here; the connect handler consumes and validates the ticket.
+    //     if (hasPtyConnectTicketURL(new URL(request.url, "http://localhost"))) return yield* effect
+    //     const credential = yield* credentialFromRequest(request)
+    //     if (ServerAuth.authorized(credential, config)) return yield* effect
+    //     yield* HttpEffect.appendPreResponseHandler((_request, response) =>
+    //       Effect.succeed(HttpServerResponse.setHeader(response, "www-authenticate", WWW_AUTHENTICATE)),
+    //     )
+    //     return yield* new UnauthorizedError({ message: "Authentication required" })
+    //   }),
+    // )
   }),
 )
