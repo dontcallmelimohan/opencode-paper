@@ -53,8 +53,6 @@ opencode-dev/
 │       └── schema/              # 数据模型 / Zod 定义
 │
 ├── .opencode/                   # OpenCode 配置（agents、skills、tools）
-├── AGENTS.md                    # 开发规范与代码风格
-├── CONTRIBUTING.md              # 贡献指南
 └── README.md                    # 本文件
 ```
 
