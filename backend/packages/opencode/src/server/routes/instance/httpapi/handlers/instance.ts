@@ -291,6 +291,89 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* finalizeSkillInstall(trimmed)
     })
 
+    // [论文助手定制] Skill 管理：编辑。改名称/简介/内容，改名时重命名 skills/<name> 目录与 agent/<name>.md。
+    // name 定位现有 skill；newName/description/content/prompt 为可改字段，缺失时保持原值。
+    const updateSkill = Effect.fn("InstanceHttpApi.skillUpdate")(function* (ctx: {
+      payload: { name: string; newName?: string; description?: string; content?: string; prompt?: string }
+    }) {
+      const name = ctx.payload.name.trim()
+      const newName = (ctx.payload.newName?.trim() || name).trim()
+      for (const candidate of [name, newName]) {
+        if (!/^[\p{L}\p{N}_-]+$/u.test(candidate) || candidate.startsWith(".")) {
+          return yield* Effect.fail(
+            skillInstallError(`Invalid skill name: "${candidate}". Use letters, numbers, _ or -`),
+          )
+        }
+      }
+
+      const skillDir = path.join(Global.Path.config, "skills", name)
+      const skillPath = path.join(skillDir, "SKILL.md")
+      const existing = yield* fs.readFileStringSafe(skillPath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (existing === undefined) {
+        return yield* Effect.fail(skillInstallError(`Skill「${name}」不存在或不是自定义 Skill，无法编辑`))
+      }
+
+      // 解析原 SKILL.md 的 frontmatter 与正文；description 未提供时沿用原有值。
+      const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(existing)
+      const body = fm ? existing.slice(fm[0].length) : existing
+      const description =
+        ctx.payload.description ??
+        fm?.[1].match(/^description:\s*(.+)$/m)?.[1]?.trim() ??
+        undefined
+
+      // 更新/插入指定字段，保留其余 frontmatter 字段。
+      const setField = (frontmatter: string, key: string, value?: string) => {
+        const lines = frontmatter.length > 0 ? frontmatter.split("\n") : []
+        const index = lines.findIndex((line) => new RegExp(`^${key}:\\s*`).test(line))
+        if (value === undefined || value === "") {
+          if (index >= 0) lines.splice(index, 1)
+        } else if (index >= 0) {
+          lines[index] = `${key}: ${value}`
+        } else {
+          lines.push(`${key}: ${value}`)
+        }
+        return lines.join("\n")
+      }
+      const frontmatter = setField(setField(fm?.[1] ?? "", "name", newName), "description", description)
+      const skillText = `---\n${frontmatter}\n---\n\n${ctx.payload.content !== undefined ? ctx.payload.content.trim() + "\n" : body}`
+
+      const writeError = (error: unknown) =>
+        new ApiSkillInstallError({
+          name: "SkillInstallError",
+          data: { message: `Failed to write skill files: ${error instanceof Error ? error.message : String(error)}` },
+        })
+
+      // 改名：整目录搬到新位置（先清旧目标，避免 fs.copy 把目录嵌套进已存在的目录）。
+      if (newName !== name) {
+        const newSkillDir = path.join(Global.Path.config, "skills", newName)
+        yield* fs.remove(newSkillDir, { recursive: true }).pipe(Effect.catch(() => Effect.void))
+        yield* fs.copy(skillDir, newSkillDir, { overwrite: true }).pipe(Effect.mapError(writeError))
+      }
+      yield* fs
+        .writeWithDirs(path.join(Global.Path.config, "skills", newName, "SKILL.md"), skillText)
+        .pipe(Effect.mapError(writeError))
+
+      // agent 配置：同步简介与 prompt；改名时删除旧 agent 文件。
+      const agentPath = path.join(Global.Path.config, "agent", `${name}.md`)
+      const existingAgent = yield* fs.readFileStringSafe(agentPath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const agentBody = existingAgent?.replace(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/, "")?.trim()
+      const prompt = ctx.payload.prompt?.trim() || agentBody?.trim()
+      yield* fs
+        .writeWithDirs(
+          path.join(Global.Path.config, "agent", `${newName}.md`),
+          `---\nmode: primary\ndescription: ${description ?? ""}\n---\n\n${
+            prompt ??
+            `You are the ${newName} agent. Always follow the instructions in the ${newName} skill to complete the user's request.`
+          }\n`,
+        )
+        .pipe(Effect.mapError(writeError))
+      if (newName !== name) {
+        yield* fs.remove(agentPath).pipe(Effect.catch(() => Effect.void))
+      }
+
+      return yield* finalizeSkillInstall(newName)
+    })
+
     const thesisError = (message: string) =>
       new ApiThesisError({ name: "ThesisError", data: { message } })
 
@@ -571,8 +654,9 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("skill", getSkill)
       .handle("skillInstall", installSkill)
       .handle("skillInstallDirectory", installSkillDirectory)
-      .handle("skillUninstall", uninstallSkill)
-      .handle("skillInstallZip", installSkillZip)
+.handle("skillUninstall", uninstallSkill)
+     .handle("skillInstallZip", installSkillZip)
+     .handle("skillUpdate", updateSkill)
       .handle("thesisCreate", createThesis)
       .handle("thesisUpload", uploadThesisFile)
       .handle("thesisPdfText", pdfTextThesis)

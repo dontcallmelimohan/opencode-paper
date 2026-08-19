@@ -21,6 +21,7 @@ import {
   errorMessage,
   extension,
 } from "@/components/thesis-workflow/thesis-manuscript-preview"
+import { dataUrlOf, IMAGE_EXTENSIONS, mimeOf } from "@/components/thesis-workflow/thesis-assets"
 import { debugToolsVisible, setDebugToolsVisible } from "@/utils/debug-tools"
 import { useGlobal } from "@/context/global"
 import { useLayout } from "@/context/layout"
@@ -116,7 +117,7 @@ function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
 }
 
 // [论文助手定制] 资料预览（内嵌在资料弹窗里显示，不开新弹窗——dialog.show 会替换当前弹窗）：
-// md/txt 直接渲染内容，pdf 提供「本地查看 / 新标签页打开」，docx 提供「本地查看（下载）」，
+// md/txt 直接渲染内容，图片内嵌预览，pdf 提供「本地查看 / 新标签页打开」，docx 提供「本地查看（下载）」，
 // 其它格式提示暂不支持但仍可下载。
 function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () => void }) {
   const sdk = useServerSDK()
@@ -138,6 +139,10 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
     }
     const bytes = base64ToBytes(data.content ?? "")
     const ext = extension(path)
+    // [论文助手定制] 图片资料直接内嵌预览（与 Step 2 插图面板同一套 data URL 构造）。
+    if ((IMAGE_EXTENSIONS as readonly string[]).includes(ext)) {
+      return { kind: "image" as const, dataUrl: dataUrlOf(path, data.content ?? ""), filename, bytes }
+    }
     if (ext === "docx") return { kind: "docx" as const, bytes, filename }
     if (ext === "pdf") {
       const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
@@ -219,6 +224,20 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
                 <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>
                   本地查看
                 </Button>
+              </div>
+            )
+          }
+          if (item.kind === "image") {
+            return (
+              <div class="flex min-h-0 flex-col gap-2">
+                <div class="flex items-center justify-end gap-2">
+                  <Button size="small" variant="ghost" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, mimeOf(props.path))}>
+                    下载图片
+                  </Button>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto rounded-md border border-v2-border-border-base p-2">
+                  <img src={item.dataUrl} alt={item.filename} class="mx-auto max-h-full max-w-full object-contain" />
+                </div>
               </div>
             )
           }
@@ -412,7 +431,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
                         {extracting() === entry.name ? "提取中…" : "提取文本"}
                       </button>
                     </Show>
-                    {/* [论文助手定制] 资料操作：查看（预览 md/txt/pdf/docx）+ 删除（确认后删除文件）。 */}
+                    {/* [论文助手定制] 资料操作：查看（预览 md/txt/pdf/docx/图片）+ 删除（确认后删除文件）。 */}
                     <IconButton
                       type="button"
                       icon="open-file"
@@ -445,7 +464,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
         >
           <Icon name="cloud-upload" size="large" />
           <div class="text-13-regular text-v2-text-text-strong">点击选择资料文件</div>
-          <div class="text-12-regular text-v2-text-text-weak">支持 PDF、Word、Markdown 等参考文档</div>
+          <div class="text-12-regular text-v2-text-text-weak">支持 PDF、Word、Markdown、图片等文件（图片可在 Step 2 插图面板引用为论文插图）</div>
           <input
             ref={fileInput}
             type="file"

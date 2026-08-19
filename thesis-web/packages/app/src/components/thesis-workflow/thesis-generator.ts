@@ -112,6 +112,9 @@ export function useThesisGenerator() {
     prompt: string
     // [论文助手定制] 本步配置面板选中的 Skill（可多选）：生成时把 SKILL.md 指令注入提示词。
     skills?: string[]
+    // [论文助手定制] 是否允许模型调用工具：true 时不传 tools（用 agent 默认工具集），
+    // false 时维持 tools: {"*": false} 保证纯文本流式输出（默认）。
+    useTools?: boolean
     sessionID?: string
     // [论文助手定制] 会话一确定（新建或复用）就回调，让工作台立刻启用「会话」切换，
     // 生成过程中就能切过去看实时对话；不用等模型回复完。
@@ -149,11 +152,12 @@ export function useThesisGenerator() {
         messageID: Identifier.ascending("message"),
         agent: agent?.name,
         model: model ? { providerID: model.provider.id, modelID: model.id } : undefined,
-        // [论文助手定制] 工作台生成禁用所有工具（* 通配 deny）：
-        // 参考材料已经由各步骤打包进 prompt（知识库内容内嵌），不再需要模型自己去读项目文件。
-        // 否则 build agent 会先做多轮工具调用（读正文/资料），期间没有任何 text 输出，
-        // 文稿面板只能一直显示“等待输出”，体验不到豆包式“正文一出现就流式显示”。
-        tools: { "*": false },
+        // [论文助手定制] 工具开关：配置面板勾选「允许使用工具」时传 undefined（用 agent 默认工具集，
+        // 模型可调用 skill/脚本等，适合脚本型 Skill）；默认关闭时传 {"*": false}——
+        // 参考材料已经由各步骤打包进 prompt（知识库内容内嵌），不再需要模型自己去读项目文件；
+        // 否则模型先做多轮工具调用（读正文/资料），期间没有任何 text 输出，文稿面板只能一直显示
+        // “等待输出”，体验不到豆包式“正文一出现就流式显示”。
+        tools: options.useTools ? undefined : { "*": false },
         parts: [{ type: "text", text: prompt }],
       })
       if (res.error) throw res.error

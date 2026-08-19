@@ -9,7 +9,7 @@ import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { ThesisReviewReport } from "./thesis-review-report"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { showToast } from "@/utils/toast"
 
@@ -41,7 +41,8 @@ export function StepReview() {
     lines.push("")
     lines.push("## 输出要求")
     lines.push(
-      "输出两部分内容：\n1. 评审报告正文（Markdown，含总体评分、分项意见、逐条修改建议、结论：录用/修改后录用/拒稿）；\n2. 最后附一个 JSON 块（```json ... ```），格式：{\"score\": 0-100 整数, \"metrics\": [{\"name\": \"选题价值\", \"score\": 0-100}], \"comments\": [{\"level\": \"high|mid|low\", \"text\": \"...\"}], \"suggestions\": [{\"level\": \"high|mid|low\", \"text\": \"...\"}]}，metrics 至少包含选题价值/结构逻辑/论证与证据/文献引用/语言表达/格式规范。严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；上文已包含全部所需材料，直接输出评审内容本身。",
+      "输出两部分内容：\n1. 评审报告正文（Markdown，含总体评分、分项意见、逐条修改建议、结论：录用/修改后录用/拒稿）；\n2. 最后附一个 JSON 块（```json ... ```），格式：{\"score\": 0-100 整数, \"metrics\": [{\"name\": \"选题价值\", \"score\": 0-100}], \"comments\": [{\"level\": \"high|mid|low\", \"text\": \"...\"}], \"suggestions\": [{\"level\": \"high|mid|low\", \"text\": \"...\"}]}，metrics 至少包含选题价值/结构逻辑/论证与证据/文献引用/语言表达/格式规范。" +
+        promptToolRestriction(input().useTools) + "上文已包含全部所需材料，直接输出评审内容本身。",
     )
     return lines.join("\n")
   }
@@ -54,6 +55,8 @@ export function StepReview() {
         prompt: buildPrompt(),
         // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
         skills: input().skills,
+        // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
+        useTools: input().useTools,
         sessionID: state().sessionID,
         // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
         // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。

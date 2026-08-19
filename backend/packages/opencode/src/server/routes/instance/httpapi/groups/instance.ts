@@ -76,6 +76,15 @@ const SkillInstallZipBody = Schema.Struct({
   files: Schema.Array(SkillInstallZipFile),
 })
 
+// [论文助手定制] Skill 管理：编辑（改名称/简介/内容，可重命名 skill 目录与 agent 文件）。
+const SkillUpdateBody = Schema.Struct({
+  name: Schema.String,
+  newName: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
+  content: Schema.optional(Schema.String),
+  prompt: Schema.optional(Schema.String),
+})
+
 const ThesisCreateBody = Schema.Struct({
   title: Schema.String,
   description: Schema.optional(Schema.String),
@@ -220,6 +229,7 @@ export const InstancePaths = {
   skillInstallDirectory: "/skill/install-directory",
   skillUninstall: "/skill/uninstall",
   skillInstallZip: "/skill/install-zip",
+  skillUpdate: "/skill/update",
   thesisCreate: "/thesis/create",
   thesisUpload: "/thesis/upload",
   thesisPdfText: "/thesis/pdf-text",
@@ -393,6 +403,20 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.skillInstallZip",
             summary: "Install a skill and its agent from an unzipped file tree",
             description: "Writes the given file tree under the global skills directory, then creates its agent.",
+          }),
+        ),
+        // [论文助手定制] Skill 管理：编辑（改名称/简介/内容，改名时重命名 skill 目录与 agent 文件）。
+        HttpApiEndpoint.post("skillUpdate", InstancePaths.skillUpdate, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillUpdateBody,
+          success: described(SkillInstallResult, "Updated skill and agent"),
+          error: ApiSkillInstallError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.skillUpdate",
+            summary: "Update a skill and its agent",
+            description:
+              "Updates the skill's SKILL.md metadata/content and its agent config; renames the skill directory and agent file when the name changes.",
           }),
         ),
         HttpApiEndpoint.post("thesisCreate", InstancePaths.thesisCreate, {

@@ -9,8 +9,10 @@ import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
+import { ThesisFigurePanel } from "./thesis-figure-panel"
+import { ASSET_MATERIALS, figureMarker, parseFigures, removeFigure, replaceFigureAlt } from "./thesis-assets"
 import { showToast } from "@/utils/toast"
 
 const STYLES = ["学术、审慎、综述型", "逻辑清晰、偏实证", "批判性强、强调争议", "中文核心期刊风格", "英文 SCI 风格"]
@@ -49,10 +51,23 @@ export function StepWriting() {
     lines.push(`- 本次撰写章节：${values.chapter.trim() || "按提纲完整撰写"}`)
     if (values.extra.trim()) lines.push(`- 额外要求：${values.extra.trim()}`)
     lines.push("")
+    // [论文助手定制] 插图进提示词：把全文稿已有的插图「完整标记」喂给模型
+    // （如 ![图1](asset://materials/xxx.png)），而不是只喂「图1」文字；
+    // 模型可原样复制标记到新章节，保证图片引用不丢、图注不变。
+    const figures = parseFigures(writing().result ?? "")
+    if (figures.length > 0) {
+      lines.push("## 全文稿已有插图")
+      lines.push("以下是全文稿中已有的插图标记（可直接引用编号，或原样复制整行标记）：")
+      figures.forEach((figure, index) => lines.push(`- 图${index + 1}：${figure.marker}`))
+      lines.push("")
+    }
     lines.push("## 输出要求")
     lines.push(
       "只输出论文正文本身（Markdown 格式）。如果指定了章节只写该章节；未指定则按提纲逐章完整撰写，语言要像目标期刊的中文论文。" +
-        "严格禁止在开头或结尾添加任何说明、总结、字数统计、下一步建议、提问或对话性文字；严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；上文已包含全部所需材料，直接输出正文本身。",
+        "严格禁止在开头或结尾添加任何说明、总结、字数统计、下一步建议、提问或对话性文字；" +
+        promptToolRestriction(input().useTools) + "上文已包含全部所需材料，直接输出正文本身。" +
+        "如需引用「全文稿已有插图」里的插图，请原样复制其 ![图N](asset://...) 标记到正文对应位置（标记含图注，不要改写 asset:// 路径）；" +
+        "不要新建或引用列表中不存在的图片。",
     )
     return lines.join("\n")
   }
@@ -65,6 +80,8 @@ export function StepWriting() {
         prompt: buildPrompt(),
         // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
         skills: input().skills,
+        // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
+        useTools: input().useTools,
         sessionID: state().sessionID,
         // [论文助手定制] 边生成边显示：本次章节的实时文本先写入 progress，完成后再追加进 result（全文稿）。
         // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。
@@ -82,6 +99,33 @@ export function StepWriting() {
     } catch {
       setStepStatus("writing", writing().result ? "done" : "idle")
     }
+  }
+
+  // [论文助手定制] 插图改动的统一落盘：更新 workflow state + 写回 正文/全文稿.md（预览随后从文件重读）。
+  const applyManuscript = async (next: string) => {
+    if (!next.trim()) return
+    setStepResult("writing", next)
+    await manuscript.save("writing", next)
+  }
+
+  // [论文助手定制] 引用「资料」目录里已有的图片作为插图（图片在主页「资料」上传）。
+  const insertMaterialFigure = async (name: string) => {
+    const current = writing().result ?? ""
+    const marker = figureMarker(`${ASSET_MATERIALS}/${name}`, `图${parseFigures(current).length + 1}`)
+    const next = current ? `${current}\n\n${marker}` : marker
+    await applyManuscript(next)
+  }
+
+  const renameFigure = async (ref: string, alt: string) => {
+    const next = replaceFigureAlt(writing().result ?? "", ref, alt)
+    if (next === writing().result) return
+    await applyManuscript(next)
+  }
+
+  const removeFigureFromManuscript = async (ref: string) => {
+    const next = removeFigure(writing().result ?? "", ref)
+    if (next === writing().result) return
+    await applyManuscript(next)
   }
 
   return (
@@ -169,6 +213,15 @@ export function StepWriting() {
               onChange={(value) => updateInput("writing", { extra: value })}
             />
           </section>
+          {/* [论文助手定制] 插图管理：上传图片插入全文稿、编辑图注、删除引用。 */}
+          <ThesisFigurePanel
+            directory={sdk().directory}
+            figures={parseFigures(writing().result ?? "")}
+            busy={generator.generating()}
+            onInsertMaterial={insertMaterialFigure}
+            onRename={renameFigure}
+            onRemove={removeFigureFromManuscript}
+          />
           {/* [论文助手定制] Skill 多选：勾选的 Skill 在生成时注入提示词（见 thesis-generator）。 */}
           <ThesisSkillPicker step="writing" />
           <Show when={!outlineResult()}>

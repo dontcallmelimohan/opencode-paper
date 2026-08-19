@@ -6,6 +6,7 @@ import type { SessionV2Info } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useQuery, useQueryClient } from "@tanstack/solid-query"
 import { DateTime } from "luxon"
 import { For, Show, startTransition } from "solid-js"
@@ -28,6 +29,7 @@ export function ThesisStepSidebar(props: {
   title: string
   hasProject: boolean
   onHome: () => void
+  onCollapse: () => void
   onUpload: () => void
 }) {
   const { state, setActiveStep } = useThesisWorkflow()
@@ -92,17 +94,27 @@ export function ThesisStepSidebar(props: {
   return (
     // [论文助手定制] 可拖拽布局：宽度由外层容器（thesis-workbench.tsx 的 ResizeHandle）控制，这里不再写死 220px。
     <div class="flex w-full shrink-0 flex-col overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
-      {/* [论文助手定制] 顶部：返回主页 */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="small"
-        icon="chevron-left"
-        class="w-full justify-start"
-        onClick={props.onHome}
-      >
-        主页
-      </Button>
+      {/* [论文助手定制] 顶部：返回主页 + 收起侧边栏 */}
+      <div class="flex items-center gap-1 pr-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="small"
+          icon="chevron-left"
+          class="w-full justify-start"
+          onClick={props.onHome}
+        >
+          主页
+        </Button>
+        <IconButton
+          type="button"
+          icon="collapse"
+          variant="ghost"
+          size="small"
+          aria-label="收起侧边栏"
+          onClick={props.onCollapse}
+        />
+      </div>
       {/* [论文助手定制] 论文标题 + 工作台标识（原来在顶部栏，现放入侧边栏） */}
       <div class="flex items-center gap-1.5 px-3 pb-2 pt-1">
         <Icon name="pencil-line" size="small" class="shrink-0 text-v2-text-text-base" />

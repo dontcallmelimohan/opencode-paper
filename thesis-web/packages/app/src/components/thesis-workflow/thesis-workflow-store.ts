@@ -85,6 +85,9 @@ export function stripDocMeta(text: string): string {
 export type OutlineInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）：生成时把 SKILL.md 指令注入提示词。
   skills: string[]
+  // [论文助手定制] 生成时是否允许模型调用工具：false=纯文本流式输出（tools 全禁）；
+  // true=交给 agent 默认工具集（适合需要执行脚本的 Skill），代价是输出前可能有多轮工具调用。
+  useTools: boolean
   needs: string
   // [论文助手定制] Step 1 论文设定：类型 / 语言 / 图表 / 字数（打包进提纲提示词）。
   paperType: string
@@ -101,6 +104,8 @@ export type OutlineInput = {
 export type WritingInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
   skills: string[]
+  // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
+  useTools: boolean
   journal: string
   style: string
   focus: string
@@ -112,6 +117,8 @@ export type WritingInput = {
 export type FormattingInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
   skills: string[]
+  // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
+  useTools: boolean
   journal: string
   paperType: string
   referenceStyle: string
@@ -138,6 +145,8 @@ export type FormattingInput = {
 export type ReviewInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
   skills: string[]
+  // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
+  useTools: boolean
   journal: string
   mode: string
   focus: string
@@ -174,6 +183,7 @@ const DEFAULT_INPUTS: {
 } = {
   outline: {
     skills: [],
+    useTools: false,
     needs: "",
     paperType: "期刊论文",
     language: "中文",
@@ -187,6 +197,7 @@ const DEFAULT_INPUTS: {
   },
   writing: {
     skills: [],
+    useTools: false,
     journal: "",
     style: "学术、审慎、综述型",
     focus: "研究脉络与概念边界",
@@ -197,6 +208,7 @@ const DEFAULT_INPUTS: {
   },
   formatting: {
     skills: [],
+    useTools: false,
     journal: "",
     paperType: "综述论文",
     referenceStyle: "GB/T 7714-2015",
@@ -218,7 +230,7 @@ const DEFAULT_INPUTS: {
     paragraphSpacing: "6",
     pageNumber: true,
   },
-  review: { skills: [], journal: "", mode: "全面评审", focus: "" },
+  review: { skills: [], useTools: false, journal: "", mode: "全面评审", focus: "" },
 }
 
 export const createDefaultWorkflowState = (): ThesisWorkflowState => ({

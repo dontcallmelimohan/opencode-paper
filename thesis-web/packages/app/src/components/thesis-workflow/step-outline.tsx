@@ -13,7 +13,7 @@ import { useThesisKnowledge } from "./thesis-knowledge-store"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { ThesisKnowledgePanel } from "./thesis-knowledge-panel"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 
 // [论文助手定制] 方向侧重选项（写入提示词）。
@@ -134,7 +134,7 @@ export function StepOutline() {
     lines.push(
       `按「${values.language}」学术写作习惯输出综述大纲：每个章节包含标题、写作要点、相关论文线索与写作建议，结构清晰，可直接用于后续辅助写作。` +
         (values.hasFigures === "有图表" ? "请在合适的章节规划图表 / 表格，并标注图表用途。" : "") +
-        "严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；上文已包含全部所需材料，直接输出正文本身。",
+        promptToolRestriction(input().useTools) + "上文已包含全部所需材料，直接输出正文本身。",
     )
     return lines.join("\n")
   }
@@ -152,6 +152,8 @@ export function StepOutline() {
         prompt,
         // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
         skills: input().skills,
+        // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
+        useTools: input().useTools,
         sessionID: state().sessionID,
         // [论文助手定制] 边生成边显示：把当前已生成的文本实时写入 store.progress。
         // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。

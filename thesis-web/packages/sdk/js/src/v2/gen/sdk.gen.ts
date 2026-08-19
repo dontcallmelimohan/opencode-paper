@@ -103,6 +103,8 @@ import type {
   InstanceSkillInstallZipResponses,
   InstanceSkillUninstallErrors,
   InstanceSkillUninstallResponses,
+  InstanceSkillUpdateErrors,
+  InstanceSkillUpdateResponses,
   InstanceThesisCreateErrors,
   InstanceThesisCreateResponses,
   InstanceThesisDeleteErrors,
@@ -2269,6 +2271,55 @@ export class Instance extends HeyApiClient {
       ThrowOnError
     >({
       url: "/skill/install-zip",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Update a skill and its agent
+   *
+   * Updates the skill's SKILL.md metadata/content and its agent config; renames the skill directory and agent file when the name changes.
+   */
+  public skillUpdate<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      newName?: string
+      description?: string
+      content?: string
+      prompt?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "newName" },
+            { in: "body", key: "description" },
+            { in: "body", key: "content" },
+            { in: "body", key: "prompt" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceSkillUpdateResponses,
+      InstanceSkillUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/skill/update",
       ...options,
       ...params,
       headers: {

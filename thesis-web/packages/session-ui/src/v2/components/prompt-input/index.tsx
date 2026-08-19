@@ -44,6 +44,7 @@ export type PromptInputV2Props = {
   borderUnderlay?: boolean
   class?: string
   modelControl?: JSX.Element
+  controlsSlot?: JSX.Element
   variantControlVisible?: boolean
   attachKeybind?: string[]
   attachShortcut?: string
@@ -222,6 +223,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
               onContext={props.controller.openContext}
               onShell={props.controller.openShell}
             />
+            {props.controlsSlot}
             <Show when={view.skills} keyed>
               {(control) => (
                 <PromptInputV2SkillsMenu

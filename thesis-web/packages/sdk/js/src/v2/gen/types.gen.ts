@@ -8677,6 +8677,51 @@ export type InstanceSkillInstallZipResponses = {
 export type InstanceSkillInstallZipResponse =
   InstanceSkillInstallZipResponses[keyof InstanceSkillInstallZipResponses]
 
+// [论文助手定制] Skill 管理：编辑（改名称/简介/内容，可重命名 skill 目录与 agent 文件）。
+export type InstanceSkillUpdateData = {
+  body?: {
+    name: string
+    newName?: string
+    description?: string
+    content?: string
+    prompt?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/update"
+}
+
+export type InstanceSkillUpdateErrors = {
+  /**
+   * SkillInstallError | InvalidRequestError
+   */
+  400: SkillInstallError | InvalidRequestError
+}
+
+export type InstanceSkillUpdateError =
+  InstanceSkillUpdateErrors[keyof InstanceSkillUpdateErrors]
+
+export type InstanceSkillUpdateResponses = {
+  /**
+   * Updated skill and agent
+   */
+  200: {
+    agent: Agent
+    skill: {
+      name: string
+      description?: string
+      location: string
+      content: string
+    }
+  }
+}
+
+export type InstanceSkillUpdateResponse =
+  InstanceSkillUpdateResponses[keyof InstanceSkillUpdateResponses]
+
 export type InstanceThesisCreateData = {
   body?: {
     title: string

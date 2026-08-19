@@ -8,7 +8,7 @@ import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { showToast } from "@/utils/toast"
 
@@ -105,7 +105,8 @@ export function StepFormatting() {
     lines.push("## 输出要求")
     lines.push(
       "只输出排版后的论文正文本身（Markdown 格式）：统一标题层级与编号、段首缩进、图表编号、参考文献列表按指定格式排列。" +
-        "禁止输出任何排版说明、页眉页脚设置说明、字体字号说明、注释或标注；正文之前不要有任何标题性文字；严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；上文已包含全部所需材料，直接输出正文本身。",
+        "禁止输出任何排版说明、页眉页脚设置说明、字体字号说明、注释或标注；正文之前不要有任何标题性文字；" +
+        promptToolRestriction(input().useTools) + "上文已包含全部所需材料，直接输出正文本身。",
     )
     return lines.join("\n")
   }
@@ -118,6 +119,8 @@ export function StepFormatting() {
         prompt: buildPrompt(),
         // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
         skills: input().skills,
+        // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
+        useTools: input().useTools,
         sessionID: state().sessionID,
         // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
         // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。

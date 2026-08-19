@@ -13,7 +13,7 @@ import { useTheme } from "@opencode-ai/ui/theme/context"
 import { useMutation, useQueryClient } from "@tanstack/solid-query"
 import { useNavigate } from "@solidjs/router"
 import JSZip from "jszip"
-import { For, Show, createMemo, createResource, createSignal } from "solid-js"
+import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { useLanguage } from "@/context/language"
@@ -477,6 +477,113 @@ function SkillDeleteDialog(props: { name: string }) {
   )
 }
 
+// [论文助手定制] Skill 编辑：修改名称 / 简介 / 内容。加载现有 SKILL.md 填进表单，
+// 保存时调 skillUpdate 整包重写，改名会同时重命名全局 skills/<name> 目录与 agent/<name>.md。
+function SkillEditDialog(props: { name: string }) {
+  const dialog = useDialog()
+  const sdk = useSDK()
+  const local = useLocal()
+  const serverSync = useServerSync()
+  const sync = useSync()
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string | undefined>(undefined)
+
+  const [form, setForm] = createStore<{ name: string; description: string; content: string }>({
+    name: props.name,
+    description: "",
+    content: "",
+  })
+
+  const [detail] = createResource(() => props.name, async (name) => {
+    const res = await sdk().client.app.skills({ directory: sdk().directory })
+    if (res.error) return undefined
+    return (res.data ?? []).find((item) => item.name === name)
+  })
+  createEffect(() => {
+    const item = detail()
+    if (!item) return
+    setForm({
+      name: item.name,
+      description: item.description ?? "",
+      content: item.content ?? "",
+    })
+  })
+
+  const save = async () => {
+    if (busy()) return
+    const name = form.name.trim()
+    if (!name) throw new Error("请输入 Skill 名称")
+    if (!SKILL_NAME_RE.test(name) || name.startsWith("."))
+      throw new Error("名称仅支持字母、数字、下划线和短横线，且不能以 . 开头")
+    setBusy(true)
+    setError(undefined)
+    try {
+      const res = await sdk().client.instance.skillUpdate({
+        directory: sdk().directory,
+        name: props.name,
+        newName: name !== props.name ? name : undefined,
+        description: form.description.trim() || undefined,
+        content: form.content.trim(),
+      })
+      if (res.error) throw new Error(formatApiError(res.error) ?? "保存失败")
+      dialog.close()
+      const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
+      await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
+      const agents = await queryClient.fetchQuery(agentsQuery())
+      sync().set("agent", agents)
+      // [论文助手定制] 改名的 skill 若正被选为当前 agent，同步更新选中项，避免“当前”徽标丢失。
+      if (local.agent.current()?.name === props.name) local.agent.set(name)
+      showToast({ variant: "success", icon: "circle-check", title: `已更新 Skill「${name}」` })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog title={`编辑 Skill · ${props.name}`}>
+      <form
+        class="flex max-h-[65vh] flex-col gap-4 overflow-y-auto px-2.5 pb-4"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void save()
+        }}
+      >
+        <Show
+          when={detail.state !== "pending" && detail.state !== "unresolved"}
+          fallback={<div class="py-6 text-center text-12-regular text-v2-text-text-faint">加载中…</div>}
+        >
+          <TextField label="名称" value={form.name} onChange={(value) => setForm("name", value)} />
+          <TextField
+            label="简介"
+            placeholder="一句话描述这个 skill 的用途"
+            value={form.description}
+            onChange={(value) => setForm("description", value)}
+          />
+          <TextField
+            multiline
+            label="Skill 内容（markdown）"
+            placeholder="skill 的具体指令"
+            value={form.content}
+            onChange={(value) => setForm("content", value)}
+          />
+        </Show>
+        {error() ? <div class="text-12-regular text-v2-text-text-error">{error()}</div> : null}
+        <div class="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => dialog.close()}>
+            取消
+          </Button>
+          <Button type="submit" variant="primary" disabled={busy()} icon="check">
+            {busy() ? "保存中…" : "保存"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
 function SkillsContent() {
   const language = useLanguage()
   const local = useLocal()
@@ -563,7 +670,7 @@ function SkillsContent() {
                   <span class="line-clamp-2 text-12-regular text-v2-text-text-faint">
                     {agent.description ?? "Skill 驱动的 Agent"}
                   </span>
-                  {/* [论文助手定制] 操作区：查看（打开 SKILL.md 内容）/ 删除（确认后卸载）；阻止冒泡避免误切换当前 agent。 */}
+                  {/* [论文助手定制] 操作区：查看 / 编辑 / 删除（编辑与删除仅自定义 skill，阻止冒泡避免误切换当前 agent）。 */}
                   <span class="flex w-full items-center justify-end gap-1">
                     <IconButton
                       type="button"
@@ -577,6 +684,17 @@ function SkillsContent() {
                       }}
                     />
                     <Show when={agent.native === false}>
+                      <IconButton
+                        type="button"
+                        icon="edit"
+                        size="small"
+                        variant="ghost"
+                        aria-label={`编辑 ${agent.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          dialog.show(() => <SkillEditDialog name={agent.name} />)
+                        }}
+                      />
                       <IconButton
                         type="button"
                         icon="circle-x"

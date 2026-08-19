@@ -11,9 +11,10 @@
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
-import { createResource, createSignal, For, Show, onCleanup, type JSX } from "solid-js"
+import { createEffect, createResource, createSignal, For, Show, onCleanup, type JSX } from "solid-js"
 import type { FileNode } from "@opencode-ai/sdk/v2/client"
 import { useSDK } from "@/context/sdk"
+import { ensureFigureDataUrls, parseFigures, resolveAssetUrls } from "./thesis-assets"
 
 // [论文助手定制] base64 → Uint8Array（浏览器环境没有 Node Buffer，用 atob 解码）。
 export const base64ToBytes = (base64: string) => {
@@ -154,6 +155,22 @@ export function ThesisManuscriptDialog(props: { directory: string }) {
     if (lastPdfUrl) URL.revokeObjectURL(lastPdfUrl)
   })
 
+  // [论文助手定制] 插图预览：把 Markdown 里的 asset:// 引用解析成本机 data URL（先确保图片已缓存）。
+  // 异步完成前先用原文渲染（alt 兜底，不会出现空白）。
+  const [resolvedMarkdown, setResolvedMarkdown] = createSignal<string | undefined>(undefined)
+  createEffect(() => {
+    const result = preview()
+    const text = result?.kind === "markdown" ? result.text : undefined
+    setResolvedMarkdown(text)
+    if (!text) return
+    const refs = parseFigures(text).map((figure) => figure.ref)
+    if (refs.length === 0) return
+    void (async () => {
+      await ensureFigureDataUrls(sdk(), props.directory, refs)
+      setResolvedMarkdown(resolveAssetUrls(text, props.directory))
+    })()
+  })
+
   return (
     <Dialog title="正文文稿" description="点击左侧文件即可预览（支持 Word、PDF、Markdown、文本）" size="x-large">
       {/* [论文助手定制] 给面板一个明确最小高度：Dialog 内容高度默认由内容决定（最多 600px），
@@ -200,7 +217,7 @@ export function ThesisManuscriptDialog(props: { directory: string }) {
             <Show
               when={preview.loading}
               fallback={
-                <Show when={preview.error} fallback={<Show when={preview()}>{(result) => renderPreview(result())}</Show>}>
+                <Show when={preview.error} fallback={<Show when={preview()}>{(result) => renderPreview(result(), resolvedMarkdown())}</Show>}>
                   <div class="p-4 text-13-regular text-icon-critical-base">读取失败：{errorMessage(preview.error)}</div>
                 </Show>
               }
@@ -217,8 +234,8 @@ export function ThesisManuscriptDialog(props: { directory: string }) {
   )
 }
 
-// [论文助手定制] 按预览结果类型渲染对应内容。
-function renderPreview(result: ManuscriptPreview) {
+// [论文助手定制] 按预览结果类型渲染对应内容。resolvedMarkdown 为把 asset:// 插图解析成 data URL 后的文本。
+function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string) {
   switch (result.kind) {
     case "markdown":
       // [论文助手定制] md：面板内 Markdown 预览 + 顶部「本地查看」下载按钮。
@@ -227,7 +244,9 @@ function renderPreview(result: ManuscriptPreview) {
           <PreviewToolbar filename={result.filename}>
             <LocalViewButton onClick={() => downloadBlob(new Blob([result.text], { type: "text/markdown" }), result.filename)} />
           </PreviewToolbar>
-          <div class="min-h-0 flex-1 overflow-y-auto p-3"><Markdown text={result.text} /></div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-3">
+            <Markdown text={resolvedMarkdown ?? result.text} />
+          </div>
         </div>
       )
     case "text":

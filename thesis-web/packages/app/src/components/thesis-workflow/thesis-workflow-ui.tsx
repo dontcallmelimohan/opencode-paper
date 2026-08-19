@@ -2,6 +2,7 @@
 // 左侧“输入表单” + 右侧“产物面板”，产物用 Markdown 渲染。
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { PromptInputV2SkillsMenu } from "@opencode-ai/session-ui/v2/prompt-input"
@@ -13,6 +14,15 @@ import { usePersistentWidth } from "./thesis-panel-layout"
 import type { StepKey, StepStatus } from "./thesis-workflow-store"
 import { useThesisWorkflow } from "./thesis-workflow-store"
 import { ThesisSessionView } from "./thesis-session-view"
+import { ensureFigureDataUrls, parseFigures, resolveAssetUrls } from "./thesis-assets"
+
+// [论文助手定制] 生成提示词里的工具约束文本：随配置面板「生成时允许使用工具」开关变化。
+// 开启时允许模型按需调用工具（脚本型 Skill 需要执行脚本/读文件）；
+// 关闭时严禁调用任何工具，保证纯文本流式输出（默认）。
+export const promptToolRestriction = (useTools: boolean): string =>
+  useTools
+    ? "允许在必要时调用工具（如读取文件、执行脚本）完成任务，但工具调用本身不要以 <tool_calls> 等 XML 形式出现在最终结果中；"
+    : "严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；"
 
 export function StepLayout(props: { form: JSX.Element; product: JSX.Element }) {
   // [论文助手定制] 可拖拽布局：左侧「输入表单」宽度可拖拽调整（默认 340，范围 240~560，
@@ -71,6 +81,8 @@ export function ThesisSkillPicker(props: { step: StepKey }) {
   const sync = useSync()
   const { state, updateInput } = useThesisWorkflow()
   const selected = () => state().steps[props.step].input.skills
+  // [论文助手定制] 工具开关状态：是否允许模型在本步生成时调用工具。
+  const useTools = () => state().steps[props.step].input.useTools
   const options = () =>
     sync()
       .data.agent.filter((agent) => !agent.hidden && agent.native === false)
@@ -83,24 +95,43 @@ export function ThesisSkillPicker(props: { step: StepKey }) {
   }
   return (
     // [论文助手定制] data-action 便于自动化定位该区块（与代码库其它可交互区块的约定一致）。
-    <section data-action="thesis-skill-picker" class="flex items-center justify-between gap-2 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2">
-      <div class="min-w-0 flex flex-col gap-0.5">
-        <div class="text-12-medium text-v2-text-text-base">选择 Skill（可多选）</div>
-        <Show
-          when={selected().length > 0}
-          fallback={<div class="truncate text-11-regular text-v2-text-text-faint">生成时按选中 Skill 的指令执行</div>}
-        >
-          <div class="truncate text-11-regular text-v2-text-text-faint">已选：{selected().join("、")}</div>
-        </Show>
+    <section data-action="thesis-skill-picker" class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2">
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0 flex flex-col gap-0.5">
+          <div class="text-12-medium text-v2-text-text-base">选择 Skill（可多选）</div>
+          <Show
+            when={selected().length > 0}
+            fallback={<div class="truncate text-11-regular text-v2-text-text-faint">生成时按选中 Skill 的指令执行</div>}
+          >
+            <div class="truncate text-11-regular text-v2-text-text-faint">已选：{selected().join("、")}</div>
+          </Show>
+        </div>
+        <PromptInputV2SkillsMenu
+          title="选择技能"
+          emptyLabel="暂无 Skill，可到主页「Skill 管理」添加"
+          confirmLabel="完成"
+          options={options}
+          selected={selected}
+          onToggle={toggle}
+        />
       </div>
-      <PromptInputV2SkillsMenu
-        title="选择技能"
-        emptyLabel="暂无 Skill，可到主页「Skill 管理」添加"
-        confirmLabel="完成"
-        options={options}
-        selected={selected}
-        onToggle={toggle}
-      />
+      {/* [论文助手定制] 工具开关：默认关闭（tools: {"*": false}，纯文本流式输出）；
+          开启后生成时不传 tools（用 agent 默认工具集），适合需要执行脚本/读文件的 Skill，
+          代价是模型可能先做多轮工具调用、文稿不会立刻流式出现。 */}
+      <div class="flex items-center justify-between gap-2 rounded-md border border-v2-border-border-base px-2 py-1.5">
+        <div class="min-w-0 flex flex-col gap-0.5">
+          <div class="text-12-medium text-v2-text-text-base">生成时允许使用工具</div>
+          <div class="truncate text-11-regular text-v2-text-text-faint">
+            {useTools() ? "已开启：模型可调用工具（适合需脚本的 Skill），输出会变慢" : "关闭：纯文本流式输出，适合常规写作"}
+          </div>
+        </div>
+        <CheckboxV2
+          label="生成时允许使用工具"
+          hideLabel
+          checked={useTools()}
+          onChange={(value) => updateInput(props.step, { useTools: value })}
+        />
+      </div>
     </section>
   )
 }
@@ -167,6 +198,22 @@ export function StepProductPanel(props: {
     if (props.manuscript && props.status === "done") return fileContent() ?? props.result ?? ""
     return [props.result, props.progressText].filter(Boolean).join("\n\n")
   }
+
+  // [论文助手定制] 插图渲染：把文稿里的 asset:// 引用解析成本机 data URL（先确保图片已缓存），
+  // 避免预览出现空图。解析异步完成前先用原文渲染（alt 兜底）。
+  const [resolvedText, setResolvedText] = createSignal<string | undefined>(undefined)
+  createEffect(() => {
+    const text = manuscriptText()
+    const directory = props.manuscript?.directory
+    setResolvedText(text)
+    if (!directory) return
+    const refs = parseFigures(text).map((figure) => figure.ref)
+    if (refs.length === 0) return
+    void (async () => {
+      await ensureFigureDataUrls(sdk(), directory, refs)
+      setResolvedText(resolveAssetUrls(text, directory))
+    })()
+  })
 
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
@@ -264,9 +311,10 @@ export function StepProductPanel(props: {
                 <div class="mx-auto w-full max-w-3xl px-5 py-5">
                   <Show when={props.render} fallback={
                     <>
-                      {/* [论文助手定制] 边生成边显示：result（上次完成的全文）+ progress（本次正在生成的文本）拼接渲染。 */}
+                      {/* [论文助手定制] 边生成边显示：result（上次完成的全文）+ progress（本次正在生成的文本）拼接渲染；
+                          完成态再解析 asset:// 插图为本机 data URL。 */}
                       <Markdown
-                        text={manuscriptText()}
+                        text={resolvedText() ?? manuscriptText()}
                         cacheKey={`${manuscriptText()}`}
                         class="thesis-markdown-preview"
                         style={{ "font-size": "15px", "line-height": "1.8" }}

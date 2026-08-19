@@ -10,6 +10,16 @@ import { useSDK } from "@/context/sdk"
 import { showToast } from "@/utils/toast"
 import { thesisName } from "@/pages/home/thesis-home"
 import type { InstanceThesisExportDocxOptions, Project } from "@opencode-ai/sdk/v2/client"
+import type { DirectorySDK } from "@/context/sdk"
+import { ensureFigureDataUrls, parseFigures, resolveAssetUrls } from "@/components/thesis-workflow/thesis-assets"
+
+// [论文助手定制] 导出前把文稿里的 asset:// 插图解析成本机 data URL（PDF 由 Chrome 渲染 data: 图片）。
+const withResolvedFigureUrls = async (sdk: DirectorySDK, content: string) => {
+  const refs = parseFigures(content).map((figure) => figure.ref)
+  if (refs.length === 0) return content
+  await ensureFigureDataUrls(sdk, sdk.directory, refs)
+  return resolveAssetUrls(content, sdk.directory)
+}
 
 // [论文助手定制] 找到当前论文项目：优先用 layout 已加载的项目（主页进入时已打开），
 // 直接访问工作台 URL 时 layout 可能还没加载项目，退回服务端 project.list() 查询。
@@ -120,7 +130,8 @@ export function useThesisPdfExport(label: string) {
     try {
       const title = thesisName(proj)
       // [论文助手定制] marked 默认开启 GFM：表格、列表、代码块都能正确渲染成 HTML。
-      const html = pdfTemplate(title, marked.parse(content) as string)
+      // asset:// 插图先解析成 data URL，Chrome headless 打印时图片会出现在 PDF 里。
+      const html = pdfTemplate(title, marked.parse(await withResolvedFigureUrls(sdk(), content)) as string)
       const res = await sdk().client.instance.thesisExportPdf({
         projectID: proj.id,
         filename: `${safeFilename(title)}-${label}.pdf`,

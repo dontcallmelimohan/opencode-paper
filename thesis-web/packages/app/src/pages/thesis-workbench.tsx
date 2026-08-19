@@ -7,7 +7,8 @@
 // 右侧「表单 | 产物」的宽度分割在 thesis-workflow-ui.tsx 的 StepLayout 里同样可拖拽。
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useNavigate } from "@solidjs/router"
-import { createMemo, onMount, Show } from "solid-js"
+import { createMemo, createSignal, onMount, Show } from "solid-js"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import type { Project } from "@opencode-ai/sdk/v2/client"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { StepFormatting } from "@/components/thesis-workflow/step-formatting"
@@ -59,6 +60,13 @@ function ThesisWorkbenchInner() {
     if (tasks.length > 0) void Promise.all(tasks)
   })
 
+  // [论文助手定制] 侧边栏收起状态（localStorage 记住）。
+  const [collapsed, setCollapsed] = createSignal(localStorage.getItem("thesis-workbench.sidebarCollapsed") === "1")
+  const toggleCollapsed = (next: boolean) => {
+    setCollapsed(next)
+    localStorage.setItem("thesis-workbench.sidebarCollapsed", next ? "1" : "0")
+  }
+
   const project = createMemo(() =>
     layout.projects.list().find((item) => item.worktree === sdk().directory),
   )
@@ -75,28 +83,48 @@ function ThesisWorkbenchInner() {
     <div class="m-2 min-h-0 flex-1 self-stretch overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
       <div class="flex size-full min-h-0 min-w-0 gap-2 overflow-hidden p-2">
         {/* [论文助手定制] 左侧侧边栏：四步切换 + 顶部（主页/标题）+ 底部工具（资料/生成记录）。
-            外层容器控制宽度（可拖拽，min(宽度, 100%) 保证窄屏不溢出），右侧挂 ResizeHandle 分割手柄。 */}
-        <div class="relative flex min-h-0 shrink-0" style={{ width: `min(${sidebarWidth.width()}px, 100%)` }}>
-          <ThesisStepSidebar
-            title={title()}
-            hasProject={!!project()}
-            onHome={() => navigate("/")}
-            onUpload={() => {
-              // [论文助手定制] 直接访问工作台 URL 时 layout 可能还没加载项目，用 useThesisProject 兜底查询服务端。
-              void resolveProject().then((current) => {
-                if (current) dialog.show(() => <ThesisUploadDialog thesis={current} />)
-              })
-            }}
-          />
-          <ResizeHandle
-            direction="horizontal"
-            edge="end"
-            size={sidebarWidth.width()}
-            min={180}
-            max={360}
-            onResize={sidebarWidth.setWidth}
-          />
-        </div>
+            外层容器控制宽度（可拖拽，min(宽度, 100%) 保证窄屏不溢出），右侧挂 ResizeHandle 分割手柄。
+            可收起：拖拽手柄到阈值以下或点顶部「收起」按钮折叠，折叠时换成一列「展开」按钮。 */}
+        <Show
+          when={!collapsed()}
+          fallback={
+            <div class="flex min-h-0 shrink-0 flex-col items-center gap-1 rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
+              <IconButton
+                type="button"
+                icon="chevron-double-right"
+                variant="ghost"
+                size="small"
+                aria-label="展开侧边栏"
+                onClick={() => toggleCollapsed(false)}
+              />
+            </div>
+          }
+        >
+          <div class="relative flex min-h-0 shrink-0" style={{ width: `min(${sidebarWidth.width()}px, 100%)` }}>
+            <ThesisStepSidebar
+              title={title()}
+              hasProject={!!project()}
+              onHome={() => navigate("/")}
+              onCollapse={() => toggleCollapsed(true)}
+              onUpload={() => {
+                // [论文助手定制] 直接访问工作台 URL 时 layout 可能还没加载项目，用 useThesisProject 兜底查询服务端。
+                void resolveProject().then((current) => {
+                  if (current) dialog.show(() => <ThesisUploadDialog thesis={current} />)
+                })
+              }}
+            />
+            <ResizeHandle
+              direction="horizontal"
+              edge="end"
+              size={sidebarWidth.width()}
+              min={180}
+              max={360}
+              collapseThreshold={50}
+              onCollapse={() => toggleCollapsed(true)}
+              onResize={sidebarWidth.setWidth}
+            />
+          </div>
+        </Show>
         {/* 右侧当前步骤内容（表单 + 产物） */}
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
           <Show when={state().activeStep === "outline"}>

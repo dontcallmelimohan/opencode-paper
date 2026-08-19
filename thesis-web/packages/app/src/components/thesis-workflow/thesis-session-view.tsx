@@ -4,11 +4,17 @@
 //     @引用/附件等；发送后复用该论文的专属会话（还没有则自动创建），模型回复流式显示；
 //   - 每条助手消息可「存为当前文稿」：把该回复采纳为当前步骤的产物，支持反复修改迭代。
 import { Icon } from "@opencode-ai/ui/icon"
+import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
+import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Message } from "@opencode-ai/session-ui/message-part"
-import { createEffect, createMemo, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, For, onMount, Show } from "solid-js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
+import type { FileNode } from "@opencode-ai/sdk/v2/client"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
+import { usePrompt, type ContentPart } from "@/context/prompt"
 import { useServerSync } from "@/context/server-sync"
 import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
@@ -21,6 +27,13 @@ import { showToast } from "@/utils/toast"
 import { normalizeSessionMessages } from "@/utils/session-message"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
+import { figureMarker, IMAGE_EXTENSIONS, MATERIALS_DIR } from "./thesis-assets"
+
+const isImageName = (name: string) =>
+  (IMAGE_EXTENSIONS as readonly string[]).includes(name.split(".").pop()?.toLowerCase() ?? "")
+
+// [论文助手定制] 可被 asset:// 标记引用的名字：不含空格/括号，避免破坏 Markdown 图片标记解析。
+const isReferenceableName = (name: string) => /^[^[\]()\s]+$/.test(name)
 
 export function ThesisSessionView() {
   const sdk = useSDK()
@@ -28,10 +41,49 @@ export function ThesisSessionView() {
   const local = useLocal()
   const serverSync = useServerSync()
   const { state, setSessionID, setStepResult } = useThesisWorkflow()
+  // [论文助手定制] 与输入框共享的全局 prompt store：插入插图标记时直接追加一个文本 part。
+  const prompt = usePrompt()
   // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到 正文/<step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
   const sessionID = () => state().sessionID
   const route = useSessionKey()
+
+  // [论文助手定制] 「资料」目录里的图片，供输入框「插入插图」下拉选择（过滤规则与插图面板一致）。
+  const [materialImages] = createResource(
+    () => sdk().directory,
+    async (directory) => {
+      if (!directory) return []
+      try {
+        const res = await sdk().client.file.list({ directory, path: MATERIALS_DIR })
+        if (res.error) return []
+        return (res.data ?? [])
+          .filter(
+            (node): node is FileNode & { type: "file" } =>
+              node.type === "file" && isImageName(node.name) && isReferenceableName(node.name),
+          )
+          .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"))
+      } catch {
+        return []
+      }
+    },
+  )
+
+  // [论文助手定制] 把选中图片的占位标记插入输入框（追加到最后一个文本 part 末尾，光标移到末尾），
+  // 图注默认用文件名，发送前可在输入框里按需改写。
+  const insertMarker = (name: string) => {
+    if (!name) return
+    const marker = figureMarker(`materials/${name}`, name.replace(/\.[^.]+$/, ""))
+    const parts = prompt.current()
+    const last = parts[parts.length - 1]
+    const content = last?.type === "text" ? `${last.content}${last.content && !last.content.endsWith("\n") ? "\n" : ""}${marker}` : marker
+    const part: ContentPart =
+      last?.type === "text"
+        ? { ...last, content, start: content.length, end: content.length }
+        : { type: "text", content, start: content.length, end: content.length }
+    const next: ContentPart[] = last?.type === "text" ? [...parts.slice(0, -1), part] : [...parts, part]
+    prompt.set(next, content.length)
+    showToast({ variant: "success", icon: "circle-check", title: "已插入插图标记", description: marker })
+  }
 
   // [论文助手定制] 复用主会话页的自动滚动 Hook：内容渲染完成后（ResizeObserver 在布局后触发）
   // 自动保持底部，用户上翻时暂停跟随，回到底部后恢复。这样每次切到「会话」视图都会定位到最底部，
@@ -162,7 +214,38 @@ export function ThesisSessionView() {
       {/* [论文助手定制] 底部完整会话输入框：与主会话页同款（模型选择、skill 选择、@引用/附件、
           发送/停止）；embedded 模式复用本论文专属会话、发送后不跳转。 */}
       <div class="shrink-0 border-t border-v2-border-border-base p-2">
-        <PromptInputV2Composer controller={input} borderUnderlay />
+        {/* [论文助手定制] 插图快捷按钮：与技能/模型等图标并列。从「资料」选一张图片，
+          把 ![图注](asset://materials/<名字>) 插入输入框，模型按图注/图片名理解意图；
+          占位标记与插图面板一致，见 thesis-figure-panel.tsx。 */}
+        <PromptInputV2Composer
+          controller={input}
+          borderUnderlay
+          controlsSlot={
+            <Show when={materialImages() && materialImages()!.length > 0}>
+              <TooltipV2 placement="top" value="插入插图">
+                <MenuV2 gutter={6} modal={false} placement="top-end">
+                  <MenuV2.Trigger
+                    as={IconButtonV2}
+                    type="button"
+                    icon={<IconV2 name="folder-add-left" />}
+                    variant="ghost-muted"
+                    size="large"
+                    aria-label="插入插图"
+                  />
+                  <MenuV2.Portal>
+                    <MenuV2.Content style={{ "min-width": "180px", "max-height": "240px", "overflow-y": "auto" }}>
+                      <For each={materialImages()}>
+                        {(node) => (
+                          <MenuV2.Item onSelect={() => insertMarker(node.name)}>{node.name}</MenuV2.Item>
+                        )}
+                      </For>
+                    </MenuV2.Content>
+                  </MenuV2.Portal>
+                </MenuV2>
+              </TooltipV2>
+            </Show>
+          }
+        />
       </div>
     </div>
   )
