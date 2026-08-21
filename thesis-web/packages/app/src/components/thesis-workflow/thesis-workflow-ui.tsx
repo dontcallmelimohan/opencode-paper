@@ -151,7 +151,7 @@ export function StepProductPanel(props: {
   onExportPdf?: () => void
   // [论文助手定制] 可选自定义产物渲染（如评审报告的结构化展示），默认 Markdown。
   render?: (result: string) => JSX.Element
-  // [论文助手定制] 文稿文件化：传入步骤名与项目目录后，完成态从「正文/<step>.md」文件读取渲染，
+  // [论文助手定制] 文稿文件化：传入步骤名与项目目录后，完成态从项目根目录「<step>.md」文件读取渲染，
   // 生成中仍用流式 progress 实时显示；文件缺失时回退显示 result（与文件内容一致）。
   manuscript?: { directory: string; step: ManuscriptStep }
 }) {
@@ -189,7 +189,8 @@ export function StepProductPanel(props: {
       if (!target) return undefined
       const res = await sdk().client.file.read({
         directory: target.directory,
-        path: `正文/${MANUSCRIPT_FILENAMES[target.step]}`,
+        // [论文助手定制] 文件空间合并后文稿在项目根目录（与后端落盘一致），不再有「正文/」子目录。
+        path: MANUSCRIPT_FILENAMES[target.step],
       })
       if (res.error || res.data?.type !== "text") return undefined
       return res.data.content
@@ -203,8 +204,8 @@ export function StepProductPanel(props: {
   }
 
   // [论文助手定制] 插图渲染：把文稿里的 asset:// 引用与本地相对路径图片统一解析成本机 data URL
-  // （复用 thesis-assets 的 resolveMarkdownImages）；文稿文件保存在「正文」目录，
-  // 相对路径图片以「正文」为基准；解析异步完成前先用原文渲染（alt 兜底），避免预览出现空图。
+  // （复用 thesis-assets 的 resolveMarkdownImages）；文稿文件保存在项目根目录，
+  // 相对路径图片以根目录为基准；解析异步完成前先用原文渲染（alt 兜底），避免预览出现空图。
   // 竞态保护：生成/切换步骤时文本会连续变化，用版本号丢弃过期的异步解析结果，避免显示旧内容。
   const [resolvedText, setResolvedText] = createSignal<string | undefined>(undefined)
   let resolveVersion = 0
@@ -214,7 +215,7 @@ export function StepProductPanel(props: {
     const directory = props.manuscript?.directory
     setResolvedText(text)
     if (!text || !directory) return
-    void resolveMarkdownImages(sdk(), directory, "正文", text).then((next) => {
+    void resolveMarkdownImages(sdk(), directory, "", text).then((next) => {
       if (version === resolveVersion && next !== text) setResolvedText(next)
     })
   })
@@ -327,7 +328,7 @@ export function StepProductPanel(props: {
                       <Show when={props.manuscript && props.status === "done"}>
                         <div class="mt-2 flex items-center gap-1 text-11-regular text-v2-text-text-faint">
                           <Icon name="open-file" size="small" class="shrink-0" />
-                          已保存到 正文/{MANUSCRIPT_FILENAMES[props.manuscript!.step]}
+                          已保存到 {MANUSCRIPT_FILENAMES[props.manuscript!.step]}（文件空间）
                         </div>
                       </Show>
                     </>

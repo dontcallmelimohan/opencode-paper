@@ -188,7 +188,7 @@ export function ThesisSessionView() {
   const local = useLocal()
   const serverSync = useServerSync()
   const { state, setStepSessionID, setStepResult } = useThesisWorkflow()
-  // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到 正文/<step>.md。
+  // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到项目根目录 <step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
   // [论文助手定制] 方案 B：会话视图跟随当前模块——每个模块有自己的专属会话，
   // 切到哪个模块就显示/继续哪个模块的会话，互不共享上下文。

@@ -45,7 +45,7 @@ function ThesisWorkbenchInner() {
   const layout = useLayout()
   const dialog = useDialog()
   const { state } = useThesisWorkflow()
-  // [论文助手定制] 文稿文件化迁移：打开工作台时把已有 result 落盘为 正文/<step>.md（幂等覆盖写）。
+  // [论文助手定制] 文稿文件化迁移：打开工作台时把已有 result 落盘为项目根目录 <step>.md（幂等覆盖写）。
   const manuscript = useThesisManuscriptFile(sdk().directory)
   // [论文助手定制] 可拖拽布局：左侧侧边栏宽度（默认 220，可拖到 180~360，localStorage 记住）。
   const sidebarWidth = usePersistentWidth("thesis-workbench.sidebarWidth", 220)

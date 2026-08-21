@@ -105,7 +105,7 @@ function DocxLocalView(props: { bytes: Uint8Array; filename: string }) {
   )
 }
 
-// [论文助手定制] 「文件空间」分组：正文（正文/ 目录）、资料（根目录上传的文件）、其他（其余子目录）。
+// [论文助手定制] 「文件空间」分组：正文文稿（根目录的 提纲.md/全文稿.md 等）、资料（根目录上传的文件）、其他（其余子目录）。
 type FileEntry = { path: string; name: string }
 type FileGroup = { key: "manuscript" | "materials" | "other"; label: string; icon: IconProps["name"]; files: FileEntry[] }
 

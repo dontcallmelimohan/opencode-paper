@@ -1,7 +1,7 @@
 // [论文助手定制] 论文导出 Word / PDF 的共享逻辑：
-// - Word：把 Markdown 文稿文本交给后端 /thesis/export-docx（后端用 docx 库转换），写入项目「正文」目录；
+// - Word：把 Markdown 文稿文本交给后端 /thesis/export-docx（后端用 docx 库转换），写入项目根目录（文件空间）；
 // - PDF：前端用 marked 把 Markdown 渲染成带学术样式的 HTML，交给后端 /thesis/export-pdf
-//   （后端用 Chrome headless 打印成 PDF），同样写入「正文」目录。
+//   （后端用 Chrome headless 打印成 PDF），同样写入项目根目录（文件空间）。
 // 文件名格式：项目名-步骤标签.docx/.pdf（非法文件名字符会被去掉）。
 import { createSignal } from "solid-js"
 import { marked } from "marked"
