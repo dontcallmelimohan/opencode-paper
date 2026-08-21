@@ -12,7 +12,8 @@ export type StepKey = "outline" | "writing" | "formatting" | "review"
 
 // [论文助手定制] 方案 B：每个模块对「输入材料」的引用方式——auto=自动引用其他模块产物
 // （有则用，没有则提示），manual=手动粘贴，none=不用（按通用模板生成）。
-export type InputSource = "auto" | "manual" | "none"
+// [论文助手定制] file=从文件空间选择已上传的文件作为输入材料（排版模块用）。
+export type InputSource = "auto" | "manual" | "none" | "file"
 
 // [论文助手定制] 剥离模型回复末尾的 AI 总结性文字（如「初稿已完成…需要我继续：①…②…③…」），
 // 只保留论文正文。规则：从文本末尾向前扫描段落（最多最后 8 段），
@@ -126,9 +127,12 @@ export type FormattingInput = {
   skills: string[]
   // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
   useTools: boolean
-  // [论文助手定制] 方案 B：排版源稿来源——auto=用辅助写作的全文稿，manual=手动粘贴，none=无源稿。
+  // [论文助手定制] 方案 B：排版源稿来源——auto=用辅助写作的全文稿，manual=手动粘贴，
+  // file=从文件空间选择已上传的文件，none=无源稿。
   paperSource: InputSource
   manualPaper: string
+  // [论文助手定制] 文件来源模式（paperSource=file）下选中的文件空间相对路径（如 资料/初稿.md）。
+  sourceFile: string
   // [论文助手定制] 排版输出格式：md（Markdown 排版稿）/ docx（自动导出 Word）/ pdf（自动导出 PDF）。
   outputFormat: "md" | "docx" | "pdf"
   // [论文助手定制] 是否使用上传的排版模板：none=无模板（手动配置排版参数），upload=使用用户上传的 .docx 模板。
@@ -189,6 +193,10 @@ export type StepState<I> = {
 export type ThesisWorkflowState = {
   version: 2
   activeStep: StepKey
+  // [论文助手定制] 会话记录联动：右侧产物面板当前显示模式（document=文稿 / session=会话）。
+  productView: "document" | "session"
+  // [论文助手定制] 会话记录联动：当前在右侧会话界面显示的会话 ID（null=跟随当前板块专属会话）。
+  displaySessionID: string | null
   steps: {
     outline: StepState<OutlineInput>
     writing: StepState<WritingInput>
@@ -235,6 +243,7 @@ const DEFAULT_INPUTS: {
     useTools: false,
     paperSource: "auto",
     manualPaper: "",
+    sourceFile: "",
     outputFormat: "md",
     templateMode: "none",
     templateName: "",
@@ -266,6 +275,8 @@ const DEFAULT_INPUTS: {
 export const createDefaultWorkflowState = (): ThesisWorkflowState => ({
   version: 2,
   activeStep: "outline",
+  productView: "document",
+  displaySessionID: null,
   steps: {
     outline: { status: "idle", input: { ...DEFAULT_INPUTS.outline } },
     writing: { status: "idle", input: { ...DEFAULT_INPUTS.writing } },
@@ -295,6 +306,8 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
       }
     }
     if ((parsed?.version !== 1 && parsed?.version !== 2) || !parsed.steps) return fallback
+    // [论文助手定制] 局部引用便于下方闭包使用（TS 不会把 steps 的非空收窄带进 keepSession）。
+    const steps = parsed.steps
     const activeStep = (["outline", "writing", "formatting", "review"] as StepKey[]).includes(parsed.activeStep as StepKey)
       ? (parsed.activeStep as StepKey)
       : "outline"
@@ -304,15 +317,22 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
     // [论文助手定制] v1→v2 迁移（方案 B）：旧版四步共用一个全局 sessionID，
     // 升级后把这个旧会话归给「辅助写作」步（全文稿主产区，保留原有对话可继续），
     // 其余步骤不再继承，各自从新的专属会话开始，做到互不污染。
+    // v2 状态则原样保留各步骤已持久化的 sessionID（否则离开工作台再回来会话 ID 会丢，
+    // 会话视图显示「还没有会话」且继续对话会新建会话而非复用）。
     const legacySession = parsed.version === 1 ? parsed.sessionID : undefined
+    const keepSession = (step: "outline" | "writing" | "formatting" | "review") =>
+      parsed.version === 2 ? steps[step]?.sessionID : undefined
     return {
       version: 2,
       activeStep,
+      // [论文助手定制] 读取历史状态时重置显示状态（不持久化面板视图/选中会话）。
+      productView: "document",
+      displaySessionID: null,
       steps: {
-        outline: { ...fallback.steps.outline, ...parsed.steps.outline, input: { ...fallback.steps.outline.input, ...parsed.steps.outline?.input }, result: clean(parsed.steps.outline?.result), sessionID: undefined },
-        writing: { ...fallback.steps.writing, ...parsed.steps.writing, input: { ...fallback.steps.writing.input, ...parsed.steps.writing?.input }, result: clean(parsed.steps.writing?.result), sessionID: legacySession },
-        formatting: { ...fallback.steps.formatting, ...parsed.steps.formatting, input: { ...fallback.steps.formatting.input, ...parsed.steps.formatting?.input }, result: clean(parsed.steps.formatting?.result), sessionID: undefined },
-        review: { ...fallback.steps.review, ...parsed.steps.review, input: { ...fallback.steps.review.input, ...parsed.steps.review?.input }, result: clean(parsed.steps.review?.result), sessionID: undefined },
+        outline: { ...fallback.steps.outline, ...parsed.steps.outline, input: { ...fallback.steps.outline.input, ...parsed.steps.outline?.input }, result: clean(parsed.steps.outline?.result), sessionID: keepSession("outline") },
+        writing: { ...fallback.steps.writing, ...parsed.steps.writing, input: { ...fallback.steps.writing.input, ...parsed.steps.writing?.input }, result: clean(parsed.steps.writing?.result), sessionID: legacySession ?? keepSession("writing") },
+        formatting: { ...fallback.steps.formatting, ...parsed.steps.formatting, input: { ...fallback.steps.formatting.input, ...parsed.steps.formatting?.input }, result: clean(parsed.steps.formatting?.result), sessionID: keepSession("formatting") },
+        review: { ...fallback.steps.review, ...parsed.steps.review, input: { ...fallback.steps.review.input, ...parsed.steps.review?.input }, result: clean(parsed.steps.review?.result), sessionID: keepSession("review") },
       },
     }
   } catch {
@@ -336,7 +356,10 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       }
     }
 
-    const setActiveStep = (step: StepKey) => commit({ ...state(), activeStep: step })
+    // [论文助手定制] 切换板块：清掉会话记录点选的会话并回到文稿视图，
+    // 避免上一个板块的「查看会话」串到新板块（openSessionInPanel 会随后重新设置显示会话）。
+    const setActiveStep = (step: StepKey) =>
+      commit({ ...state(), activeStep: step, displaySessionID: null, productView: "document" })
 
     const updateInput = <K extends StepKey>(step: K, patch: Partial<ThesisWorkflowState["steps"][K]["input"]>) => {
       const current = state()
@@ -378,6 +401,21 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       commit({ ...current, steps })
     }
 
-    return { directory, state, setActiveStep, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID }
+    // [论文助手定制] 会话记录联动：切换右侧产物面板显示模式 / 指定当前显示的会话。
+    const setProductView = (view: "document" | "session") => commit({ ...state(), productView: view })
+    const setDisplaySession = (sessionID: string | null) => commit({ ...state(), displaySessionID: sessionID })
+
+    return {
+      directory,
+      state,
+      setActiveStep,
+      updateInput,
+      setStepStatus,
+      setStepProgress,
+      setStepResult,
+      setStepSessionID,
+      setProductView,
+      setDisplaySession,
+    }
   },
 })

@@ -7,6 +7,7 @@
 //   - 每条助手消息可「存为当前文稿」：把该回复采纳为当前步骤的产物，支持反复修改迭代。
 import { Icon } from "@opencode-ai/ui/icon"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { useNavigate } from "@solidjs/router"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -25,11 +26,21 @@ import { useSync } from "@/context/sync"
 import { createPromptInputController } from "@/pages/session/composer"
 import { createPromptModelSelection } from "@/pages/session/composer/prompt-model-selection"
 import { useSessionKey } from "@/pages/session/session-layout"
+import { legacySessionHref } from "@/utils/session-route"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
 import { showToast } from "@/utils/toast"
 import { normalizeSessionMessages } from "@/utils/session-message"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
-import { useThesisWorkflow } from "./thesis-workflow-store"
+import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
+
+// [论文助手定制] 板块标识（会话记录/会话视图共用）：用于把会话 ID 映射回所属板块。
+const STEP_KEYS: StepKey[] = ["outline", "writing", "formatting", "review"]
+const STEP_LABELS: Record<StepKey, string> = {
+  outline: "提纲助手",
+  writing: "辅助写作",
+  formatting: "论文排版",
+  review: "论文评审",
+}
 
 // [论文助手定制] 按扩展名推断文件 MIME：图片/PDF/常见文本给准确类型，其余兜底 octet-stream，
 // 供原生文件引用的 file part 使用（发送后消息卡片能正确渲染、服务端能正确识别文件类型）。
@@ -47,6 +58,12 @@ const fileMime = (name: string): string => {
     md: "text/markdown",
     txt: "text/plain",
     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    // [论文助手定制] 修复 .dotx 模板被兜底成 application/octet-stream 导致
+    // 「file part media type … not supported」报错：补上 Word 模板等文档类型。
+    dotx: "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+    dot: "application/msword",
+    tex: "application/x-tex",
+    latex: "application/x-latex",
     json: "application/json",
     csv: "text/csv",
     yml: "application/x-yaml",
@@ -181,8 +198,9 @@ function FilePickerDialog(props: { directory: string; onPick: (path: string, nam
   )
 }
 
-export function ThesisSessionView() {
+export function ThesisSessionView(props: { fixedSessionID?: string }) {
   const sdk = useSDK()
+  const navigate = useNavigate()
   const dialog = useDialog()
   const sync = useSync()
   const local = useLocal()
@@ -190,9 +208,16 @@ export function ThesisSessionView() {
   const { state, setStepSessionID, setStepResult } = useThesisWorkflow()
   // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到项目根目录 <step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
-  // [论文助手定制] 方案 B：会话视图跟随当前模块——每个模块有自己的专属会话，
-  // 切到哪个模块就显示/继续哪个模块的会话，互不共享上下文。
-  const sessionID = () => state().steps[state().activeStep].sessionID
+  // [论文助手定制] 会话记录联动：显示的会话优先级 = 全屏页指定（fixedSessionID）>
+  // 会话记录点选的会话（displaySessionID）> 当前板块专属会话。
+  const sessionID = () =>
+    props.fixedSessionID ?? state().displaySessionID ?? state().steps[state().activeStep].sessionID
+  // [论文助手定制] 当前显示的会话属于哪个板块（普通会话/未归属返回 null）。
+  const sessionStep = (): StepKey | null => {
+    const id = sessionID()
+    if (!id) return null
+    return STEP_KEYS.find((step) => state().steps[step].sessionID === id) ?? null
+  }
   const route = useSessionKey()
 
   // [论文助手定制] 复用主会话页的自动滚动 Hook：内容渲染完成后（ResizeObserver 在布局后触发）
@@ -222,7 +247,11 @@ export function ThesisSessionView() {
       return controls()
     },
     embedded: true,
-    onSessionCreated: (id) => setStepSessionID(state().activeStep, id),
+    // [论文助手定制] 会话归属：新会话写回「当前显示的会话所属板块」（普通会话时写回当前板块）。
+    onSessionCreated: (id) => {
+      if (props.fixedSessionID) return
+      setStepSessionID(sessionStep() ?? state().activeStep, id)
+    },
     onSubmit: () => autoScroll.resume(),
   })
 
@@ -299,21 +328,46 @@ export function ThesisSessionView() {
 
   // [论文助手定制] 采纳回复：把该条助手消息的文本存为当前步骤的文稿（反复修改的落点）。
   const saveAsResult = async (messageId: string) => {
+    // [论文助手定制] 只有板块专属会话可以「存为当前文稿」（普通会话没有对应的步骤产物）。
+    const step = sessionStep()
+    if (!step) {
+      showToast({ variant: "error", icon: "circle-x", title: "该会话不属于任何板块，无法存为文稿" })
+      return
+    }
     const text = assistantText(messageId)
     if (!text) {
       showToast({ variant: "error", icon: "circle-x", title: "这条回复还没有文本内容" })
       return
     }
     // [论文助手定制] 先落盘再更新 result：文稿视图重读文件时能读到新内容。
-    await manuscript.save(state().activeStep, text)
-    setStepResult(state().activeStep, text)
+    await manuscript.save(step, text)
+    setStepResult(step, text)
     showToast({ variant: "success", icon: "circle-check", title: "已存为当前步骤文稿" })
   }
 
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="flex shrink-0 items-center justify-between gap-2 border-b border-v2-border-border-base px-3 py-2">
-        <span class="text-12-regular text-v2-text-text-faint">当前模块的专属会话 · 可继续对话修改</span>
+        {/* [论文助手定制] 头部显示会话归属：板块专属会话显示板块名，会话记录点选的普通会话显示「独立会话」。 */}
+        <span class="min-w-0 truncate text-12-regular text-v2-text-text-faint">
+          {props.fixedSessionID
+            ? "全屏会话 · 可继续对话修改"
+            : sessionStep()
+              ? `${STEP_LABELS[sessionStep()!]} · 专属会话，可继续对话修改`
+              : "会话记录 · 独立会话，可继续对话"}
+        </span>
+        {/* [论文助手定制] 全屏按钮：打开该会话的完整会话页（与点击会话记录原本进入的全局会话页一致）。 */}
+        <Show when={!props.fixedSessionID && sessionID()}>
+          <button
+            type="button"
+            data-action="thesis-session-fullscreen"
+            class="flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
+            onClick={() => navigate(legacySessionHref(sdk().directory, sessionID()!))}
+          >
+            <Icon name="chevron-double-right" size="small" />
+            全屏
+          </button>
+        </Show>
       </div>
       <div ref={autoScroll.scrollRef} onScroll={autoScroll.handleScroll} class="min-h-0 flex-1 overflow-y-auto">
         <Show
@@ -335,8 +389,8 @@ export function ThesisSessionView() {
                 const done = !!assistant && (!!assistant.finish || !!assistant.time.completed)
                 return (
                   <div class="px-4 py-2 md:px-5">
-                    {/* [论文助手定制] 助手消息完成且无错误时，提供「存为当前文稿」：把该回复采纳为当前步骤产物 */}
-                    <Show when={assistant && !assistant.error}>
+                    {/* [论文助手定制] 助手消息完成且无错误、且是板块专属会话时，提供「存为当前文稿」 */}
+                    <Show when={assistant && !assistant.error && sessionStep()}>
                       <div class="flex items-center justify-end pb-1">
                         <button
                           type="button"

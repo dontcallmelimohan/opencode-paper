@@ -1,15 +1,17 @@
 // [论文助手定制] 论文工作台各步骤共用的布局组件：
 // 左侧“输入表单” + 右侧“产物面板”，产物用 Markdown 渲染。
 import { Button } from "@opencode-ai/ui/button"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { PromptInputV2SkillsMenu } from "@opencode-ai/session-ui/v2/prompt-input"
-import { createEffect, createResource, createSignal, Show, type JSX } from "solid-js"
+import { createEffect, createResource, createSignal, For, Show, type JSX } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { MANUSCRIPT_FILENAMES, type ManuscriptStep } from "./thesis-manuscript-file"
+import { downloadBlob } from "./thesis-manuscript-preview"
 import { usePersistentWidth } from "./thesis-panel-layout"
 import type { InputSource, StepKey, StepStatus } from "./thesis-workflow-store"
 import { useThesisWorkflow } from "./thesis-workflow-store"
@@ -80,7 +82,7 @@ export function StepFormPanel(props: {
 // 不自己画勾选框，这样以后添加新 Skill 会自动出现在同一个列表里，无需改代码。
 // Skill 来源与会话输入框一致：sync().data.agent 里 native === false 且未隐藏的即自定义 Skill。
 // 勾选结果写入该步骤 input.skills；生成时 thesis-generator 把选中 Skill 的 SKILL.md 指令随提示词一起注入。
-export function ThesisSkillPicker(props: { step: StepKey }) {
+export function ThesisSkillPicker(props: { step: StepKey; hideTools?: boolean }) {
   const sync = useSync()
   const { state, updateInput } = useThesisWorkflow()
   const selected = () => state().steps[props.step].input.skills
@@ -120,21 +122,25 @@ export function ThesisSkillPicker(props: { step: StepKey }) {
       </div>
       {/* [论文助手定制] 工具开关：默认关闭（tools: {"*": false}，纯文本流式输出）；
           开启后生成时不传 tools（用 agent 默认工具集），适合需要执行脚本/读文件的 Skill，
-          代价是模型可能先做多轮工具调用、文稿不会立刻流式出现。 */}
-      <div class="flex items-center justify-between gap-2 rounded-md border border-v2-border-border-base px-2 py-1.5">
-        <div class="min-w-0 flex flex-col gap-0.5">
-          <div class="text-12-medium text-v2-text-text-base">生成时允许使用工具</div>
-          <div class="truncate text-11-regular text-v2-text-text-faint">
-            {useTools() ? "已开启：模型可调用工具（适合需脚本的 Skill），输出会变慢" : "关闭：纯文本流式输出，适合常规写作"}
+          代价是模型可能先做多轮工具调用、文稿不会立刻流式出现。
+          hideTools=true（论文排版）时隐藏：排版模块固定走真实文件链路、始终放行工具，
+          开关已无意义，避免误导用户。 */}
+      <Show when={!props.hideTools}>
+        <div class="flex items-center justify-between gap-2 rounded-md border border-v2-border-border-base px-2 py-1.5">
+          <div class="min-w-0 flex flex-col gap-0.5">
+            <div class="text-12-medium text-v2-text-text-base">生成时允许使用工具</div>
+            <div class="truncate text-11-regular text-v2-text-text-faint">
+              {useTools() ? "已开启：模型可调用工具（适合需脚本的 Skill），输出会变慢" : "关闭：纯文本流式输出，适合常规写作"}
+            </div>
           </div>
+          <CheckboxV2
+            label="生成时允许使用工具"
+            hideLabel
+            checked={useTools()}
+            onChange={(value) => updateInput(props.step, { useTools: value })}
+          />
         </div>
-        <CheckboxV2
-          label="生成时允许使用工具"
-          hideLabel
-          checked={useTools()}
-          onChange={(value) => updateInput(props.step, { useTools: value })}
-        />
-      </div>
+      </Show>
     </section>
   )
 }
@@ -155,11 +161,34 @@ export function StepProductPanel(props: {
   // 生成中仍用流式 progress 实时显示；文件缺失时回退显示 result（与文件内容一致）。
   manuscript?: { directory: string; step: ManuscriptStep }
 }) {
-  // [论文助手定制] 产物区域顶部加「文稿 / 会话」切换：会话视图在同一个位置显示该论文专属会话的聊天记录，
+  // [论文助手定制] 产物区域顶部加「文稿 / 会话」切换：会话视图在同一个位置显示会话聊天记录，
   // 生成过程中可以来回切换看“文稿进度”和“对话过程”。
-  const { state } = useThesisWorkflow()
+  // 视图状态放到 workflow store（productView），侧边栏「会话记录」点击后能直接切到右侧会话界面。
+  const { state, setProductView, setDisplaySession } = useThesisWorkflow()
   const sdk = useSDK()
-  const [view, setView] = createSignal<"document" | "session">("document")
+  const view = () => state().productView
+
+  // [论文助手定制] 文稿文件切换：默认查看本板块文稿文件（提纲.md 等），
+  // 也可以切到文件空间里其它 .md/.txt 文本文件查看内容。
+  const [viewPath, setViewPath] = createSignal<string | null>(null)
+  // [论文助手定制] 导出下拉菜单展开状态（统一「导出」按钮：md / word / pdf 三种格式）。
+  const [exportMenuOpen, setExportMenuOpen] = createSignal(false)
+  const currentPath = () =>
+    viewPath() ?? (props.manuscript ? MANUSCRIPT_FILENAMES[props.manuscript.step] : null)
+  const [textFiles] = createResource(
+    () => props.manuscript?.directory ?? null,
+    async (directory) => {
+      if (!directory) return []
+      try {
+        const res = await sdk().client.file.list({ directory, path: "" })
+        return (res.data ?? [])
+          .filter((node) => node.type === "file" && /\.(md|txt)$/i.test(node.name))
+          .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"))
+      } catch {
+        return []
+      }
+    },
+  )
 
   // [论文助手定制] 豆包式「自动切到文稿输出」：一次生成中，模型正文（progress）第一次出现时，
   // 如果当前停在「会话」视图，自动切回「文稿」视图，让正文像豆包一样自动落到文稿画布里。
@@ -170,7 +199,8 @@ export function StepProductPanel(props: {
     if (props.status === "generating") {
       if (hasText && view() === "session" && !autoSwitched) {
         autoSwitched = true
-        setView("document")
+        setProductView("document")
+        setDisplaySession(null)
       }
     } else {
       autoSwitched = false
@@ -181,16 +211,17 @@ export function StepProductPanel(props: {
   // 保证「文稿=文件内容」；文件还没写或读失败时返回 undefined，由渲染处回退 result。
   const [fileContent] = createResource(
     () =>
-      props.manuscript && props.status === "done"
-        ? `${props.manuscript.directory}\u0000${props.manuscript.step}\u0000${state().steps[props.manuscript.step].updatedAt ?? 0}`
+      props.manuscript && props.status === "done" && currentPath()
+        ? `${props.manuscript.directory}\u0000${currentPath()}\u0000${state().steps[props.manuscript.step].updatedAt ?? 0}`
         : undefined,
     async () => {
       const target = props.manuscript
-      if (!target) return undefined
+      const path = currentPath()
+      if (!target || !path) return undefined
       const res = await sdk().client.file.read({
         directory: target.directory,
-        // [论文助手定制] 文件空间合并后文稿在项目根目录（与后端落盘一致），不再有「正文/」子目录。
-        path: MANUSCRIPT_FILENAMES[target.step],
+        // [论文助手定制] 文件空间合并后文稿在项目根目录（与后端落盘一致）；查看其它文件时按选中路径读。
+        path,
       })
       if (res.error || res.data?.type !== "text") return undefined
       return res.data.content
@@ -201,6 +232,14 @@ export function StepProductPanel(props: {
   const manuscriptText = () => {
     if (props.manuscript && props.status === "done") return fileContent() ?? props.result ?? ""
     return [props.result, props.progressText].filter(Boolean).join("\n\n")
+  }
+
+  // [论文助手定制] 导出 Markdown：把当前板块产物文本下载为 .md 文件（与 docx/pdf 导出并存）。
+  const exportMarkdown = () => {
+    const text = props.result ?? ""
+    if (!text.trim()) return
+    const name = props.manuscript ? MANUSCRIPT_FILENAMES[props.manuscript.step] : "文稿.md"
+    downloadBlob(new Blob([text], { type: "text/markdown;charset=utf-8" }), name)
   }
 
   // [论文助手定制] 插图渲染：把文稿里的 asset:// 引用与本地相对路径图片统一解析成本机 data URL
@@ -241,32 +280,56 @@ export function StepProductPanel(props: {
             </span>
           </Show>
         </span>
-        {/* [论文助手定制] 导出 Word / PDF：把当前步骤的文稿保存到项目「正文」目录。 */}
+        {/* [论文助手定制] 统一「导出」下拉：Markdown（下载）/ Word / PDF（走各板块导出回调）。 */}
         <Show when={(props.onExportDocx || props.onExportPdf) && props.result && props.status === "done"}>
-          <div class="flex shrink-0 items-center gap-0.5">
-            <Show when={props.onExportDocx}>
-              <button
-                type="button"
-                data-action="export-docx"
-                class="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
-                onClick={() => props.onExportDocx?.()}
-              >
-                <Icon name="download" size="small" />
-                导出 Word
-              </button>
-            </Show>
-            <Show when={props.onExportPdf}>
-              <button
-                type="button"
-                data-action="export-pdf"
-                class="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
-                onClick={() => props.onExportPdf?.()}
-              >
-                <Icon name="download" size="small" />
-                导出 PDF
-              </button>
-            </Show>
-          </div>
+          <DropdownMenu
+            gutter={4}
+            placement="bottom-end"
+            open={exportMenuOpen()}
+            onOpenChange={(open) => setExportMenuOpen(open)}
+          >
+            <DropdownMenu.Trigger
+              as={Button}
+              type="button"
+              variant="secondary"
+              size="small"
+              icon="download"
+              aria-label="导出"
+            >
+              导出
+              <Icon name="chevron-down" size="small" />
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content style={{ "min-width": "140px" }}>
+                <DropdownMenu.Item onSelect={() => exportMarkdown()}>
+                  <DropdownMenu.ItemLabel>Markdown（.md）</DropdownMenu.ItemLabel>
+                </DropdownMenu.Item>
+                <Show when={props.onExportDocx}>
+                  <DropdownMenu.Item onSelect={() => props.onExportDocx?.()}>
+                    <DropdownMenu.ItemLabel>Word（.docx）</DropdownMenu.ItemLabel>
+                  </DropdownMenu.Item>
+                </Show>
+                <Show when={props.onExportPdf}>
+                  <DropdownMenu.Item onSelect={() => props.onExportPdf?.()}>
+                    <DropdownMenu.ItemLabel>PDF</DropdownMenu.ItemLabel>
+                  </DropdownMenu.Item>
+                </Show>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu>
+        </Show>
+        {/* [论文助手定制] 文稿文件切换：默认当前板块文稿文件（提纲.md 等），
+            可切换到文件空间里其它 .md/.txt 文本文件查看内容。 */}
+        <Show when={props.manuscript && textFiles() && textFiles()!.length > 0}>
+          <select
+            class="h-7 w-40 shrink-0 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none"
+            value={currentPath() ?? ""}
+            onChange={(event) => setViewPath(event.currentTarget.value || null)}
+          >
+            <For each={textFiles()}>
+              {(node) => <option value={node.name}>{node.name}</option>}
+            </For>
+          </select>
         </Show>
         {/* [论文助手定制] 文稿 / 会话切换按钮；没有会话前「会话」不可点。 */}
         <div class="flex shrink-0 items-center gap-0.5 rounded-md bg-v2-background-bg-layer-01 p-0.5">
@@ -277,7 +340,10 @@ export function StepProductPanel(props: {
               "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "document",
               "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "document",
             }}
-            onClick={() => setView("document")}
+            onClick={() => {
+              setProductView("document")
+              setDisplaySession(null)
+            }}
           >
             文稿
           </button>
@@ -288,7 +354,10 @@ export function StepProductPanel(props: {
               "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "session",
               "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "session",
             }}
-            onClick={() => setView("session")}
+            onClick={() => {
+              setProductView("session")
+              setDisplaySession(null)
+            }}
           >
             会话
           </button>
@@ -324,8 +393,9 @@ export function StepProductPanel(props: {
                         class="thesis-markdown-preview"
                         style={{ "font-size": "15px", "line-height": "1.8" }}
                       />
-                      {/* [论文助手定制] 完成态提示：文稿已作为文件保存在项目「正文」目录。 */}
-                      <Show when={props.manuscript && props.status === "done"}>
+                      {/* [论文助手定制] 完成态提示：只在查看本板块默认文稿文件时显示保存位置；
+                          切换到文件空间其它文件查看时隐藏（避免误导）。 */}
+                      <Show when={props.manuscript && props.status === "done" && !viewPath()}>
                         <div class="mt-2 flex items-center gap-1 text-11-regular text-v2-text-text-faint">
                           <Icon name="open-file" size="small" class="shrink-0" />
                           已保存到 {MANUSCRIPT_FILENAMES[props.manuscript!.step]}（文件空间）
@@ -367,6 +437,9 @@ export function InputSourceSelect(props: {
   autoLabel: string
   manualLabel: string
   noneLabel: string
+  // [论文助手定制] 是否显示「从文件空间选择文件」选项（排版模块用）+ 对应文案。
+  showFile?: boolean
+  fileLabel?: string
 }) {
   return (
     <section data-action="thesis-input-source" class="flex flex-col gap-1.5">
@@ -378,6 +451,9 @@ export function InputSourceSelect(props: {
       >
         <option value="auto">{props.autoLabel}</option>
         <option value="manual">{props.manualLabel}</option>
+        <Show when={props.showFile}>
+          <option value="file">{props.fileLabel ?? "从文件空间选择文件"}</option>
+        </Show>
         <option value="none">{props.noneLabel}</option>
       </select>
     </section>

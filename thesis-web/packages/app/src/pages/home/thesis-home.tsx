@@ -671,7 +671,7 @@ export function ThesisHome() {
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <Icon name="pencil-line" size="large" class="text-v2-text-text-strong" />
-          <h1 class="text-20-medium text-v2-text-text-strong">论文助手</h1>
+          <h1 class="text-20-medium text-v2-text-text-strong">agent4paper</h1>
         </div>
         <div class="flex items-center gap-1">
           {/* [论文助手定制] 顶部标题栏已删除，DEV 调试按钮挪到这里：切换底部调试栏（NAV/FPS 统计）显隐。 */}

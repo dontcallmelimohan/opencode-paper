@@ -4,14 +4,18 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { createSignal, For, Show } from "solid-js"
+// [论文助手定制] 真实调用 Skill：file part 的文件名解析工具。
+import { getFilename } from "@opencode-ai/core/util/path"
+import { createResource, createSignal, For, Show } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { InputSourceSelect, promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { InputSourceSelect, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport, useThesisProject } from "./thesis-export"
 import { showToast } from "@/utils/toast"
+// [论文助手定制] 真实调用 Skill：源稿文件名（全文稿.md）与 file part 的文件名解析工具。
+import { MANUSCRIPT_FILENAMES } from "./thesis-manuscript-file"
 
 const PAPER_TYPES = ["综述论文", "课程论文", "毕业论文", "期刊投稿稿"]
 const REFERENCE_STYLES = ["GB/T 7714-2015", "APA 7th", "MLA 9th", "Vancouver", "IEEE"]
@@ -58,12 +62,63 @@ const OUTPUT_FORMATS: { label: string; value: "md" | "docx" | "pdf" }[] = [
 ]
 
 // [论文助手定制] 「有无模板」选项：无模板=手动配置排版参数；
-// 有模板=上传用户自己的 .docx 模板，生成排版稿时正文插入模板（保留模板页眉/页脚/页面设置），
-// 有模板时下方排版参数隐藏且不生效（见 buildPrompt 与 docx 导出分支）。
+// 有模板=上传对应格式的模板文件（md/.docx/.dotx/.tex，类型随「排版文件格式」联动），
+// 有模板时 docx 排版参数隐藏且不生效（见 buildPrompt 与 docx 导出分支）。
 const TEMPLATE_MODES: { label: string; value: "none" | "upload" }[] = [
-  { label: "无模板（手动配置排版参数）", value: "none" },
-  { label: "有模板（上传 .docx 模板）", value: "upload" },
+  { label: "无模板", value: "none" },
+  { label: "有模板", value: "upload" },
 ]
+
+// [论文助手定制] 模板文件类型随排版输出格式联动：
+// - md：Markdown 模板（.md/.markdown），模型按其章节结构排版，输出 md；
+// - docx：Word 模板（.docx/.dotx，dotx 同为 OOXML zip），正文插入模板（保留页眉/页脚/页面设置）；
+// - pdf：LaTeX 模板（.tex/.latex），模型按其结构与命令排版，PDF 由内置引擎生成。
+const TEMPLATE_FORMATS: Record<
+  "md" | "docx" | "pdf",
+  { label: string; accept: string; ext: RegExp; hint: string }
+> = {
+  md: {
+    label: "Markdown（.md）",
+    accept: ".md,.markdown",
+    ext: /\.(md|markdown)$/i,
+    hint: "上传 Markdown 模板，模型按其章节结构排版正文。",
+  },
+  docx: {
+    label: "Word（.docx/.dotx）",
+    accept: ".docx,.dotx,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ext: /\.(docx|dotx)$/i,
+    hint: "正文将插入模板（保留模板页眉/页脚/页面设置），模板模式下无需配置下方排版参数。",
+  },
+  pdf: {
+    label: "LaTeX（.tex）",
+    accept: ".tex,.latex",
+    ext: /\.(tex|latex)$/i,
+    hint: "上传 LaTeX 模板，模型按其结构与命令排版正文（PDF 由内置引擎生成）。",
+  },
+}
+
+// [论文助手定制] 真实调用 Skill：模板文件转 file part 时用的 MIME（随排版格式对应）。
+const TEMPLATE_MIMES: Record<"md" | "docx" | "pdf", string> = {
+  md: "text/markdown",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pdf: "application/x-tex",
+}
+
+// [论文助手定制] 排版配置/手动全文写入项目内隐藏目录（.thesis/，文件空间不显示），
+// 生成时作为 file part（@形式）附件给模型：配置可编辑、可复用，模型工具调用中也能反复读取。
+const FORMATTING_CONFIG_PATH = ".thesis/config/formatting.md"
+const MANUAL_PAPER_PATH = ".thesis/manual-paper.md"
+
+// [论文助手定制] 文件来源模式（paperSource=file）下附件 MIME 按扩展名推断，供模型正确读取。
+const mimeForSource = (path: string): string => {
+  if (/\.(md|markdown)$/i.test(path)) return "text/markdown"
+  if (/\.txt$/i.test(path)) return "text/plain"
+  if (/\.(docx|dotx)$/i.test(path)) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  if (/\.doc$/i.test(path)) return "application/msword"
+  if (/\.tex$/i.test(path)) return "application/x-tex"
+  if (/\.pdf$/i.test(path)) return "application/pdf"
+  return "text/plain"
+}
 
 export function StepFormatting() {
   const sdk = useSDK()
@@ -107,6 +162,28 @@ export function StepFormatting() {
   const input = () => formatting().input
   const sourcePaper = () => state().steps.writing.result ?? ""
 
+  // [论文助手定制] 文件来源模式的文件清单：递归枚举文件空间（最多 3 层、排除隐藏项），
+  // 供「从文件空间选择文件」下拉选择（含子目录，如 资料/初稿.md）。
+  // source 用「是否处于文件模式」触发：每次切到该模式都会重新拉取，刚上传的文件能及时出现。
+  const [sourceFiles] = createResource(
+    () => input().paperSource === "file",
+    async () => {
+      const out: string[] = []
+      const walk = async (dir: string, depth: number) => {
+        if (depth > 3) return
+        const res = await sdk().client.file.list({ directory: sdk().directory, path: dir })
+        if (res.error) return
+        for (const node of res.data ?? []) {
+          if (node.name.startsWith(".")) continue
+          if (node.type === "directory") await walk(dir ? `${dir}/${node.name}` : node.name, depth + 1)
+          else out.push(dir ? `${dir}/${node.name}` : node.name)
+        }
+      }
+      await walk("", 0)
+      return out.sort((a, b) => a.localeCompare(b, "zh-Hans-CN"))
+    },
+  )
+
   // [论文助手定制] 上传模板：把用户选的 .docx 上传到项目「模板/」目录（文件空间可见），
   // 成功后记录模板文件名与相对路径，后端生成 docx 时按此套用模板。
   const [uploadingTemplate, setUploadingTemplate] = createSignal(false)
@@ -122,8 +199,10 @@ export function StepFormatting() {
       return btoa(binary)
     })
   const uploadTemplate = async (file: File) => {
-    if (!/\.docx$/i.test(file.name)) {
-      showToast({ variant: "error", icon: "circle-x", title: "请选择 .docx 格式的模板文件" })
+    // [论文助手定制] 扩展名校验随当前排版格式：md=Markdown，docx=Word（docx/dotx），pdf=LaTeX。
+    const format = TEMPLATE_FORMATS[input().outputFormat]
+    if (!format.ext.test(file.name)) {
+      showToast({ variant: "error", icon: "circle-x", title: `请选择 ${format.label} 格式的模板文件` })
       return
     }
     const proj = await resolveProject()
@@ -163,82 +242,168 @@ export function StepFormatting() {
   // [论文助手定制] 移除模板：回到无模板模式（保留已上传的文件，只是不再套用）。
   const removeTemplate = () => updateInput("formatting", { templateMode: "none", templateName: "", templatePath: "" })
 
-  const buildPrompt = () => {
+  // [论文助手定制] 构造「排版要求」配置文档全文：写入项目 .thesis/config/formatting.md 后作为附件给模型，
+  // 而不是每次都把一大段配置拼进提示词；文件可编辑、可复用，模型工具调用中也能反复读取。
+  const buildConfigMarkdown = () => {
     const values = input()
     const lines: string[] = []
-    lines.push("我正在进行论文的「论文排版」阶段，请把下面的论文全文按排版要求整理成最终稿。")
+    lines.push("# 论文排版配置")
+    lines.push("以下是本次排版的完整配置，请严格按此执行。")
     lines.push("")
     lines.push("## 排版要求")
-    // [论文助手定制] 排版要求新增两项：输出格式（md/docx/pdf）与模板（有无模板）。
-    // 有模板（upload）时说明正文将套用上传的 .docx 模板，模型只需整理正文结构，不列视觉参数。
     const formatLabel = OUTPUT_FORMATS.find((item) => item.value === values.outputFormat)?.label ?? values.outputFormat
     lines.push(`- 排版文件格式：${formatLabel}`)
-    lines.push(
-      values.templateMode === "upload"
-        ? `- 排版模板：${values.templateName || "用户上传的 .docx 模板"}（正文将插入该模板，保留模板页眉/页脚/页面设置，正文段落与标题按学术规范整理）`
-        : "- 排版模板：无模板（按下方手动配置的排版参数与规范排版）",
-    )
-    lines.push(`- 目标期刊 / 学校模板：${values.journal.trim() || "未指定"}`)
-    lines.push(`- 论文类型：${values.paperType}`)
-    lines.push(`- 参考文献格式：${values.referenceStyle}`)
-    lines.push(`- 标题层级：${values.headingStyle}`)
-    lines.push(`- 排版风格：${values.typography}`)
+    if (values.templateMode === "upload" && values.templatePath) {
+      const tpl = TEMPLATE_FORMATS[values.outputFormat]
+      lines.push(`- 排版模板：${values.templateName || values.templatePath}（${tpl.label}），模板文件已作为附件提供`)
+      // [论文助手定制] docx 模板两条交付路径：选了 Skill=Skill 自己套用模板产出文件；
+      // 没选 Skill=系统（后端 applyDocxTemplate）把模型输出的 Markdown 正文插入模板。
+      if (values.outputFormat === "docx") {
+        lines.push(
+          values.skills.length > 0
+            ? "  - 请按所选 Skill 的指令把排版后的正文套用到该 Word 模板（保留模板页眉/页脚/页面设置）并产出 .docx 文件。"
+            : "  - 最终 Word 成品由系统套用该模板（保留页眉/页脚/页面设置），你只需输出排版后的 Markdown 正文（可读取模板了解结构）。",
+        )
+      } else {
+        lines.push("  - 请读取模板文件，按模板的结构与版式排版正文。")
+      }
+    } else {
+      lines.push("- 排版模板：无模板，按下方手动配置的排版参数与规范排版。")
+    }
+    if (values.templateMode !== "upload") {
+      lines.push(`- 目标期刊 / 学校模板：${values.journal.trim() || "未指定"}`)
+      lines.push(`- 论文类型：${values.paperType}`)
+      lines.push(`- 参考文献格式：${values.referenceStyle}`)
+      lines.push(`- 标题层级：${values.headingStyle}`)
+      lines.push(`- 排版风格：${values.typography}`)
+    }
+    // [论文助手定制] 文件来源：记录所选文件空间的源文件路径（模型可对照附件确认）。
+    if (values.paperSource === "file" && values.sourceFile) {
+      lines.push(`- 论文全文来源：文件空间文件 ${values.sourceFile}（已作为附件提供）。`)
+    }
     if (values.requirements.trim()) lines.push(`- 额外排版要求：${values.requirements.trim()}`)
+    return lines.join("\n")
+  }
+
+  // [论文助手定制] 把文本写入项目内隐藏目录（.thesis/...，文件空间不显示）；
+  // 失败（找不到项目/后端报错）时返回 false，调用方退化为把内容直接拼进提示词。
+  const writeProjectFile = async (path: string, content: string): Promise<boolean> => {
+    const proj = await resolveProject()
+    if (!proj) return false
+    const res = await sdk().client.instance.thesisWriteFile({ projectID: proj.id, path, content })
+    if (res.error) return false
+    return true
+  }
+
+  // [论文助手定制] 排版模块固定走「真实文件链路」的提示词：全文/模板/配置全部作为文件附件
+  // （@形式）提交，提示词只留任务、附件清单与关键输出要求；不再内嵌全文，也不再出现
+  // 「严禁调用任何工具」「模型无需关心」这类自相矛盾的话。有 Skill 时提示用 Skill 产出文件，
+  // 没 Skill 时提示直接输出排版后的 Markdown 正文（由系统套模板/导出）。
+  const buildRealModePrompt = (configWritten: boolean) => {
+    const values = input()
+    const lines: string[] = []
+    lines.push("请完成论文「论文排版」任务：把论文全文按排版要求整理成最终稿。")
     lines.push("")
-    lines.push("## 论文全文")
-    // [论文助手定制] 方案 B：按选定的排版来源取值（auto=辅助写作全文稿 / manual=手动粘贴 / none=无源稿）。
-    lines.push(
-      input().paperSource === "manual"
-        ? input().manualPaper.trim() || "（手动粘贴的全文为空）"
-        : input().paperSource === "none"
-          ? "（无源稿，请按通用学术论文结构进行排版）"
-          : sourcePaper() || "（暂无全文稿）",
-    )
+    lines.push("## 输入材料")
+    if (values.templateMode === "upload" && values.templatePath) {
+      lines.push(`- 排版模板：已作为附件提供（${values.templatePath}，${TEMPLATE_FORMATS[values.outputFormat].label}）。`)
+    }
+    if (values.paperSource === "auto") {
+      lines.push(`- 论文全文：已作为附件提供（${MANUSCRIPT_FILENAMES.writing}），请读取后排版。`)
+    } else if (values.paperSource === "manual" && values.manualPaper.trim()) {
+      lines.push(`- 论文全文：已写入附件 ${MANUAL_PAPER_PATH}，请读取后排版。`)
+    } else if (values.paperSource === "file" && values.sourceFile) {
+      lines.push(`- 论文全文：已作为附件提供（${values.sourceFile}），请读取后排版。`)
+    } else if (values.paperSource === "none") {
+      lines.push("- 论文全文：无源稿，请按通用学术论文结构排版（或结合模板自带的示例结构）。")
+    }
+    if (configWritten) {
+      lines.push(`- 排版配置：已写入附件 ${FORMATTING_CONFIG_PATH}，请先读取并按其中「排版要求」执行。`)
+    }
     lines.push("")
-    lines.push("## 输出要求")
-    // [论文助手定制] 按所选输出格式区分输出要求：
-    // md=Markdown 正文；docx/pdf=标题仍用 # 层级标记（后端 docx/PDF 引擎按此识别章节），
-    // 但正文段落为纯文本、不要行内 Markdown 标记与手动缩进（导出引擎会自动处理段首缩进）。
-    const commonRestriction =
-      "禁止输出任何排版说明、页眉页脚设置说明、字体字号说明、注释或标注；正文之前不要有任何标题性文字；" +
-      promptToolRestriction(input().useTools) + "上文已包含全部所需材料，直接输出正文本身。"
-    if (values.outputFormat === "md") {
-      lines.push(
-        "只输出排版后的论文正文本身（Markdown 格式）：统一标题层级与编号、段首缩进、图表编号、参考文献列表按指定格式排列。" +
-          commonRestriction,
-      )
-    } else if (values.outputFormat === "docx") {
-      lines.push(
-        "只输出排版后的论文正文本身：章节标题用 Markdown 的 # 层级标记（# 章 / ## 节 / ### 小节），" +
-          "正文段落为纯文本（不要使用 ** 加粗、* 斜体 等行内 Markdown 标记，段首不要手动空格缩进，导出时会自动处理），" +
-          "表格保留 Markdown 表格语法，参考文献每条单独一段（[1] 序号格式）。" +
-          // [论文助手定制] 有模板时提醒模型：正文会被插入上传的 .docx 模板，页眉/页脚/封面由模板提供。
-          (values.templateMode === "upload"
-            ? "正文将套用用户上传的 .docx 模板（页眉/页脚/封面/页面设置由模板提供，模型无需关心）。"
-            : "") +
-          commonRestriction,
-      )
+    lines.push("## 任务要求")
+    lines.push(`- 输出格式：${OUTPUT_FORMATS.find((item) => item.value === values.outputFormat)?.label ?? values.outputFormat}`)
+    if (!configWritten) {
+      lines.push("", "### 排版要求（配置未能写入文件，直接按以下参数执行）", buildConfigMarkdown())
+    }
+    // [论文助手定制] 关键输出要求保留在提示词里（比放在配置文件更稳，模型不会漏读）：
+    // md 直接 Markdown；docx/pdf 用 # 层级标题 + 纯文本段落（导出引擎自动处理缩进/模板套用）。
+    const bodyRule =
+      values.outputFormat === "md"
+        ? "Markdown 格式：统一标题层级与编号、段首缩进、图表编号、参考文献列表按指定格式排列。"
+        : "章节标题用 Markdown 的 # 层级标记（# 章 / ## 节 / ### 小节），正文段落为纯文本（不要使用 ** 加粗、* 斜体 等行内 Markdown 标记，段首不要手动空格缩进，导出时会自动处理），表格保留 Markdown 表格语法，参考文献每条单独一段（[1] 序号格式）。"
+    lines.push("", "## 输出要求")
+    if (values.skills.length > 0) {
+      // [论文助手定制] Skill 路径：正文由 Skill 产出为文件，回复不要重复输出正文文本。
+      lines.push("请使用我选中的 Skill（已作为 @skill 附件提供）完成排版，按其指令实际产出排版文件（如 .docx/.md/.tex）；")
+      lines.push("正文内容不要作为回复文本重复输出（太长且无用），完成后用一两句话汇报结果与产出文件的路径。")
     } else {
       lines.push(
-        "只输出排版后的论文正文本身：章节标题用 Markdown 的 # 层级标记，" +
-          "正文段落为纯文本（不要行内 Markdown 标记、不要手动缩进，导出时自动处理），" +
-          "表格保留 Markdown 表格语法，参考文献每条单独一段。" +
-          commonRestriction,
+        "只输出排版后的论文正文本身：禁止输出任何排版说明、页眉页脚设置说明、字体字号说明、注释或标注；正文之前不要有任何标题性文字；" +
+          bodyRule,
       )
+      lines.push("请读取附件中的论文全文与排版配置后，直接输出排版后的论文正文本身（必要时可调用工具读取文件，但不是必须）。")
     }
     return lines.join("\n")
+  }
+
+  // [论文助手定制] 组装真实文件链路的附件（file part）：排版模板、论文全文、手动粘贴全文、排版配置。
+  // auto 源稿需文件存在才带；manual 源稿先写入 .thesis/manual-paper.md 再带（避免 file part 指向空内容）。
+  const buildAttachments = async (configWritten: boolean) => {
+    const attachments: { path: string; mime: string; filename: string }[] = []
+    if (input().templateMode === "upload" && input().templatePath) {
+      attachments.push({
+        path: input().templatePath,
+        mime: TEMPLATE_MIMES[input().outputFormat],
+        filename: input().templateName || getFilename(input().templatePath),
+      })
+    }
+    if (input().paperSource === "auto") {
+      const res = await sdk().client.file.read({ directory: sdk().directory, path: MANUSCRIPT_FILENAMES.writing })
+      if (!res.error && res.data?.type === "text") {
+        attachments.push({
+          path: MANUSCRIPT_FILENAMES.writing,
+          mime: "text/markdown",
+          filename: MANUSCRIPT_FILENAMES.writing,
+        })
+      }
+    } else if (input().paperSource === "manual" && input().manualPaper.trim()) {
+      const written = await writeProjectFile(MANUAL_PAPER_PATH, input().manualPaper.trim())
+      if (written) {
+        attachments.push({ path: MANUAL_PAPER_PATH, mime: "text/markdown", filename: MANUAL_PAPER_PATH })
+      }
+    } else if (input().paperSource === "file" && input().sourceFile) {
+      attachments.push({
+        path: input().sourceFile,
+        mime: mimeForSource(input().sourceFile),
+        filename: getFilename(input().sourceFile),
+      })
+    }
+    if (configWritten) {
+      attachments.push({ path: FORMATTING_CONFIG_PATH, mime: "text/markdown", filename: FORMATTING_CONFIG_PATH })
+    }
+    return attachments
   }
 
   const generate = async () => {
     if (generator.generating()) return
     setStepStatus("formatting", "generating")
     try {
+      // [论文助手定制] 排版模块固定走「真实文件链路」：全文/模板/配置全部转 file part（@形式）、
+      // 工具始终放行、Skill 转 agent part 真正加载执行；不再退回「全文+配置拼进提示词、禁工具」的旧模式。
+      const configText = buildConfigMarkdown()
+      const configWritten = await writeProjectFile(FORMATTING_CONFIG_PATH, configText)
+      const prompt = buildRealModePrompt(configWritten)
+      const attachments = await buildAttachments(configWritten)
       const { sessionID, text } = await generator.generate({
-        prompt: buildPrompt(),
+        prompt,
         // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
         skills: input().skills,
-        // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
-        useTools: input().useTools,
+        // [论文助手定制] 把选中 Skill 转成 agents（agent part，等价 @skill），生成器会真正加载执行。
+        agents: input().skills.length > 0 ? input().skills : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
+        // [论文助手定制] 强制真实文件链路：即使没选 Skill 也放行工具、附件转 file part。
+        real: true,
         sessionID: state().steps.formatting.sessionID,
         // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
         // [论文助手定制] 方案 B：会话写进「论文排版」自己的 StepState（每步独立会话）。
@@ -246,7 +411,20 @@ export function StepFormatting() {
         onProgress: (partial) => setStepProgress("formatting", partial),
       })
       setStepSessionID("formatting", sessionID)
-      // [论文助手定制] 落盘：排版稿写入根目录的排版稿.md（文稿视图随后从文件读取）。
+      if (input().skills.length > 0) {
+        // [论文助手定制] Skill 路径：Skill 自己把排版文件写进项目（docx/pdf 由 Skill 脚本直接产出），
+        // 会话回复只是汇报文字——不覆盖排版稿.md、不二次导出；产物在「文件空间」查看。
+        setStepResult("formatting", text)
+        showToast({
+          variant: "success",
+          icon: "circle-check",
+          title: "排版完成：Skill 已实际执行",
+          description: "产物文件已由 Skill 写入项目，请到「文件空间」查看",
+        })
+        return
+      }
+      // [论文助手定制] 无 Skill 路径：模型输出 Markdown 正文 → 落盘排版稿.md → 按格式导出
+      // （docx 有模板时后端 applyDocxTemplate 把正文插进模板，保留页眉/页脚/页面设置）。
       await manuscript.save("formatting", text)
       setStepResult("formatting", text)
       // [论文助手定制] 按所选排版文件格式自动交付：
@@ -284,76 +462,89 @@ export function StepFormatting() {
             <select
               class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
               value={input().outputFormat}
-              onChange={(event) => updateInput("formatting", { outputFormat: event.currentTarget.value as "md" | "docx" | "pdf" })}
+              onChange={(event) => {
+                const next = event.currentTarget.value as "md" | "docx" | "pdf"
+                // [论文助手定制] 切换排版格式时，若已上传模板的类型与新格式不匹配（如 docx 模板切到 pdf），
+                // 清空模板避免误用；匹配则只更新格式。
+                const mismatch = input().templatePath && !TEMPLATE_FORMATS[next].ext.test(input().templatePath)
+                updateInput(
+                  "formatting",
+                  mismatch
+                    ? { outputFormat: next, templateMode: "none", templateName: "", templatePath: "" }
+                    : { outputFormat: next },
+                )
+              }}
             >
               <For each={OUTPUT_FORMATS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
             </select>
           </section>
-          {/* [论文助手定制] 第二步：选择有无模板（仅 docx 支持套用模板，md/pdf 不显示）。
-              无模板=下方显示排版参数手动配置；有模板=上传自己的 .docx 模板，下方排版参数隐藏。 */}
-          <Show when={input().outputFormat === "docx"}>
-            <section class="flex flex-col gap-1.5">
-              <div class="text-12-medium text-v2-text-text-base">排版模板</div>
-              <select
-                class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                value={input().templateMode}
-                onChange={(event) => updateInput("formatting", { templateMode: event.currentTarget.value as "none" | "upload" })}
-              >
-                <For each={TEMPLATE_MODES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-              </select>
+          {/* [论文助手定制] 第二步：选择有无模板（md/docx/pdf 都支持，模板文件类型随排版格式联动：
+              md=Markdown、docx=Word（docx/dotx）、pdf=LaTeX）。无模板=显示排版参数手动配置；
+              有模板=上传对应格式模板文件，docx 时下方排版参数隐藏（模板自带版式）。 */}
+          <section class="flex flex-col gap-1.5">
+            <div class="text-12-medium text-v2-text-text-base">排版模板</div>
+            <select
+              class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+              value={input().templateMode}
+              onChange={(event) => updateInput("formatting", { templateMode: event.currentTarget.value as "none" | "upload" })}
+            >
+              <For each={TEMPLATE_MODES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+            </select>
+          </section>
+          {/* [论文助手定制] 有模板：按当前排版格式上传对应模板文件（存到项目「模板/」目录），显示当前模板与移除按钮。 */}
+          <Show when={input().templateMode === "upload"}>
+            <section class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2.5">
+              <div class="text-12-medium text-v2-text-text-base">上传模板</div>
+              <div class="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  icon="cloud-upload"
+                  disabled={uploadingTemplate()}
+                  onClick={() => templateFileInput?.click()}
+                >
+                  {uploadingTemplate() ? "上传中…" : `选择 ${TEMPLATE_FORMATS[input().outputFormat].label}`}
+                </Button>
+                <input
+                  ref={templateFileInput}
+                  type="file"
+                  accept={TEMPLATE_FORMATS[input().outputFormat].accept}
+                  class="hidden"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0]
+                    event.currentTarget.value = ""
+                    if (file) void uploadTemplate(file)
+                  }}
+                />
+                <Show when={input().templatePath}>
+                  <div class="flex min-w-0 flex-1 items-center gap-1.5 text-13-regular text-v2-text-text-base">
+                    <Icon name="file-tree" class="size-4 shrink-0" />
+                    <span class="truncate">{input().templateName}</span>
+                    <button
+                      type="button"
+                      class="shrink-0 text-11-regular text-v2-text-text-faint hover:text-v2-text-text-base"
+                      onClick={() => removeTemplate()}
+                    >
+                      移除
+                    </button>
+                  </div>
+                </Show>
+              </div>
+              <div class="text-11-regular text-v2-text-text-faint">
+                {TEMPLATE_FORMATS[input().outputFormat].hint}
+              </div>
             </section>
-            {/* [论文助手定制] 有模板：上传 .docx 模板文件（存到项目「模板/」目录），并显示当前模板与移除按钮。 */}
-            <Show when={input().templateMode === "upload"}>
-              <section class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2.5">
-                <div class="text-12-medium text-v2-text-text-base">上传模板</div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    icon="cloud-upload"
-                    disabled={uploadingTemplate()}
-                    onClick={() => templateFileInput?.click()}
-                  >
-                    {uploadingTemplate() ? "上传中…" : "选择 .docx 模板"}
-                  </Button>
-                  <input
-                    ref={templateFileInput}
-                    type="file"
-                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    class="hidden"
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0]
-                      event.currentTarget.value = ""
-                      if (file) void uploadTemplate(file)
-                    }}
-                  />
-                  <Show when={input().templatePath}>
-                    <div class="flex min-w-0 flex-1 items-center gap-1.5 text-13-regular text-v2-text-text-base">
-                      <Icon name="file-tree" class="size-4 shrink-0" />
-                      <span class="truncate">{input().templateName}</span>
-                      <button
-                        type="button"
-                        class="shrink-0 text-11-regular text-v2-text-text-faint hover:text-v2-text-text-base"
-                        onClick={() => removeTemplate()}
-                      >
-                        移除
-                      </button>
-                    </div>
-                  </Show>
-                </div>
-                <div class="text-11-regular text-v2-text-text-faint">
-                  正文将插入模板（保留模板页眉/页脚/页面设置），模板模式下无需配置下方排版参数。
-                </div>
-              </section>
-            </Show>
           </Show>
-          {/* [论文助手定制] 方案 B：排版源稿来源（auto/manual/none），不再强制依赖辅助写作先完成。 */}
+          {/* [论文助手定制] 方案 B：排版源稿来源（auto/manual/file/none），
+              不再强制依赖辅助写作先完成；file=从文件空间选择已上传的文件。 */}
           <InputSourceSelect
             label="排版来源"
             value={input().paperSource}
             onChange={(value) => updateInput("formatting", { paperSource: value })}
             autoLabel="自动使用辅助写作的全文稿"
             manualLabel="手动粘贴全文"
+            showFile
+            fileLabel="从文件空间选择文件"
             noneLabel="无源稿（按通用结构排版）"
           />
           <Show when={input().paperSource === "manual"}>
@@ -364,6 +555,25 @@ export function StepFormatting() {
               onChange={(value) => updateInput("formatting", { manualPaper: value })}
             />
           </Show>
+          {/* [论文助手定制] 文件来源：列出文件空间的文本/文档文件供选择（含子目录），
+              选中后生成时作为附件（@形式）给模型读取排版。 */}
+          <Show when={input().paperSource === "file"}>
+            <section class="flex flex-col gap-1.5">
+              <div class="text-12-medium text-v2-text-text-base">选择源文件</div>
+              <select
+                class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+                value={input().sourceFile}
+                onChange={(event) => updateInput("formatting", { sourceFile: event.currentTarget.value })}
+              >
+                <option value="">请选择文件…</option>
+                <For each={sourceFiles() ?? []}>{(file) => <option value={file}>{file}</option>}</For>
+              </select>
+              <div class="text-11-regular text-v2-text-text-faint">支持 md/txt/docx/pdf/tex 等，选中的文件会作为附件交给模型排版。</div>
+            </section>
+          </Show>
+          {/* [论文助手定制] 有模板时由模板决定版式与规范，隐藏内容级配置（目标期刊/论文类型/参考文献格式/标题层级/排版风格/额外要求），
+              无模板时才需要手动配置这些规范。 */}
+          <Show when={input().templateMode === "none"}>
           <section class="flex flex-col gap-1.5">
             <div class="text-12-medium text-v2-text-text-base">目标期刊 / 学校模板</div>
             <TextField
@@ -423,6 +633,7 @@ export function StepFormatting() {
               onChange={(value) => updateInput("formatting", { requirements: value })}
             />
           </section>
+          </Show>
           {/* [论文助手定制] 仅 docx + 无模板才显示排版参数（字体/字号/行距/页边距/页眉/封面等）：
               docx + 有模板时由上传的 .docx 模板自带版式，md/pdf 时这些参数不生效，均整块隐藏。 */}
           <Show when={input().outputFormat === "docx" && input().templateMode === "none"}>
@@ -597,11 +808,18 @@ export function StepFormatting() {
             </div>
           </section>
           </Show>
-          {/* [论文助手定制] Skill 多选：勾选的 Skill 在生成时注入提示词（见 thesis-generator）。 */}
-          <ThesisSkillPicker step="formatting" />
+          {/* [论文助手定制] Skill 多选：勾选的 Skill 生成时作为 agent part 真正加载执行
+              （见 thesis-generator）；hideTools——排版模块固定真实文件链路、始终放行工具，
+              不再显示「生成时允许使用工具」开关。 */}
+          <ThesisSkillPicker step="formatting" hideTools />
           <Show when={input().paperSource === "auto" && !sourcePaper()}>
             <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">
               自动模式暂无全文稿，可切换为「手动粘贴全文」或「无源稿」。
+            </div>
+          </Show>
+          <Show when={input().paperSource === "file" && !input().sourceFile}>
+            <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">
+              请先在上方选择文件空间中的一个文件作为排版源稿。
             </div>
           </Show>
         </StepFormPanel>

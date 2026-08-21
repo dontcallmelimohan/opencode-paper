@@ -8,13 +8,10 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useQuery, useQueryClient } from "@tanstack/solid-query"
 import { DateTime } from "luxon"
-import { For, Show, startTransition } from "solid-js"
+import { For, Show } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { useGlobal } from "@/context/global"
 import { useSDK } from "@/context/sdk"
-import { ServerConnection, useServer } from "@/context/server"
-import { useTabs } from "@/context/tabs"
 import { showToast } from "@/utils/toast"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
 
@@ -34,11 +31,9 @@ export function ThesisStepSidebar(props: {
   onCollapse: () => void
   onUpload: () => void
 }) {
-  const { state, setActiveStep } = useThesisWorkflow()
+  // [论文助手定制] 会话记录联动：点击会话记录条目后在右侧产物面板显示该会话。
+  const { state, setActiveStep, setDisplaySession, setProductView } = useThesisWorkflow()
   const sdk = useSDK()
-  const global = useGlobal()
-  const tabs = useTabs()
-  const server = useServer()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const active = () => state().activeStep
@@ -54,17 +49,13 @@ export function ThesisStepSidebar(props: {
     },
   }))
 
-  // [论文助手定制] 打开某个会话（走与主页「生成记录」对话框一致的打开逻辑：切到完整会话页）。
-  function openSession(session: { id: string; location: { directory: string } }) {
-    const conn = server.current
-    if (!conn) return
-    const ctx = global.ensureServerCtx(conn)
-    ctx.projects.open(session.location.directory)
-    ctx.projects.touch(session.location.directory)
-    void startTransition(() => {
-      const tab = tabs.addSessionTab({ server: ServerConnection.key(conn), sessionId: session.id })
-      tabs.select(tab)
-    })
+  // [论文助手定制] 打开会话：不再跳转到全局会话页，而是在工作台右侧产物面板显示该会话。
+  // 板块专属会话会顺带切到对应板块（配置/产物上下文跟随），普通会话只显示会话界面。
+  function openSessionInPanel(session: { id: string }) {
+    const step = STEPS.find((item) => state().steps[item.key].sessionID === session.id)
+    if (step) setActiveStep(step.key)
+    setDisplaySession(session.id)
+    setProductView("session")
   }
 
   // [论文助手定制] 新建会话：在当前论文目录下创建，刷新列表后打开它。
@@ -75,7 +66,7 @@ export function ThesisStepSidebar(props: {
       await queryClient.invalidateQueries({ queryKey: ["thesis", "sessions", sdk().directory] })
       const res = await sdk().client.v2.session.list({ directory: sdk().directory, limit: 20 })
       const found = (res.data?.data ?? []).find((item) => item.id === created.id)
-      if (found) openSession(found)
+      if (found) openSessionInPanel(found)
     } catch (err) {
       showToast({
         variant: "error",
@@ -205,24 +196,36 @@ export function ThesisStepSidebar(props: {
           }
         >
           <For each={sessions.data}>
-            {(session) => (
-              <button
-                type="button"
-                class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
-                classList={{ "bg-v2-background-bg-layer-01": state().steps[active()].sessionID === session.id }}
-                onClick={() => openSession(session)}
-              >
-                <Icon name="speech-bubble" size="small" class="shrink-0 text-v2-text-text-faint" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-12-regular text-v2-text-text-base">
-                    {session.title || "未命名对话"}
+            {(session) => {
+              // [论文助手定制] 板块归属：会话 ID 与某板块的专属会话一致时，显示板块图标/名称/状态。
+              const step = STEPS.find((item) => state().steps[item.key].sessionID === session.id)
+              return (
+                <button
+                  type="button"
+                  class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
+                  classList={{
+                    "bg-v2-background-bg-layer-01":
+                      state().displaySessionID === session.id || state().steps[active()].sessionID === session.id,
+                  }}
+                  onClick={() => openSessionInPanel(session)}
+                >
+                  <Icon
+                    name={step?.icon ?? "speech-bubble"}
+                    size="small"
+                    class="shrink-0 text-v2-text-text-faint"
+                  />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-12-regular text-v2-text-text-base">
+                      {step ? `${step.label} · ${session.title || "未命名对话"}` : session.title || "未命名对话"}
+                    </span>
+                    <span class="block text-10-regular text-v2-text-text-faint">
+                      {step ? `${statusLabel(step.key)} · ` : ""}
+                      {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
+                    </span>
                   </span>
-                  <span class="block text-10-regular text-v2-text-text-faint">
-                    {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
-                  </span>
-                </span>
-              </button>
-            )}
+                </button>
+              )
+            }}
           </For>
         </Show>
       </div>
