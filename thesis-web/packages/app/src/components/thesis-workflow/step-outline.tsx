@@ -1,6 +1,6 @@
-// [论文助手定制] Step 1 提纲助手（论文工作台）：
-// 填写综述需求、方向侧重、勾选知识库材料 → 一键“生成提纲” → 产物（分章节综述大纲）以 Markdown 展示。
-// 产物存在 workflow state 的 outline.result，下一步“辅助写作”会引用它。
+// [论文助手定制] 「提纲助手」模块（论文工作台，方案 B 去线性化）：
+// 独立模块：填写综述需求、方向侧重、勾选知识库材料 → 一键“生成提纲” → 产物（分章节综述大纲）以 Markdown 展示。
+// 产物存在 workflow state 的 outline.result；辅助写作模块可选择是否引用它。
 import { Button } from "@opencode-ai/ui/button"
 import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -34,7 +34,7 @@ type DirectionKey = (typeof DIRECTIONS)[number]["key"]
 
 export function StepOutline() {
   const sdk = useSDK()
-  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setSessionID, setActiveStep } =
+  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID } =
     useThesisWorkflow()
   const generator = useThesisGenerator()
   // [论文助手定制] 文稿文件化：生成完成后把正文写入项目「正文/提纲.md」。
@@ -154,17 +154,17 @@ export function StepOutline() {
         skills: input().skills,
         // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
         useTools: input().useTools,
-        sessionID: state().sessionID,
+        sessionID: state().steps.outline.sessionID,
         // [论文助手定制] 边生成边显示：把当前已生成的文本实时写入 store.progress。
-        // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。
-        onSessionCreated: setSessionID,
+        // [论文助手定制] 方案 B：会话写进「提纲助手」自己的 StepState（每步独立会话）。
+        onSessionCreated: (id) => setStepSessionID("outline", id),
         onProgress: (partial) => setStepProgress("outline", partial),
       })
-      setSessionID(sessionID)
+      setStepSessionID("outline", sessionID)
       // [论文助手定制] 落盘：提纲正文写入 正文/提纲.md（文稿视图随后从文件读取）。
       await manuscript.save("outline", text)
       setStepResult("outline", text)
-      showToast({ variant: "success", icon: "circle-check", title: "提纲已生成，可进入辅助写作" })
+      showToast({ variant: "success", icon: "circle-check", title: "提纲已生成" })
     } catch {
       setStepStatus("outline", outline().result ? "done" : "idle")
     }
@@ -174,21 +174,12 @@ export function StepOutline() {
     <StepLayout
       form={
         <StepFormPanel
-          stepLabel="Step 1"
           title="提纲助手"
-          subtitle="把想法、草稿和论文材料整理成可写作的综述大纲。"
+          subtitle="独立模块：把想法、草稿和论文材料整理成综述大纲。"
           footer={
-            // [论文助手定制] 「进入辅助写作」与 Step 2/3 的下一步按钮放同一位置：表单面板底部、生成按钮下方。
-            <div class="flex flex-col gap-2">
-              <Button type="button" variant="primary" icon="bullet-list" disabled={generator.generating()} onClick={() => void generate()}>
-                {generator.generating() ? "生成中…" : "生成提纲"}
-              </Button>
-              <Show when={outline().status === "done"}>
-                <Button type="button" variant="secondary" icon="arrow-right" onClick={() => setActiveStep("writing")}>
-                  进入辅助写作
-                </Button>
-              </Show>
-            </div>
+            <Button type="button" variant="primary" icon="bullet-list" disabled={generator.generating()} onClick={() => void generate()}>
+              {generator.generating() ? "生成中…" : "生成提纲"}
+            </Button>
           }
         >
           <section class="flex flex-col gap-1.5">
@@ -288,7 +279,7 @@ export function StepOutline() {
           result={outline().result}
           onExportDocx={() => void exportDocx(outline().result ?? "")}
           onExportPdf={() => void exportPdf(outline().result ?? "")}
-          emptyHint="填写左侧需求后点击「生成提纲」，大纲会显示在这里，并用于下一步辅助写作。"
+          emptyHint="填写左侧需求后点击「生成提纲」，大纲会显示在这里；辅助写作可选择引用或不引用它。"
           manuscript={{ directory: sdk().directory, step: "outline" }}
         />
       }

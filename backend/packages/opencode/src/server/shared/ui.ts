@@ -11,7 +11,7 @@ export const UI_UPSTREAM = new URL("http://localhost:3000")
 
 
 export const csp = (hash = "") =>
-  // [论文助手定制] 加 frame-src blob: data:，否则正文面板里 PDF 预览的 iframe（blob: URL）会被 CSP 拦截显示空白。
+  // [论文助手定制] 加 frame-src blob: data:，否则文件空间面板里 PDF 预览的 iframe（blob: URL）会被 CSP 拦截显示空白。
   `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'${hash ? ` 'sha256-${hash}'` : ""}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; media-src 'self' data:; frame-src 'self' blob: data:; connect-src * data: blob:`
 export const DEFAULT_CSP = csp()
 

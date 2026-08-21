@@ -11,6 +11,7 @@ import {
   removeFigure,
   replaceFigureAlt,
   resolveAssetUrls,
+  resolveLocalImages,
 } from "./thesis-assets"
 
 describe("parseFigures", () => {
@@ -29,12 +30,12 @@ describe("parseFigures", () => {
 
 describe("refToPath", () => {
   test("maps figures and materials prefixes to workspace dirs", () => {
-    expect(refToPath("figures/a.png")).toBe("正文/figures/a.png")
-    expect(refToPath("materials/装置图.png")).toBe("资料/装置图.png")
+    expect(refToPath("figures/a.png")).toBe("figures/a.png")
+    expect(refToPath("materials/装置图.png")).toBe("/装置图.png")
   })
 
-  test("falls back to 正文/figures for unknown prefix", () => {
-    expect(refToPath("other/x.png")).toBe("正文/figures/x.png")
+  test("falls back to figures for unknown prefix", () => {
+    expect(refToPath("other/x.png")).toBe("figures/x.png")
   })
 })
 
@@ -95,5 +96,37 @@ describe("resolveAssetUrls", () => {
     expect(resolveAssetUrls(md, "/proj")).toBe(
       "![图1](data:image/png;base64,QUJD) ![图2](asset://materials/b.png)",
     )
+  })
+})
+
+describe("resolveLocalImages", () => {
+  test("resolves relative image paths to data URLs and caches them", async () => {
+    const md = "![4](4.jpg)"
+    const out1 = await resolveLocalImages(md, "/proj", "", async (path) => (path === "4.jpg" ? "QUJD" : undefined))
+    expect(out1).toBe("![4](data:image/jpeg;base64,QUJD)")
+    // [论文助手定制] 第二次命中缓存：read 不会被再次调用（修复预览不稳定/重复读文件）。
+    let calls = 0
+    const out2 = await resolveLocalImages(md, "/proj", "", async () => {
+      calls += 1
+      return "QUJD"
+    })
+    expect(out2).toBe("![4](data:image/jpeg;base64,QUJD)")
+    expect(calls).toBe(0)
+  })
+
+  test("resolves relative to baseDir and caches by disk path", async () => {
+    const md = "![a](../images/a.png)"
+    const read = async (path: string) => (path === "正文/../images/a.png" ? "QUJD" : undefined)
+    const out = await resolveLocalImages(md, "/proj", "正文", read)
+    expect(out).toBe("![a](data:image/png;base64,QUJD)")
+  })
+
+  test("leaves missing images untouched (not cached, can retry later)", async () => {
+    const md = "![4](missing.jpg)"
+    const out = await resolveLocalImages(md, "/proj", "", async () => undefined)
+    expect(out).toBe("![4](missing.jpg)")
+    // 失败不缓存：换个能读到的 read 再次解析应成功
+    const retried = await resolveLocalImages(md, "/proj", "", async () => "QUJD")
+    expect(retried).toBe("![4](data:image/jpeg;base64,QUJD)")
   })
 })

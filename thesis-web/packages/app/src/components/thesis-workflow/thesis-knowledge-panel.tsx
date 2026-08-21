@@ -36,7 +36,7 @@ export function ThesisKnowledgePanel(props: {
     async (directory) => {
       if (!directory) return []
       try {
-        const res = await sdk().client.file.list({ directory, path: "资料" })
+        const res = await sdk().client.file.list({ directory, path: "" })
         if (res.error) return []
         return (res.data ?? []).filter((node): node is FileNode => node.type === "file")
       } catch {

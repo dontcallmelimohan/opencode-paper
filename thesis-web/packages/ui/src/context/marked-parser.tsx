@@ -18,7 +18,10 @@ export function createMarkdownParser(highlight: (code: string, language: string)
 }
 
 const inlineMathRegex = /^\\\(((?:\\.|[^\\\n])*?)\\\)/
-const blockMathRegex = /^\$\$\n([\s\S]+?)\n\$\$(?:\n|$)/
+// [论文助手定制] 块级公式放宽：既支持多行 $$\n...\n$$，也支持单行 $$...$$（论文常用写法）。
+const blockMathRegex = /^\$\$([\s\S]+?)\$\$(?:\n|$)/
+// [论文助手定制] 行内公式 $...$（论文/豆包导出常见写法；$$ 开头的块级公式交给 blockKatex 处理）。
+const inlineDollarMathRegex = /^\$((?:\\.|[^\\$])+?)\$/
 
 const katexExtension: MarkedExtension = {
   extensions: [
@@ -53,6 +56,29 @@ const katexExtension: MarkedExtension = {
           raw: match[0],
           text: match[1].trim(),
           displayMode: true,
+        }
+      },
+      renderer: renderKatexToken,
+    },
+    // [论文助手定制] 行内 $...$ 公式：如 $E=mc^2$。
+    {
+      name: "inlineKatexDollar",
+      level: "inline",
+      start(src) {
+        const index = src.indexOf("$")
+        if (index === -1) return
+        return index
+      },
+      tokenizer(src) {
+        // 块级 $$...$$ 交给 blockKatex，避免行内把 $$ 当空公式吃掉。
+        if (src.startsWith("$$")) return
+        const match = src.match(inlineDollarMathRegex)
+        if (!match) return
+        return {
+          type: "inlineKatexDollar",
+          raw: match[0],
+          text: match[1].trim(),
+          displayMode: false,
         }
       },
       renderer: renderKatexToken,

@@ -83,7 +83,7 @@ bun run dev
 
 ### 前后端关系
 
-- **前端 3000**（`thesis-web/packages/app`，Vite dev server）：负责页面渲染与交互，开发时访问 **http://localhost:3000**（带 HMR 热更新）。
+- **前端 3000**（`thesis-web/packages/app`，Vite dev server）：负责页面渲染与交互，开发时访问  **http://localhost:3000** （带 HMR 热更新）。
 - **后端 4096**（`backend/packages/opencode`）：提供全部 API，同时把「非 API 的页面请求」**反向代理**到前端 3000（见 `backend/packages/opencode/src/server/shared/ui.ts` 的 `UI_UPSTREAM`）。本项目没有内置打包好的前端（`opencode-web-ui.gen.ts` 不存在），所以后端**不会**自带界面。
 - 因此**开发时必须两个进程都跑**：只跑后端、前端没启动时，访问 `http://localhost:4096` 会返回 **500**（代理找不到 3000），前端页面是打不开的。
 - 想少开一个终端、不要 HMR：先 `cd thesis-web/packages/app && bun run build`，再用静态服务占住 3000（二选一）：

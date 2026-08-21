@@ -116,14 +116,20 @@ import type {
   InstanceThesisExportDocxResponses,
   InstanceThesisExportPdfErrors,
   InstanceThesisExportPdfResponses,
+  InstanceThesisDeleteEntryErrors,
+  InstanceThesisDeleteEntryResponses,
   InstanceThesisListErrors,
   InstanceThesisListResponses,
+  InstanceThesisMkdirErrors,
+  InstanceThesisMkdirResponses,
   InstanceThesisPdfTextErrors,
   InstanceThesisPdfTextResponses,
   InstanceThesisSaveManuscriptErrors,
   InstanceThesisSaveManuscriptResponses,
   InstanceThesisUploadErrors,
   InstanceThesisUploadResponses,
+  InstanceThesisWriteFileErrors,
+  InstanceThesisWriteFileResponses,
   LocationRef,
   LspStatusErrors,
   LspStatusResponses,
@@ -2379,6 +2385,10 @@ export class Instance extends HeyApiClient {
       projectID?: string
       filename?: string
       content?: string
+      /**
+       * [论文助手定制] 文件空间：上传到指定子目录（相对路径），默认根目录
+       */
+      directory?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2390,6 +2400,7 @@ export class Instance extends HeyApiClient {
             { in: "body", key: "projectID" },
             { in: "body", key: "filename" },
             { in: "body", key: "content" },
+            { in: "body", key: "directory" },
           ],
         },
       ],
@@ -2519,6 +2530,125 @@ export class Instance extends HeyApiClient {
       ThrowOnError
     >({
       url: "/thesis/save-manuscript",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Create a folder in the thesis file space
+   *
+   * [论文助手定制] Creates a folder (relative path, multi-level allowed) inside the thesis workspace file space.
+   */
+  public thesisMkdir<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisMkdirResponses,
+      InstanceThesisMkdirErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/mkdir",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Write a text file in the thesis file space
+   *
+   * [论文助手定制] Writes a text file (relative path, parent folders auto-created) into the thesis workspace file space.
+   */
+  public thesisWriteFile<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      path?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "path" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisWriteFileResponses,
+      InstanceThesisWriteFileErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/write-file",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete a file or folder in the thesis file space
+   *
+   * [论文助手定制] Deletes a file or folder (recursively) by relative path from the thesis workspace file space.
+   */
+  public thesisDeleteEntry<ThrowOnError extends boolean = false>(
+    parameters?: {
+      projectID?: string
+      path?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "projectID" },
+            { in: "body", key: "path" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceThesisDeleteEntryResponses,
+      InstanceThesisDeleteEntryErrors,
+      ThrowOnError
+    >({
+      url: "/thesis/delete-entry",
       ...options,
       ...params,
       headers: {

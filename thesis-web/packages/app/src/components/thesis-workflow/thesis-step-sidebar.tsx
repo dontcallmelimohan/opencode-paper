@@ -4,25 +4,27 @@
 // 侧边栏从上到下：返回主页 → 论文标题 → 四步切换 → 本项目会话记录 → 底部工具（资料）。
 import type { SessionV2Info } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useQuery, useQueryClient } from "@tanstack/solid-query"
 import { DateTime } from "luxon"
 import { For, Show, startTransition } from "solid-js"
+import { useNavigate } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useGlobal } from "@/context/global"
 import { useSDK } from "@/context/sdk"
 import { ServerConnection, useServer } from "@/context/server"
 import { useTabs } from "@/context/tabs"
 import { showToast } from "@/utils/toast"
-import { ThesisManuscriptDialog } from "./thesis-manuscript-preview"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
 
+// [论文助手定制] 方案 B（去线性化）：四个模块并列展示，不再标注「第 N 步」，
+// 暗示四步独立、可任意顺序使用。
 const STEPS = [
-  { key: "outline", label: "提纲助手", step: "第 1 步", icon: "bullet-list" },
-  { key: "writing", label: "辅助写作", step: "第 2 步", icon: "pencil-line" },
-  { key: "formatting", label: "论文排版", step: "第 3 步", icon: "layout-left" },
-  { key: "review", label: "论文评审", step: "第 4 步", icon: "magnifying-glass" },
+  { key: "outline", label: "提纲助手", icon: "bullet-list" },
+  { key: "writing", label: "辅助写作", icon: "pencil-line" },
+  { key: "formatting", label: "论文排版", icon: "layout-left" },
+  { key: "review", label: "论文评审", icon: "magnifying-glass" },
 ] as const
 
 export function ThesisStepSidebar(props: {
@@ -38,7 +40,7 @@ export function ThesisStepSidebar(props: {
   const tabs = useTabs()
   const server = useServer()
   const queryClient = useQueryClient()
-  const dialog = useDialog()
+  const navigate = useNavigate()
   const active = () => state().activeStep
   const stepStatus = (key: StepKey) => state().steps[key].status
 
@@ -125,7 +127,7 @@ export function ThesisStepSidebar(props: {
           </span>
         </Show>
       </div>
-      {/* 四步切换 */}
+      {/* [论文助手定制] 方案 B：四个独立模块切换（不再标注顺序） */}
       <div class="flex flex-col gap-1">
         <For each={STEPS}>
           {(item) => (
@@ -166,17 +168,14 @@ export function ThesisStepSidebar(props: {
                   </Show>
                 </span>
               </span>
-              <span class="flex w-full items-center justify-between pl-5">
-                <span class="text-11-regular text-v2-text-text-faint">{item.step}</span>
-                <span
-                  class="text-11-regular"
-                  classList={{
-                    "text-v2-text-text-accent": stepStatus(item.key) === "done",
-                    "text-v2-text-text-faint": stepStatus(item.key) !== "done",
-                  }}
-                >
-                  {statusLabel(item.key)}
-                </span>
+              <span
+                class="pl-5 text-11-regular"
+                classList={{
+                  "text-v2-text-text-accent": stepStatus(item.key) === "done",
+                  "text-v2-text-text-faint": stepStatus(item.key) !== "done",
+                }}
+              >
+                {statusLabel(item.key)}
               </span>
             </button>
           )}
@@ -210,7 +209,7 @@ export function ThesisStepSidebar(props: {
               <button
                 type="button"
                 class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
-                classList={{ "bg-v2-background-bg-layer-01": state().sessionID === session.id }}
+                classList={{ "bg-v2-background-bg-layer-01": state().steps[active()].sessionID === session.id }}
                 onClick={() => openSession(session)}
               >
                 <Icon name="speech-bubble" size="small" class="shrink-0 text-v2-text-text-faint" />
@@ -227,27 +226,17 @@ export function ThesisStepSidebar(props: {
           </For>
         </Show>
       </div>
-      {/* [论文助手定制] 底部工具：资料上传 + 正文预览（点击弹悬浮面板，预览「正文」目录里的 Word/PDF/Markdown 文稿） */}
+      {/* [论文助手定制] 底部工具：文件空间——改为跳转到独立整页（/:dir/files），空间更大，便于预览图片与长文本。 */}
       <div class="mt-auto flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
         <Button
           type="button"
           variant="ghost"
           size="small"
-          icon="cloud-upload"
+          icon="folder"
           class="w-full justify-start"
-          onClick={props.onUpload}
+          onClick={() => navigate(`/${base64Encode(sdk().directory)}/files`)}
         >
-          资料
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="small"
-          icon="open-file"
-          class="w-full justify-start"
-          onClick={() => dialog.show(() => <ThesisManuscriptDialog directory={sdk().directory} />)}
-        >
-          正文
+          文件空间
         </Button>
       </div>
     </div>

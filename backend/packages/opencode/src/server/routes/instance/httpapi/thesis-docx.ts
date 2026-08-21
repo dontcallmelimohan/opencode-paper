@@ -27,6 +27,9 @@ import {
   convertInchesToTwip,
 } from "docx"
 import type { IParagraphOptions, IRunOptions } from "docx"
+// [论文助手定制] 上传模板模式：用 jszip 解压用户上传的 .docx 模板，
+// 把 AI 排版正文插入模板的 word/document.xml（保留模板页眉/页脚/页面设置/样式）。
+import JSZip from "jszip"
 
 // [论文助手定制] 排版参数：由前端 Step 3 面板传入，控制 docx 的视觉规范。
 export type ThesisDocxOptions = {
@@ -43,6 +46,9 @@ export type ThesisDocxOptions = {
   firstLineIndent?: number
   paragraphSpacing?: number
   pageNumber?: boolean
+  // [论文助手定制] 上传模板：相对项目根目录的 .docx 模板文件路径（如 模板/毕业论文模板.docx）。
+  // 提供后走「套用模板」分支：正文插入模板文档，视觉参数（字体/字号/行距等）不再生效。
+  templatePath?: string
 }
 
 const DEFAULTS: Required<Pick<ThesisDocxOptions, "fontFamily" | "fontSize" | "lineSpacing" | "pageMargin" | "titleNumbering" | "headingFont" | "firstLineIndent" | "paragraphSpacing" | "pageNumber">> = {
@@ -429,4 +435,183 @@ export async function markdownToDocx(markdown: string, options: ThesisDocxOption
   })
 
   return Packer.toBuffer(doc)
+}
+
+// [论文助手定制] —— 上传模板模式 ——
+// 用户上传自己的 .docx 模板（如学校发的模板，含页眉/页脚/页面设置/封面），
+// 排版时把 AI 生成的排版稿（Markdown）转成 WordprocessingML 段落，
+// 插入模板的 word/document.xml 正文区（保留模板的 <w:sectPr> 页面设置），
+// 从而实现「套用模板」而不是从零排版。模板模式下视觉参数（字体/字号/行距等）不生效。
+
+const escapeXmlText = (text: string) =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+
+// [论文助手定制] 行内标记 → 一串 <w:r>：**加粗**、*斜体*、`行内代码`。
+const inlineDocXml = (text: string): string => {
+  const parts: string[] = []
+  let index = 0
+  for (const match of text.matchAll(INLINE_RE)) {
+    if (match.index !== undefined && match.index > index) {
+      parts.push(`<w:t xml:space="preserve">${escapeXmlText(text.slice(index, match.index))}</w:t>`)
+    }
+    index = (match.index ?? 0) + match[0].length
+    const raw = match[0]
+    if (raw.startsWith("**")) {
+      parts.push(`<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${escapeXmlText(raw.slice(2, -2))}</w:t></w:r>`)
+    } else if (raw.startsWith("`")) {
+      parts.push(`<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/></w:rPr><w:t xml:space="preserve">${escapeXmlText(raw.slice(1, -1))}</w:t></w:r>`)
+    } else if (raw.startsWith("*")) {
+      parts.push(`<w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve">${escapeXmlText(raw.slice(1, -1))}</w:t></w:r>`)
+    }
+  }
+  if (index < text.length) parts.push(`<w:t xml:space="preserve">${escapeXmlText(text.slice(index))}</w:t>`)
+  return parts.join("")
+}
+
+// [论文助手定制] Markdown 正文 → WordprocessingML 段落 XML。
+// 标题段落尽量用模板的 Heading1/2/3 命名样式，并带内联粗体+字号兜底（模板缺样式也能显示）。
+// 正文段落：1.5 倍行距 + 首行缩进 2 字符；参考文献条目悬挂缩进；表格转简单全边框表格。
+const markdownToDocXml = (markdown: string): string => {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n")
+  const parts: string[] = []
+  let index = 0
+  const HEADING_SIZES = [32, 28, 24, 22, 20, 18] // 三号→小四（半磅）
+
+  while (index < lines.length) {
+    const line = lines[index]
+
+    // 代码块 → 等宽字体灰底段落
+    if (/^\s*```/.test(line)) {
+      const code: string[] = []
+      index += 1
+      while (index < lines.length && !/^\s*```/.test(lines[index])) {
+        code.push(lines[index])
+        index += 1
+      }
+      index += 1
+      const text = code.join("\n")
+      parts.push(
+        `<w:p><w:pPr><w:spacing w:line="300" w:lineRule="auto" w:before="120" w:after="120"/>` +
+          `<w:shd w:val="clear" w:color="auto" w:fill="F7F7F7"/></w:pPr>` +
+          `<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/></w:rPr>` +
+          `<w:t xml:space="preserve">${escapeXmlText(text)}</w:t></w:r></w:p>`,
+      )
+      continue
+    }
+
+    // 表格：连续表格行（第二行为分隔行）→ 简单全边框表格
+    if (line.includes("|") && index + 1 < lines.length && isTableSeparator(lines[index + 1])) {
+      const rows: string[][] = [splitRow(line)]
+      index += 2
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim() !== "" && !isTableSeparator(lines[index])) {
+        rows.push(splitRow(lines[index]))
+        index += 1
+      }
+      const width = Math.max(...rows.map((row) => row.length))
+      const normalized = rows.map((row) => [...row, ...Array<string>(width - row.length).fill("")])
+      const borders = ["top", "left", "bottom", "right", "insideH", "insideV"]
+        .map((side) => `<w:${side} w:val="single" w:sz="4" w:space="0" w:color="999999"/>`)
+        .join("")
+      parts.push(
+        `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/>` +
+          `<w:tblBorders>${borders}</w:tblBorders></w:tblPr>` +
+          normalized
+            .map(
+              (row) =>
+                `<w:tr>` +
+                row
+                  .map(
+                    (cell) =>
+                      `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>` +
+                      `<w:p><w:r><w:t xml:space="preserve">${escapeXmlText(cell.trim())}</w:t></w:r></w:p></w:tc>`,
+                  )
+                  .join("") +
+                `</w:tr>`,
+            )
+            .join("") +
+          `</w:tbl><w:p/>`,
+      )
+      continue
+    }
+
+    // 标题：# ~ ###### → 模板 Heading 样式 + 内联粗体字号
+    const heading = line.match(/^(#{1,6})\s+(.*)$/)
+    if (heading) {
+      const level = Math.min(heading[1].length, 6)
+      const text = plainText(heading[2]).trim()
+      parts.push(
+        `<w:p><w:pPr><w:pStyle w:val="Heading${level}"/><w:outlineLvl w:val="${level - 1}"/>` +
+          `<w:spacing w:before="240" w:after="120"/></w:pPr>` +
+          `<w:r><w:rPr><w:b/><w:sz w:val="${HEADING_SIZES[level - 1] ?? 20}"/></w:rPr>` +
+          `<w:t xml:space="preserve">${escapeXmlText(text)}</w:t></w:r></w:p>`,
+      )
+      index += 1
+      continue
+    }
+
+    // 图片行：模板模式下不内嵌图片，转为居中图注段落（避免 asset:// 路径原文出现在正文里）。
+    const image = line.match(/^\s*!\[([^\]]*)]\([^)]+\)\s*$/)
+    if (image) {
+      parts.push(
+        `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:line="360" w:lineRule="auto"/></w:pPr>` +
+          `<w:r><w:rPr><w:i/></w:rPr><w:t xml:space="preserve">（插图：${escapeXmlText(image[1] || "未命名")}）</w:t></w:r></w:p>`,
+      )
+      index += 1
+      continue
+    }
+
+    // 无序列表：带「• 」前缀的普通段落
+    const bullet = line.match(/^\s*([-*+])\s+(.*)$/)
+    if (bullet && !/^\s*[-*+]\s*$/.test(line)) {
+      parts.push(
+        `<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/><w:ind w:left="480" w:hanging="240"/></w:pPr>` +
+          `<w:r><w:t xml:space="preserve">• </w:t></w:r>${inlineDocXml(bullet[2])}</w:p>`,
+      )
+      index += 1
+      continue
+    }
+
+    // 有序列表：带「1. 」前缀的普通段落
+    const ordered = line.match(/^\s*(\d+)[.)]\s+(.*)$/)
+    if (ordered) {
+      parts.push(
+        `<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/><w:ind w:left="480" w:hanging="240"/></w:pPr>` +
+          `<w:r><w:t xml:space="preserve">${ordered[1]}. </w:t></w:r>${inlineDocXml(ordered[2])}</w:p>`,
+      )
+      index += 1
+      continue
+    }
+
+    // 普通段落（空行跳过）
+    const text = plainText(line).trim()
+    if (text) {
+      const isRef = isReferenceItem(text)
+      parts.push(
+        `<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto" w:after="120"/>` +
+          (isRef
+            ? `<w:ind w:left="720" w:hanging="480"/>`
+            : `<w:ind w:firstLine="480"/>`) +
+          `</w:pPr>${inlineDocXml(line.trim())}</w:p>`,
+      )
+    }
+    index += 1
+  }
+  return parts.join("")
+}
+
+// [论文助手定制] 套用模板：解压模板 docx，用排版正文替换 body 内容（保留模板末尾的 <w:sectPr> 页面设置），
+// 重新打包返回 Buffer。模板的页眉/页脚/样式/封面等其它部件原样保留。
+export async function applyDocxTemplate(template: Buffer, markdown: string): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(template)
+  const documentXml = await zip.file("word/document.xml")?.async("string")
+  if (!documentXml) throw new Error("模板文件不是有效的 Word 文档（缺少 word/document.xml）")
+  const sectPrs = documentXml.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/g)
+  const sectPr = sectPrs?.[sectPrs.length - 1] ?? ""
+  const bodyStart = documentXml.indexOf("<w:body>")
+  const bodyEnd = documentXml.lastIndexOf("</w:body>")
+  if (bodyStart === -1 || bodyEnd === -1) throw new Error("模板文件结构异常（缺少 body）")
+  const prefix = documentXml.slice(0, bodyStart + "<w:body>".length)
+  const suffix = documentXml.slice(bodyEnd)
+  zip.file("word/document.xml", prefix + markdownToDocXml(markdown) + sectPr + suffix)
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
 }

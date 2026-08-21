@@ -20,11 +20,14 @@ import {
   ApiThesisError,
   ApiVcsApplyError,
   ThesisDeleteBody,
+  ThesisDeleteEntryBody,
   ThesisDeleteMaterialBody,
   ThesisExportDocxBody,
+  ThesisMkdirBody,
   ThesisSaveManuscriptBody,
+  ThesisWriteFileBody,
 } from "../groups/instance"
-import { markdownToDocx } from "../thesis-docx"
+import { applyDocxTemplate, markdownToDocx } from "../thesis-docx"
 import { htmlToPdf } from "../thesis-pdf"
 import type { ThesisDocxOptions } from "../thesis-docx"
 import { markInstanceForDisposal } from "../lifecycle"
@@ -377,6 +380,16 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const thesisError = (message: string) =>
       new ApiThesisError({ name: "ThesisError", data: { message } })
 
+    // [论文助手定制] 文件空间路径安全校验：只允许项目工作区内的相对路径，
+    // 拒绝绝对路径、.. 越界、空路径；返回解析后的绝对路径，非法时返回 null。
+    const resolveThesisPath = (worktree: string, rel: string) => {
+      const name = (rel ?? "").trim().replace(/^[/\\]+/, "")
+      if (!name || name === ".") return null
+      const target = path.resolve(worktree, name)
+      if (!FSUtil.contains(worktree, target)) return null
+      return target
+    }
+
     // [论文助手定制] 论文工作区根目录：优先用设置里的 thesisWorkspace，否则默认 ~/thesis-workspace。
     const thesisRoot = Effect.fn("InstanceHttpApi.thesisRoot")(function* () {
       const cfg = yield* config.get()
@@ -387,7 +400,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     })
 
     // [论文助手定制] 扫描目录下所有文件（含子目录，跳过 .git），返回最新 mtime（毫秒）；目录不存在/无文件返回 0。
-    // 用来表示「论文内容最后编辑时间」——只有真实修改了正文/资料里的文件，这个时间才会变。
+    // 用来表示「论文内容最后编辑时间」——只有真实修改了文件空间里的文件，这个时间才会变。
     const thesisContentUpdatedAt = Effect.fn("InstanceHttpApi.thesisContentUpdatedAt")(function* (directory: string) {
       let latest = 0
       const scan = (current: string): Effect.Effect<void> =>
@@ -411,7 +424,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     })
 
     // [论文助手定制] 论文项目列表：复用 project.list() 过滤出论文工作区下的项目，
-    // 为每项计算 contentUpdatedAt（正文/资料目录文件的最新 mtime）。
+    // 为每项计算 contentUpdatedAt（文件空间目录文件的最新 mtime）。
     const listThesis = Effect.fn("InstanceHttpApi.thesisList")(function* () {
       const root = yield* thesisRoot()
       const projects = yield* project.list()
@@ -420,9 +433,8 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
         theses,
         (item) =>
           Effect.gen(function* () {
-            const manuscripts = yield* thesisContentUpdatedAt(path.join(item.worktree, "正文"))
-            const materials = yield* thesisContentUpdatedAt(path.join(item.worktree, "资料"))
-            return { ...item, contentUpdatedAt: Math.max(manuscripts, materials) }
+            const contentUpdatedAt = yield* thesisContentUpdatedAt(item.worktree)
+            return { ...item, contentUpdatedAt }
           }),
         { concurrency: "unbounded" },
       )
@@ -460,11 +472,8 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
         ? configured.replace(/^~(?=\/|$)/, Global.Path.home)
         : path.join(Global.Path.home, "thesis-workspace")
       const dir = path.join(root, `${slug}-${id}`)
-      yield* fs.ensureDir(path.join(dir, "资料")).pipe(
-        Effect.mapError((error) => thesisError(`创建论文目录失败: ${String(error)}`)),
-      )
-      yield* fs.ensureDir(path.join(dir, "正文")).pipe(
-        Effect.mapError((error) => thesisError(`创建论文目录失败: ${String(error)}`)),
+      yield* fs.ensureDir(dir).pipe(
+        Effect.mapError((error) => thesisError(`创建论文目录失败：${String(error)}`)),
       )
       if (!(yield* Effect.sync(() => which("git")))) {
         return yield* Effect.fail(thesisError("需要安装 git 才能创建论文工作空间"))
@@ -472,7 +481,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       const gitService = yield* Git.Service
       const init = yield* gitService.run(["init", "--quiet"], { cwd: dir })
       if (init.exitCode !== 0) {
-        return yield* Effect.fail(thesisError(`初始化论文工作空间失败: ${init.stderr.toString("utf8").trim()}`))
+        return yield* Effect.fail(thesisError(`初始化论文工作空间失败：${init.stderr.toString("utf8").trim()}`))
       }
 
       const projectID = ProjectV2.ID.make(`thesis-${id}`)
@@ -491,18 +500,69 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     })
 
     const uploadThesisFile = Effect.fn("InstanceHttpApi.thesisUpload")(function* (ctx: {
-      payload: { projectID: string; filename: string; content: string }
+      payload: { projectID: string; filename: string; content: string; directory?: string }
     }) {
       const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
       if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
       const name = path.basename(ctx.payload.filename).trim()
       if (!name) return yield* Effect.fail(thesisError("文件名无效"))
       const bytes = Buffer.from(ctx.payload.content, "base64")
-      const target = path.join(proj.worktree, "资料", name)
+      // [论文助手定制] 支持上传到文件空间当前目录（可选 directory 子路径），默认根目录。
+      const dir = (ctx.payload.directory ?? "").trim().replace(/^[/\\]+/, "")
+      const target = dir
+        ? path.resolve(proj.worktree, dir, name)
+        : path.join(proj.worktree, name)
+      if (!FSUtil.contains(proj.worktree, target)) return yield* Effect.fail(thesisError("路径无效"))
       yield* fs.writeWithDirs(target, bytes).pipe(
-        Effect.mapError((error) => thesisError(`写入资料失败: ${String(error)}`)),
+        Effect.mapError((error) => thesisError(`写入文件失败：${String(error)}`)),
       )
       return [name]
+    })
+
+    // [论文助手定制] 文件空间：新建文件夹（相对路径，可一次创建多级）。
+    const mkdirThesis = Effect.fn("InstanceHttpApi.thesisMkdir")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof ThesisMkdirBody>
+    }) {
+      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const target = resolveThesisPath(proj.worktree, ctx.payload.path)
+      if (!target) return yield* Effect.fail(thesisError("文件夹路径无效"))
+      yield* fs.makeDirectory(target, { recursive: true }).pipe(
+        Effect.mapError((error) => thesisError(`创建文件夹失败：${String(error)}`)),
+      )
+      return { path: path.relative(proj.worktree, target) }
+    })
+
+    // [论文助手定制] 文件空间：写入文本文件（相对路径，父目录自动创建）。
+    const writeThesisFile = Effect.fn("InstanceHttpApi.thesisWriteFile")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof ThesisWriteFileBody>
+    }) {
+      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const target = resolveThesisPath(proj.worktree, ctx.payload.path)
+      if (!target) return yield* Effect.fail(thesisError("文件路径无效"))
+      yield* fs.writeWithDirs(target, Buffer.from(ctx.payload.content ?? "", "utf8")).pipe(
+        Effect.mapError((error) => thesisError(`写入文件失败：${String(error)}`)),
+      )
+      return { path: path.relative(proj.worktree, target) }
+    })
+
+    // [论文助手定制] 文件空间：删除文件或文件夹（相对路径，文件夹递归删除；PDF 顺带删除提取文本）。
+    const deleteThesisEntry = Effect.fn("InstanceHttpApi.thesisDeleteEntry")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof ThesisDeleteEntryBody>
+    }) {
+      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
+      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const target = resolveThesisPath(proj.worktree, ctx.payload.path)
+      if (!target || target === proj.worktree) return yield* Effect.fail(thesisError("删除路径无效"))
+      yield* fs.remove(target, { recursive: true }).pipe(
+        Effect.mapError((error) => thesisError(`删除失败：${String(error)}`)),
+      )
+      if (/\.pdf$/i.test(target)) {
+        const textPath = target.replace(/\.pdf$/i, "") + ".txt"
+        yield* fs.remove(textPath).pipe(Effect.catch(() => Effect.void))
+      }
+      return { path: path.relative(proj.worktree, target) }
     })
 
     const pdfTextThesis = Effect.fn("InstanceHttpApi.thesisPdfText")(function* (ctx: {
@@ -512,10 +572,10 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
       const name = path.basename(ctx.payload.filename).trim()
       if (!/\.pdf$/i.test(name)) return yield* Effect.fail(thesisError("仅支持 PDF 文件"))
-      const source = path.join(proj.worktree, "资料", name)
+      const source = path.join(proj.worktree, name)
       const bytes = yield* fs
         .readFile(source)
-        .pipe(Effect.mapError((error) => thesisError(`读取 PDF 失败: ${String(error)}`)))
+        .pipe(Effect.mapError((error) => thesisError(`读取 PDF 失败：${String(error)}`)))
       const text = yield* Effect.tryPromise({
         try: async () => {
           const { getDocumentProxy, extractText } = await import("unpdf")
@@ -530,19 +590,19 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
             current = (current as { cause?: unknown }).cause
             if (current !== undefined && current !== cause) message = String(current)
           }
-          return thesisError(`解析 PDF 失败: ${message}`)
+          return thesisError(`解析 PDF 失败：${message}`)
         },
       })
       const outputName = name.replace(/\.pdf$/i, "") + ".txt"
-      const target = path.join(proj.worktree, "资料", outputName)
+      const target = path.join(proj.worktree, outputName)
       yield* fs
         .writeWithDirs(target, text)
-        .pipe(Effect.mapError((error) => thesisError(`写入提取文本失败: ${String(error)}`)))
+        .pipe(Effect.mapError((error) => thesisError(`写入提取文本失败：${String(error)}`)))
       return { filename: outputName, chars: text.length }
     })
 
-    // [论文助手定制] 删除资料文件：校验项目存在后删除「资料」目录里的文件；
-    // 若是 PDF，顺带删除其提取文本（同名 .txt），避免资料列表残留孤立文件。
+    // [论文助手定制] 删除文件：校验项目存在后删除项目根目录下的文件；
+    // 若是 PDF，顺带删除其提取文本（同名 .txt），避免文件列表残留孤立文件。
     const deleteThesisMaterial = Effect.fn("InstanceHttpApi.thesisDeleteMaterial")(function* (ctx: {
       payload: Schema.Schema.Type<typeof ThesisDeleteMaterialBody>
     }) {
@@ -550,13 +610,13 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
       const name = path.basename(ctx.payload.filename).trim()
       if (!name) return yield* Effect.fail(thesisError("文件名无效"))
-      const target = path.join(proj.worktree, "资料", name)
+      const target = path.join(proj.worktree, name)
       yield* fs.remove(target).pipe(
-        Effect.mapError((error) => thesisError(`删除资料失败: ${String(error)}`)),
+        Effect.mapError((error) => thesisError(`删除文件失败：${String(error)}`)),
       )
       if (/\.pdf$/i.test(name)) {
         const textName = name.replace(/\.pdf$/i, "") + ".txt"
-        const textPath = path.join(proj.worktree, "资料", textName)
+        const textPath = path.join(proj.worktree, textName)
         yield* fs.remove(textPath).pipe(Effect.catch(() => Effect.void))
       }
       return { filename: name }
@@ -573,20 +633,42 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       if (!name) return yield* Effect.fail(thesisError("文件名无效"))
       const content = ctx.payload.content
       if (!content.trim()) return yield* Effect.fail(thesisError("文稿内容为空，无法导出"))
-      const buffer = yield* Effect.tryPromise({
-        // [论文助手定制] schema 的 pageMargin 是宽类型 LiteralValue，这里显式收窄为排版参数类型
-        // （运行时已由 ThesisDocxOptionsSchema 校验为 standard/narrow/thesis 三者之一）。
-        try: () => markdownToDocx(content, (ctx.payload.options ?? {}) as ThesisDocxOptions),
-        catch: (cause: unknown) => thesisError(`生成 Word 文档失败: ${String(cause)}`),
+      const options = (ctx.payload.options ?? {}) as ThesisDocxOptions
+      // [论文助手定制] 上传模板模式：模板路径存在时，把排版正文插入用户上传的 .docx 模板
+      // （保留模板页眉/页脚/页面设置/封面等），视觉参数（字体/字号/行距等）不生效。
+      const buffer = yield* Effect.gen(function* () {
+        const templatePath = options.templatePath?.trim()
+        if (!templatePath) {
+          return yield* Effect.tryPromise({
+            // [论文助手定制] schema 的 pageMargin 是宽类型 LiteralValue，这里显式收窄为排版参数类型
+            // （运行时已由 ThesisDocxOptionsSchema 校验为 standard/narrow/thesis 三者之一）。
+            try: () => markdownToDocx(content, options),
+            catch: (cause: unknown) => thesisError(`生成 Word 文档失败: ${String(cause)}`),
+          })
+        }
+        const worktree = path.resolve(proj.worktree)
+        const templateResolved = path.resolve(worktree, templatePath)
+        if (templateResolved !== worktree && !templateResolved.startsWith(worktree + path.sep)) {
+          return yield* Effect.fail(thesisError("模板路径不合法，只能使用项目内的模板文件"))
+        }
+        // [论文助手定制] FSUtil 只有文本读取，模板是二进制 .docx，这里用 Bun.file 读原始字节。
+        const templateBuffer = yield* Effect.tryPromise({
+          try: async () => Buffer.from(await Bun.file(templateResolved).arrayBuffer()),
+          catch: (cause: unknown) => thesisError(`读取模板文件失败: ${String(cause)}`),
+        })
+        return yield* Effect.tryPromise({
+          try: () => applyDocxTemplate(Buffer.from(templateBuffer), content),
+          catch: (cause: unknown) => thesisError(`套用模板生成 Word 失败: ${String(cause)}`),
+        })
       })
-      const target = path.join(proj.worktree, "正文", name.endsWith(".docx") ? name : `${name}.docx`)
+      const target = path.join(proj.worktree, name.endsWith(".docx") ? name : `${name}.docx`)
       yield* fs.writeWithDirs(target, buffer).pipe(
         Effect.mapError((error) => thesisError(`写入 Word 文档失败: ${String(error)}`)),
       )
       return { filename: path.basename(target), path: target }
     })
 
-    // [论文助手定制] 文稿落盘：把某步骤的正文写入「正文」目录的 .md 文件（提纲/全文稿/排版稿/评审报告）。
+    // [论文助手定制] 文稿落盘：把某步骤的正文写入根目录的 .md 文件（提纲/全文稿/排版稿/评审报告）。
     // 落盘后文稿成为真实文件产物：随论文工作区 git 管理、可在「正文」面板预览、可被 Word/PDF 导出直接引用。
     const MANUSCRIPT_FILENAMES = {
       outline: "提纲.md",
@@ -602,7 +684,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
       if (!ctx.payload.content.trim()) return yield* Effect.fail(thesisError("文稿内容为空"))
       const filename = MANUSCRIPT_FILENAMES[ctx.payload.step]
-      const target = path.join(proj.worktree, "正文", filename)
+      const target = path.join(proj.worktree, filename)
       yield* fs.writeWithDirs(target, Buffer.from(ctx.payload.content, "utf8")).pipe(
         Effect.mapError((error) => thesisError(`写入文稿失败: ${String(error)}`)),
       )
@@ -626,7 +708,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
           return thesisError(`生成 PDF 失败: ${message}`)
         },
       })
-      const target = path.join(proj.worktree, "正文", name.endsWith(".pdf") ? name : `${name}.pdf`)
+      const target = path.join(proj.worktree, name.endsWith(".pdf") ? name : `${name}.pdf`)
       yield* fs.writeWithDirs(target, buffer).pipe(
         Effect.mapError((error) => thesisError(`写入 PDF 失败: ${String(error)}`)),
       )
@@ -659,6 +741,9 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
      .handle("skillUpdate", updateSkill)
       .handle("thesisCreate", createThesis)
       .handle("thesisUpload", uploadThesisFile)
+      .handle("thesisMkdir", mkdirThesis)
+      .handle("thesisWriteFile", writeThesisFile)
+      .handle("thesisDeleteEntry", deleteThesisEntry)
       .handle("thesisPdfText", pdfTextThesis)
       .handle("thesisDeleteMaterial", deleteThesisMaterial)
       .handle("thesisSaveManuscript", saveThesisManuscript)

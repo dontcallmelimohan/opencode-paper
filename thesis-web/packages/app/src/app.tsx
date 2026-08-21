@@ -71,6 +71,7 @@ import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } fro
 import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
 import { ThesisSkillsPage } from "@/pages/skills"
+import { ThesisFilesPage } from "@/components/thesis-workflow/thesis-manuscript-preview"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 // [论文助手定制] 论文工作台：四步标准化流程页面（提纲→写作→排版→评审）。
@@ -105,6 +106,31 @@ function ThesisWorkbenchRoute() {
                   </DirectoryDataProvider>
                 </SDKProvider>
               </ModelsProvider>
+            </LayoutProvider>
+          </ServerSyncProvider>
+        </ServerSDKProvider>
+      )}
+    </Show>
+  )
+}
+
+// [论文助手定制] 文件空间整页路由：/论文目录/files，复用工作台的 Provider 嵌套（SDK 按目录注入）。
+function ThesisFilesRoute() {
+  const params = useParams<{ dir: string }>()
+  const navigate = useNavigate()
+  const resolved = createMemo(() => decodeDirectory(params.dir) ?? "")
+
+  return (
+    <Show when={resolved()} keyed>
+      {(dir) => (
+        <ServerSDKProvider>
+          <ServerSyncProvider>
+            <LayoutProvider>
+              <SDKProvider directory={dir}>
+                <Suspense fallback={<div class="size-full" />}>
+                  <ThesisFilesPage directory={dir} onBack={() => navigate(`/${params.dir}/workbench`)} />
+                </Suspense>
+              </SDKProvider>
             </LayoutProvider>
           </ServerSyncProvider>
         </ServerSDKProvider>
@@ -706,6 +732,8 @@ function Routes(props: { serverScoped?: JSX.Element }) {
       </Route>
       {/* [论文助手定制] 论文工作台顶层路由：/论文目录/workbench（比 /:dir 更具体，优先匹配） */}
       <Route path="/:dir/workbench" component={ThesisWorkbenchRoute} />
+      {/* [论文助手定制] 文件空间整页路由：/论文目录/files */}
+      <Route path="/:dir/files" component={ThesisFilesRoute} />
       <Show when={settings.general.newLayoutDesigns()}>
         <Route path="/" component={NewHome} />
         <Route path="/:dir/session/:id" component={NewLayoutLegacySessionRedirect} />

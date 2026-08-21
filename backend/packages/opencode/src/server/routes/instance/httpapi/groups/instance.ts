@@ -91,7 +91,7 @@ const ThesisCreateBody = Schema.Struct({
 })
 
 // [论文助手定制] 论文项目列表项：复用 Project.Info 的全部字段，另加 contentUpdatedAt——
-// 该值由后端扫描「正文」「资料」目录里文件的最新修改时间得到，表示「论文内容最后编辑时间」，
+// 该值由后端扫描"文件空间"目录里文件的最新修改时间得到，表示「论文内容最后编辑时间」，
 // 而不是 opencode 项目自带的“最近打开时间”（后者会在每次打开项目时被刷新，导致“没编辑却显示刚刚”）。
 const ThesisListEntry = Schema.Struct({
   ...Project.Info.fields,
@@ -111,6 +111,31 @@ const ThesisUploadBody = Schema.Struct({
   projectID: Schema.String,
   filename: Schema.String,
   content: Schema.String,
+  // [论文助手定制] 文件空间：支持上传到指定子目录（如 正文/ 或新建的文件夹），默认根目录。
+  directory: Schema.optional(Schema.String),
+})
+
+// [论文助手定制] 文件空间：新建文件夹（相对项目根目录的路径，可一次创建多级，如 资料/图片）。
+export const ThesisMkdirBody = Schema.Struct({
+  projectID: Schema.String,
+  path: Schema.String,
+})
+
+// [论文助手定制] 文件空间：写入文本文件（相对路径，可含子目录，父目录自动创建）。
+export const ThesisWriteFileBody = Schema.Struct({
+  projectID: Schema.String,
+  path: Schema.String,
+  content: Schema.String,
+})
+
+// [论文助手定制] 文件空间：删除文件或文件夹（相对路径，文件夹递归删除）。
+export const ThesisDeleteEntryBody = Schema.Struct({
+  projectID: Schema.String,
+  path: Schema.String,
+})
+
+const ThesisPathResult = Schema.Struct({
+  path: Schema.String,
 })
 
 const ThesisPdfTextBody = Schema.Struct({
@@ -123,7 +148,7 @@ const ThesisPdfTextResult = Schema.Struct({
   chars: Schema.Number,
 })
 
-// [论文助手定制] 删除资料文件：只接收 projectID + 文件名，后端删除「资料」目录里对应文件
+// [论文助手定制] 删除资料文件：只接收 projectID + 文件名，后端删除"文件空间"里对应文件
 // （若为 PDF，同时删除由 thesisPdfText 生成的同名 .txt 提取文本，避免残留）。
 export const ThesisDeleteMaterialBody = Schema.Struct({
   projectID: Schema.String,
@@ -135,7 +160,7 @@ const ThesisDeleteMaterialResult = Schema.Struct({
 })
 
 // [论文助手定制] 论文导出 Word：接收 Markdown 文稿文本 + 排版参数（Step 3 面板），
-// 由后端 docx 引擎排版成可直接提交的 .docx 写入项目「正文」目录。
+// 由后端 docx 引擎排版成可直接提交的 .docx 写入项目"文件空间"。
 const ThesisDocxCoverSchema = Schema.Struct({
   title: Schema.optional(Schema.String),
   author: Schema.optional(Schema.String),
@@ -157,6 +182,8 @@ const ThesisDocxOptionsSchema = Schema.Struct({
   firstLineIndent: Schema.optional(Schema.Number),
   paragraphSpacing: Schema.optional(Schema.Number),
   pageNumber: Schema.optional(Schema.Boolean),
+  // [论文助手定制] 上传模板：相对项目根目录的 .docx 模板路径，提供后走「套用模板」分支。
+  templatePath: Schema.optional(Schema.String),
 })
 
 export const ThesisExportDocxBody = Schema.Struct({
@@ -171,7 +198,7 @@ const ThesisExportDocxResult = Schema.Struct({
   path: Schema.String,
 })
 
-// [论文助手定制] 论文文稿落盘：把某步骤的正文写入项目「正文」目录
+// [论文助手定制] 论文文稿落盘：把某步骤的正文写入项目"文件空间"
 // （outline→提纲.md，writing→全文稿.md，formatting→排版稿.md，review→评审报告.md）。
 // 让“文稿”成为真实的文件产物（随论文工作区 git 管理、可下载、可被导出直接引用），
 // 而不是从聊天回复里抠出来的文本。
@@ -186,7 +213,7 @@ const ThesisSaveManuscriptResult = Schema.Struct({
   path: Schema.String,
 })
 
-// [论文助手定制] 论文导出 PDF：接收排版好的 HTML（前端已渲染 Markdown），转成 .pdf 写入项目「正文」目录。
+// [论文助手定制] 论文导出 PDF：接收排版好的 HTML（前端已渲染 Markdown），转成 .pdf 写入项目"文件空间"。
 const ThesisExportPdfBody = Schema.Struct({
   projectID: Schema.String,
   filename: Schema.String,
@@ -232,6 +259,9 @@ export const InstancePaths = {
   skillUpdate: "/skill/update",
   thesisCreate: "/thesis/create",
   thesisUpload: "/thesis/upload",
+  thesisMkdir: "/thesis/mkdir",
+  thesisWriteFile: "/thesis/write-file",
+  thesisDeleteEntry: "/thesis/delete-entry",
   thesisPdfText: "/thesis/pdf-text",
   thesisDeleteMaterial: "/thesis/material-delete",
   thesisSaveManuscript: "/thesis/save-manuscript",
@@ -440,7 +470,46 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.thesisUpload",
             summary: "Upload a thesis reference file",
             description:
-              "Writes an uploaded reference file (base64 content) into the thesis workspace 资料 directory.",
+              "Writes an uploaded reference file (base64 content) into the thesis workspace file space.",
+          }),
+        ),
+        // [论文助手定制] 文件空间：新建文件夹。
+        HttpApiEndpoint.post("thesisMkdir", InstancePaths.thesisMkdir, {
+          payload: ThesisMkdirBody,
+          success: described(ThesisPathResult, "Created directory path"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisMkdir",
+            summary: "Create a folder in the thesis file space",
+            description:
+              "Creates a folder (relative path, multi-level allowed) inside the thesis workspace file space.",
+          }),
+        ),
+        // [论文助手定制] 文件空间：写入文本文件。
+        HttpApiEndpoint.post("thesisWriteFile", InstancePaths.thesisWriteFile, {
+          payload: ThesisWriteFileBody,
+          success: described(ThesisPathResult, "Written file path"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisWriteFile",
+            summary: "Write a text file in the thesis file space",
+            description:
+              "Writes a text file (relative path, parent folders auto-created) into the thesis workspace file space.",
+          }),
+        ),
+        // [论文助手定制] 文件空间：删除文件或文件夹（递归）。
+        HttpApiEndpoint.post("thesisDeleteEntry", InstancePaths.thesisDeleteEntry, {
+          payload: ThesisDeleteEntryBody,
+          success: described(ThesisPathResult, "Deleted entry path"),
+          error: ApiThesisError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.thesisDeleteEntry",
+            summary: "Delete a file or folder in the thesis file space",
+            description:
+              "Deletes a file or folder (recursively) by relative path from the thesis workspace file space.",
           }),
         ),
         HttpApiEndpoint.post("thesisPdfText", InstancePaths.thesisPdfText, {
@@ -452,7 +521,7 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.thesisPdfText",
             summary: "Extract text from a thesis PDF reference",
             description:
-              "Extracts text from a PDF in the thesis 资料 directory and writes it to a sibling .txt file so agents can read it.",
+              "Extracts text from a PDF in the thesis file space directory and writes it to a sibling .txt file so agents can read it.",
           }),
         ),
         HttpApiEndpoint.post("thesisDeleteMaterial", InstancePaths.thesisDeleteMaterial, {
@@ -464,7 +533,7 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.thesisDeleteMaterial",
             summary: "Delete a thesis reference file",
             description:
-              "Deletes a file from the thesis workspace 资料 directory (and its extracted PDF text file).",
+              "Deletes a file from the thesis workspace file space (and its extracted PDF text file).",
           }),
         ),
         HttpApiEndpoint.post("thesisSaveManuscript", InstancePaths.thesisSaveManuscript, {
@@ -476,10 +545,10 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.thesisSaveManuscript",
             summary: "Save thesis manuscript as a Markdown file",
             description:
-              "Writes the manuscript body of a thesis step into the thesis workspace 正文 directory as a .md file (提纲/全文稿/排版稿/评审报告).",
+              "Writes the manuscript body of a thesis step into the thesis workspace file space as a .md file (提纲/全文稿/排版稿/评审报告).",
           }),
         ),
-        // [论文助手定制] 论文项目列表：返回论文工作区下的项目及其「内容最后编辑时间」（正文/资料文件 mtime）。
+        // [论文助手定制] 论文项目列表：返回论文工作区下的项目及其「内容最后编辑时间」（文件空间文件 mtime）。
         HttpApiEndpoint.get("thesisList", InstancePaths.thesisList, {
           success: described(Schema.Array(ThesisListEntry), "Thesis projects with content updated time"),
           error: ApiThesisError,
@@ -488,7 +557,7 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.thesisList",
             summary: "List thesis projects",
             description:
-              "Lists projects under the thesis workspace, each with contentUpdatedAt computed from the latest file mtime in the 正文 and 资料 directories.",
+              "Lists projects under the thesis workspace, each with contentUpdatedAt computed from the latest file mtime in the file space directory.",
           }),
         ),
         // [论文助手定制] 删除论文项目：删除工作区目录 + 数据库记录（会话等级联清理）。
@@ -513,7 +582,7 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.thesisExportDocx",
             summary: "Export thesis manuscript as a Word document",
             description:
-              "Converts Markdown manuscript text into a .docx file and writes it into the thesis workspace 正文 directory.",
+              "Converts Markdown manuscript text into a .docx file and writes it into the thesis workspace file space.",
           }),
         ),
         HttpApiEndpoint.post("thesisExportPdf", InstancePaths.thesisExportPdf, {
@@ -525,7 +594,7 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "instance.thesisExportPdf",
             summary: "Export thesis manuscript as a PDF",
             description:
-              "Prints a rendered HTML manuscript into a .pdf file and writes it into the thesis workspace 正文 directory.",
+              "Prints a rendered HTML manuscript into a .pdf file and writes it into the thesis workspace file space.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {

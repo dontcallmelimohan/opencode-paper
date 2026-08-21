@@ -8757,6 +8757,10 @@ export type InstanceThesisUploadData = {
     projectID: string
     filename: string
     content: string
+    /**
+     * [论文助手定制] 文件空间：上传到指定子目录（相对路径），默认根目录
+     */
+    directory?: string
   }
   path?: never
   query?: never
@@ -8891,6 +8895,106 @@ export type InstanceThesisSaveManuscriptResponses = {
 export type InstanceThesisSaveManuscriptResponse =
   InstanceThesisSaveManuscriptResponses[keyof InstanceThesisSaveManuscriptResponses]
 
+// [论文助手定制] 文件空间：新建文件夹（相对路径，可一次创建多级）。
+export type InstanceThesisMkdirData = {
+  body?: {
+    projectID: string
+    path: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/mkdir"
+}
+
+export type InstanceThesisMkdirErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisMkdirError =
+  InstanceThesisMkdirErrors[keyof InstanceThesisMkdirErrors]
+
+export type InstanceThesisMkdirResponses = {
+  /**
+   * Created directory path
+   */
+  200: {
+    path: string
+  }
+}
+
+export type InstanceThesisMkdirResponse =
+  InstanceThesisMkdirResponses[keyof InstanceThesisMkdirResponses]
+
+// [论文助手定制] 文件空间：写入文本文件（相对路径，父目录自动创建）。
+export type InstanceThesisWriteFileData = {
+  body?: {
+    projectID: string
+    path: string
+    content: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/write-file"
+}
+
+export type InstanceThesisWriteFileErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisWriteFileError =
+  InstanceThesisWriteFileErrors[keyof InstanceThesisWriteFileErrors]
+
+export type InstanceThesisWriteFileResponses = {
+  /**
+   * Written file path
+   */
+  200: {
+    path: string
+  }
+}
+
+export type InstanceThesisWriteFileResponse =
+  InstanceThesisWriteFileResponses[keyof InstanceThesisWriteFileResponses]
+
+// [论文助手定制] 文件空间：删除文件或文件夹（递归）。
+export type InstanceThesisDeleteEntryData = {
+  body?: {
+    projectID: string
+    path: string
+  }
+  path?: never
+  query?: never
+  url: "/thesis/delete-entry"
+}
+
+export type InstanceThesisDeleteEntryErrors = {
+  /**
+   * ThesisError | InvalidRequestError
+   */
+  400: ThesisError | InvalidRequestError
+}
+
+export type InstanceThesisDeleteEntryError =
+  InstanceThesisDeleteEntryErrors[keyof InstanceThesisDeleteEntryErrors]
+
+export type InstanceThesisDeleteEntryResponses = {
+  /**
+   * Deleted entry path
+   */
+  200: {
+    path: string
+  }
+}
+
+export type InstanceThesisDeleteEntryResponse =
+  InstanceThesisDeleteEntryResponses[keyof InstanceThesisDeleteEntryResponses]
+
 // [论文助手定制] 论文项目列表项：Project 全部字段 + contentUpdatedAt
 // （正文/资料目录里文件的最新修改时间，表示“论文内容最后编辑时间”，避免“打开过就算刚刚”）。
 export type InstanceThesisListEntry = Project & {
@@ -8978,6 +9082,8 @@ export type InstanceThesisExportDocxOptions = {
   firstLineIndent?: number
   paragraphSpacing?: number
   pageNumber?: boolean
+  // [论文助手定制] 上传模板：相对项目根目录的 .docx 模板路径，提供后走「套用模板」分支。
+  templatePath?: string
 }
 
 export type InstanceThesisExportDocxData = {

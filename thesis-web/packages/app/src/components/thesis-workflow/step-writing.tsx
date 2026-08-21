@@ -1,6 +1,6 @@
-// [论文助手定制] Step 2 辅助写作（论文工作台）：
-// 基于 Step 1 的提纲 + 写作设定（期刊/风格/侧重/参考文献格式/长度/章节）生成章节草稿，
-// 多次生成的内容会按顺序累积成“全文稿”（writing.result），最终交给 Step 3 排版。
+// [论文助手定制] 「辅助写作」模块（论文工作台，方案 B 去线性化）：
+// 独立模块，不再依赖必须先完成提纲——参考提纲来源可在表单里显式选择：
+// 自动用提纲模块结果 / 手动粘贴 / 不用提纲。多次生成的内容会累积成“全文稿”（writing.result）。
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { TextField } from "@opencode-ai/ui/text-field"
@@ -9,7 +9,7 @@ import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { InputSourceSelect, promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { ThesisFigurePanel } from "./thesis-figure-panel"
 import { ASSET_MATERIALS, figureMarker, parseFigures, removeFigure, replaceFigureAlt } from "./thesis-assets"
@@ -21,7 +21,7 @@ const REFERENCE_STYLES = ["GB/T 7714-2015", "APA 7th", "Vancouver", "IEEE"]
 
 export function StepWriting() {
   const sdk = useSDK()
-  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setSessionID, setActiveStep } =
+  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID } =
     useThesisWorkflow()
   const generator = useThesisGenerator()
   // [论文助手定制] 文稿文件化：全文稿写入项目「正文/全文稿.md」。
@@ -40,7 +40,14 @@ export function StepWriting() {
     lines.push("我正在进行论文的「辅助写作」阶段，请根据以下提纲与写作设定撰写初稿。")
     lines.push("")
     lines.push("## 论文提纲")
-    lines.push(outlineResult()?.trim() || "（还没有提纲，请按通用综述论文结构撰写）")
+    // [论文助手定制] 方案 B：按选定的提纲来源取值（auto=提纲模块结果 / manual=手动粘贴 / none=不用）。
+    lines.push(
+      input().outlineSource === "manual"
+        ? input().manualOutline.trim() || "（手动粘贴的提纲为空，请按通用综述论文结构撰写）"
+        : input().outlineSource === "none"
+          ? "（不使用提纲，请按通用综述论文结构撰写）"
+          : outlineResult()?.trim() || "（还没有提纲，请按通用综述论文结构撰写）",
+    )
     lines.push("")
     lines.push("## 写作设定")
     lines.push(`- 目标期刊 / 投稿方向：${values.journal.trim() || "未指定"}`)
@@ -82,13 +89,13 @@ export function StepWriting() {
         skills: input().skills,
         // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
         useTools: input().useTools,
-        sessionID: state().sessionID,
+        sessionID: state().steps.writing.sessionID,
         // [论文助手定制] 边生成边显示：本次章节的实时文本先写入 progress，完成后再追加进 result（全文稿）。
-        // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。
-        onSessionCreated: setSessionID,
+        // [论文助手定制] 方案 B：会话写进「辅助写作」自己的 StepState（每步独立会话）。
+        onSessionCreated: (id) => setStepSessionID("writing", id),
         onProgress: (partial) => setStepProgress("writing", partial),
       })
-      setSessionID(sessionID)
+      setStepSessionID("writing", sessionID)
       // [论文助手定制] 新生成的章节追加到全文稿后面（result 即全文稿）。
       const previous = writing().result ?? ""
       const next = previous ? `${previous}\n\n${text}` : text
@@ -132,22 +139,31 @@ export function StepWriting() {
     <StepLayout
       form={
         <StepFormPanel
-          stepLabel="Step 2"
           title="辅助写作"
-          subtitle="基于提纲与写作设定生成章节草稿，多次生成会累积成全文稿。"
+          subtitle="独立模块：配置写作要求，按选定提纲来源生成/累积全文稿。"
           footer={
-            <div class="flex flex-col gap-2">
-              <Button type="button" variant="primary" icon="pencil-line" disabled={generator.generating()} onClick={() => void generate()}>
-                {generator.generating() ? "生成中…" : "生成草稿"}
-              </Button>
-              <Show when={writing().status === "done"}>
-                <Button type="button" variant="secondary" icon="arrow-right" onClick={() => setActiveStep("formatting")}>
-                  进入论文排版
-                </Button>
-              </Show>
-            </div>
+            <Button type="button" variant="primary" icon="pencil-line" disabled={generator.generating()} onClick={() => void generate()}>
+              {generator.generating() ? "生成中…" : "生成草稿"}
+            </Button>
           }
         >
+          {/* [论文助手定制] 方案 B：参考提纲来源（auto/manual/none），不再强制依赖提纲模块先完成。 */}
+          <InputSourceSelect
+            label="参考提纲"
+            value={input().outlineSource}
+            onChange={(value) => updateInput("writing", { outlineSource: value })}
+            autoLabel="自动使用提纲结果（提纲模块已生成则自动带入）"
+            manualLabel="手动粘贴提纲"
+            noneLabel="不用提纲（按通用综述结构撰写）"
+          />
+          <Show when={input().outlineSource === "manual"}>
+            <TextField
+              multiline
+              placeholder="粘贴你的提纲…"
+              value={input().manualOutline}
+              onChange={(value) => updateInput("writing", { manualOutline: value })}
+            />
+          </Show>
           <section class="flex flex-col gap-1.5">
             <div class="text-12-medium text-v2-text-text-base">目标期刊 / 投稿方向</div>
             <TextField
@@ -224,9 +240,9 @@ export function StepWriting() {
           />
           {/* [论文助手定制] Skill 多选：勾选的 Skill 在生成时注入提示词（见 thesis-generator）。 */}
           <ThesisSkillPicker step="writing" />
-          <Show when={!outlineResult()}>
+          <Show when={input().outlineSource === "auto" && !outlineResult()}>
             <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">
-              还没有提纲，建议先完成 Step 1「提纲助手」。
+              自动模式暂无提纲结果，可切换为「手动粘贴提纲」或「不用提纲」。
             </div>
           </Show>
         </StepFormPanel>

@@ -9,7 +9,7 @@ import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { ThesisReviewReport } from "./thesis-review-report"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { InputSourceSelect, promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { showToast } from "@/utils/toast"
 
@@ -17,7 +17,7 @@ const REVIEW_MODES = ["全面评审", "格式与规范评审", "内容与论证�
 
 export function StepReview() {
   const sdk = useSDK()
-  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setSessionID } = useThesisWorkflow()
+  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID } = useThesisWorkflow()
   const generator = useThesisGenerator()
   // [论文助手定制] 文稿文件化：评审报告写入项目「正文/评审报告.md」。
   const manuscript = useThesisManuscriptFile(sdk().directory)
@@ -27,8 +27,12 @@ export function StepReview() {
   const { exportPdf } = useThesisPdfExport("评审报告")
   const review = () => state().steps.review
   const input = () => review().input
-  // [论文助手定制] 评审对象优先级：排版稿 > 全文稿。
-  const paper = () => state().steps.formatting.result ?? state().steps.writing.result ?? ""
+  // [论文助手定制] 方案 B：评审对象按选定来源取值（auto=排版稿>全文稿 / manual=手动粘贴 / none=无源稿）。
+  const paper = () => {
+    if (input().paperSource === "manual") return input().manualPaper.trim()
+    if (input().paperSource === "none") return ""
+    return state().steps.formatting.result ?? state().steps.writing.result ?? ""
+  }
 
   const buildPrompt = () => {
     const values = input()
@@ -57,13 +61,13 @@ export function StepReview() {
         skills: input().skills,
         // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
         useTools: input().useTools,
-        sessionID: state().sessionID,
+        sessionID: state().steps.review.sessionID,
         // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
-        // [论文助手定制] 会话一创建立即启用「会话」切换（见 thesis-generator.ts）。
-        onSessionCreated: setSessionID,
+        // [论文助手定制] 方案 B：会话写进「论文评审」自己的 StepState（每步独立会话）。
+        onSessionCreated: (id) => setStepSessionID("review", id),
         onProgress: (partial) => setStepProgress("review", partial),
       })
-      setSessionID(sessionID)
+      setStepSessionID("review", sessionID)
       // [论文助手定制] 落盘：评审报告写入 正文/评审报告.md（文稿视图随后从文件读取）。
       await manuscript.save("review", text)
       setStepResult("review", text)
@@ -77,15 +81,31 @@ export function StepReview() {
     <StepLayout
       form={
         <StepFormPanel
-          stepLabel="Step 4"
           title="论文评审"
-          subtitle="以目标期刊审稿人身份输出评分与修改建议。"
+          subtitle="独立模块：按选定评审对象与要求输出评分和修改建议。"
           footer={
             <Button type="button" variant="primary" icon="magnifying-glass" disabled={generator.generating()} onClick={() => void generate()}>
               {generator.generating() ? "评审中…" : "生成评审报告"}
             </Button>
           }
         >
+          {/* [论文助手定制] 方案 B：评审对象来源（auto/manual/none），不再依赖前面的步骤先完成。 */}
+          <InputSourceSelect
+            label="评审对象"
+            value={input().paperSource}
+            onChange={(value) => updateInput("review", { paperSource: value })}
+            autoLabel="自动使用排版稿（没有则用全文稿）"
+            manualLabel="手动粘贴论文文本"
+            noneLabel="无源稿（按通用论文评审）"
+          />
+          <Show when={input().paperSource === "manual"}>
+            <TextField
+              multiline
+              placeholder="粘贴要评审的论文全文…"
+              value={input().manualPaper}
+              onChange={(value) => updateInput("review", { manualPaper: value })}
+            />
+          </Show>
           <section class="flex flex-col gap-1.5">
             <div class="text-12-medium text-v2-text-text-base">目标期刊</div>
             <TextField
@@ -115,9 +135,9 @@ export function StepReview() {
           </section>
           {/* [论文助手定制] Skill 多选：勾选的 Skill 在生成时注入提示词（见 thesis-generator）。 */}
           <ThesisSkillPicker step="review" />
-          <Show when={!paper()}>
+          <Show when={input().paperSource === "auto" && !paper()}>
             <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">
-              还没有论文文本，建议先完成前面的步骤。
+              自动模式暂无论文文本，可切换为「手动粘贴论文文本」或「无源稿」。
             </div>
           </Show>
         </StepFormPanel>

@@ -1,14 +1,18 @@
 // [论文助手定制] 论文工作流状态 store（论文工作台的数据主体）。
-// 核心转变：不再以“聊天会话”为主体，而是以“论文项目 + 四步标准化流程”为主体。
-// 每个论文项目（按工作区路径区分）保存一份 workflow：
-//   - activeStep：当前在第几步
-//   - sessionID：该项目专属的“生成记录会话”（模型回复都发生在里面，工作台只取产物）
-//   - steps：outline/writing/formatting/review 各自的 { 输入, 状态, 产物文本 }
+// 核心转变：不再以“聊天会话”为主体，而是以“论文项目 + 四个独立模块”为主体。
+// 方案 B（去线性化）：四步互相独立——不再要求“第一步做完才能做第二步”，
+// 每个模块有自己的 输入配置 / 状态 / 产物文本 / 专属会话（sessionID 存进各自的 StepState）。
+//   - activeStep：当前正在看哪个模块
+//   - steps：outline/writing/formatting/review 各自的 { 输入, 状态, 产物文本, sessionID }
 // 数据持久化到 localStorage（key 按工作区路径隔离），刷新不丢。
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createSignal } from "solid-js"
 
 export type StepKey = "outline" | "writing" | "formatting" | "review"
+
+// [论文助手定制] 方案 B：每个模块对「输入材料」的引用方式——auto=自动引用其他模块产物
+// （有则用，没有则提示），manual=手动粘贴，none=不用（按通用模板生成）。
+export type InputSource = "auto" | "manual" | "none"
 
 // [论文助手定制] 剥离模型回复末尾的 AI 总结性文字（如「初稿已完成…需要我继续：①…②…③…」），
 // 只保留论文正文。规则：从文本末尾向前扫描段落（最多最后 8 段），
@@ -106,6 +110,9 @@ export type WritingInput = {
   skills: string[]
   // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
   useTools: boolean
+  // [论文助手定制] 方案 B：参考提纲的来源——auto=用提纲模块结果，manual=手动粘贴，none=不用提纲。
+  outlineSource: InputSource
+  manualOutline: string
   journal: string
   style: string
   focus: string
@@ -119,6 +126,17 @@ export type FormattingInput = {
   skills: string[]
   // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
   useTools: boolean
+  // [论文助手定制] 方案 B：排版源稿来源——auto=用辅助写作的全文稿，manual=手动粘贴，none=无源稿。
+  paperSource: InputSource
+  manualPaper: string
+  // [论文助手定制] 排版输出格式：md（Markdown 排版稿）/ docx（自动导出 Word）/ pdf（自动导出 PDF）。
+  outputFormat: "md" | "docx" | "pdf"
+  // [论文助手定制] 是否使用上传的排版模板：none=无模板（手动配置排版参数），upload=使用用户上传的 .docx 模板。
+  templateMode: "none" | "upload"
+  // [论文助手定制] 上传模板的文件名（templateMode=upload 时显示用，如 毕业论文模板.docx）。
+  templateName: string
+  // [论文助手定制] 上传模板的相对路径（templateMode=upload 时传给后端套用，如 模板/毕业论文模板.docx）。
+  templatePath: string
   journal: string
   paperType: string
   referenceStyle: string
@@ -147,6 +165,9 @@ export type ReviewInput = {
   skills: string[]
   // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
   useTools: boolean
+  // [论文助手定制] 方案 B：评审对象来源——auto=排版稿/全文稿，manual=手动粘贴，none=无源稿。
+  paperSource: InputSource
+  manualPaper: string
   journal: string
   mode: string
   focus: string
@@ -157,6 +178,8 @@ export type StepStatus = "idle" | "generating" | "done"
 export type StepState<I> = {
   status: StepStatus
   input: I
+  // [论文助手定制] 方案 B：该步骤专属的生成记录会话（每步独立，互不共享上下文）。
+  sessionID?: string
   result?: string
   // [论文助手定制] 生成过程中的流式文本（只存在内存里，不写 localStorage；完成后清空并落到 result）。
   progress?: string
@@ -164,8 +187,7 @@ export type StepState<I> = {
 }
 
 export type ThesisWorkflowState = {
-  version: 1
-  sessionID?: string
+  version: 2
   activeStep: StepKey
   steps: {
     outline: StepState<OutlineInput>
@@ -198,6 +220,8 @@ const DEFAULT_INPUTS: {
   writing: {
     skills: [],
     useTools: false,
+    outlineSource: "auto",
+    manualOutline: "",
     journal: "",
     style: "学术、审慎、综述型",
     focus: "研究脉络与概念边界",
@@ -209,6 +233,12 @@ const DEFAULT_INPUTS: {
   formatting: {
     skills: [],
     useTools: false,
+    paperSource: "auto",
+    manualPaper: "",
+    outputFormat: "md",
+    templateMode: "none",
+    templateName: "",
+    templatePath: "",
     journal: "",
     paperType: "综述论文",
     referenceStyle: "GB/T 7714-2015",
@@ -230,11 +260,11 @@ const DEFAULT_INPUTS: {
     paragraphSpacing: "6",
     pageNumber: true,
   },
-  review: { skills: [], useTools: false, journal: "", mode: "全面评审", focus: "" },
+  review: { skills: [], useTools: false, paperSource: "auto", manualPaper: "", journal: "", mode: "全面评审", focus: "" },
 }
 
 export const createDefaultWorkflowState = (): ThesisWorkflowState => ({
-  version: 1,
+  version: 2,
   activeStep: "outline",
   steps: {
     outline: { status: "idle", input: { ...DEFAULT_INPUTS.outline } },
@@ -252,21 +282,37 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
   try {
     const raw = localStorage.getItem(storageKey(directory))
     if (!raw) return fallback
-    const parsed = JSON.parse(raw) as Partial<ThesisWorkflowState>
-    if (parsed?.version !== 1 || !parsed.steps) return fallback
+    const parsed = JSON.parse(raw) as {
+      version?: number
+      // [论文助手定制] 旧版（v1）全局共用一个会话，读出来做迁移用。
+      sessionID?: string
+      activeStep?: string
+      steps?: {
+        outline?: Partial<StepState<OutlineInput>>
+        writing?: Partial<StepState<WritingInput>>
+        formatting?: Partial<StepState<FormattingInput>>
+        review?: Partial<StepState<ReviewInput>>
+      }
+    }
+    if ((parsed?.version !== 1 && parsed?.version !== 2) || !parsed.steps) return fallback
+    const activeStep = (["outline", "writing", "formatting", "review"] as StepKey[]).includes(parsed.activeStep as StepKey)
+      ? (parsed.activeStep as StepKey)
+      : "outline"
+    // [论文助手定制] 读取时对历史 result 也做清理（stripDocMeta + stripAiFooter）：
+    // 旧项目 localStorage 里可能已存了带排版说明或 AI 总结的产物，读取时清理一次。
+    const clean = (result?: string) => (result ? stripDocMeta(stripAiFooter(result)) : result)
+    // [论文助手定制] v1→v2 迁移（方案 B）：旧版四步共用一个全局 sessionID，
+    // 升级后把这个旧会话归给「辅助写作」步（全文稿主产区，保留原有对话可继续），
+    // 其余步骤不再继承，各自从新的专属会话开始，做到互不污染。
+    const legacySession = parsed.version === 1 ? parsed.sessionID : undefined
     return {
-      version: 1,
-      sessionID: typeof parsed.sessionID === "string" ? parsed.sessionID : undefined,
-      activeStep: parsed.activeStep === "outline" || parsed.activeStep === "writing" || parsed.activeStep === "formatting" || parsed.activeStep === "review"
-        ? parsed.activeStep
-        : "outline",
+      version: 2,
+      activeStep,
       steps: {
-        // [论文助手定制] 读取时对历史 result 也做清理（stripDocMeta + stripAiFooter）：
-        // 旧项目 localStorage 里可能已存了带排版说明或 AI 总结的产物，读取时清理一次。
-        outline: { ...fallback.steps.outline, ...parsed.steps.outline, input: { ...fallback.steps.outline.input, ...parsed.steps.outline?.input }, result: parsed.steps.outline?.result ? stripDocMeta(stripAiFooter(parsed.steps.outline.result)) : fallback.steps.outline.result },
-        writing: { ...fallback.steps.writing, ...parsed.steps.writing, input: { ...fallback.steps.writing.input, ...parsed.steps.writing?.input }, result: parsed.steps.writing?.result ? stripDocMeta(stripAiFooter(parsed.steps.writing.result)) : fallback.steps.writing.result },
-        formatting: { ...fallback.steps.formatting, ...parsed.steps.formatting, input: { ...fallback.steps.formatting.input, ...parsed.steps.formatting?.input }, result: parsed.steps.formatting?.result ? stripDocMeta(stripAiFooter(parsed.steps.formatting.result)) : fallback.steps.formatting.result },
-        review: { ...fallback.steps.review, ...parsed.steps.review, input: { ...fallback.steps.review.input, ...parsed.steps.review?.input }, result: parsed.steps.review?.result ? stripDocMeta(stripAiFooter(parsed.steps.review.result)) : fallback.steps.review.result },
+        outline: { ...fallback.steps.outline, ...parsed.steps.outline, input: { ...fallback.steps.outline.input, ...parsed.steps.outline?.input }, result: clean(parsed.steps.outline?.result), sessionID: undefined },
+        writing: { ...fallback.steps.writing, ...parsed.steps.writing, input: { ...fallback.steps.writing.input, ...parsed.steps.writing?.input }, result: clean(parsed.steps.writing?.result), sessionID: legacySession },
+        formatting: { ...fallback.steps.formatting, ...parsed.steps.formatting, input: { ...fallback.steps.formatting.input, ...parsed.steps.formatting?.input }, result: clean(parsed.steps.formatting?.result), sessionID: undefined },
+        review: { ...fallback.steps.review, ...parsed.steps.review, input: { ...fallback.steps.review.input, ...parsed.steps.review?.input }, result: clean(parsed.steps.review?.result), sessionID: undefined },
       },
     }
   } catch {
@@ -325,8 +371,13 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       commit({ ...current, steps })
     }
 
-    const setSessionID = (sessionID: string) => commit({ ...state(), sessionID })
+    // [论文助手定制] 方案 B：每个步骤独立会话——把会话 ID 写进指定步骤自己的 StepState。
+    const setStepSessionID = (step: StepKey, sessionID: string) => {
+      const current = state()
+      const steps = { ...current.steps, [step]: { ...current.steps[step], sessionID } }
+      commit({ ...current, steps })
+    }
 
-    return { directory, state, setActiveStep, updateInput, setStepStatus, setStepProgress, setStepResult, setSessionID }
+    return { directory, state, setActiveStep, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID }
   },
 })

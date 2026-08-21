@@ -1,12 +1,12 @@
 // [论文助手定制] 论文工作台「插图」工具：
-// 图片统一放在项目「资料」目录（主页「资料」上传），文稿里用 ![图注](asset://materials/<名字>) 引用；
+// 图片统一放在项目根目录（主页「文件空间」上传），文稿里用 ![图注](asset://materials/<名字>) 引用；
 // 保留 figures 前缀以兼容早期 asset://figures/<uuid> 历史引用。本模块负责：
 //   - 解析 / 新增 / 改图注 / 删除 文稿中的 asset:// 插图标记（纯字符串，可单测）；
 //   - 把 asset:// 引用解析为本机 data URL（file.read 对二进制返回 base64），供预览与导出使用。
 import type { DirectorySDK } from "@/context/sdk"
 
-export const FIGURES_DIR = "正文/figures"
-export const MATERIALS_DIR = "资料"
+export const FIGURES_DIR = "figures"
+export const MATERIALS_DIR = ""
 export const ASSET_MATERIALS = "materials"
 export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] as const
 
@@ -29,10 +29,10 @@ export const parseFigures = (md: string): Figure[] => {
   return figures
 }
 
-// [论文助手定制] 按引用路径定位磁盘目录：figures → 正文/figures，materials → 资料，未知前缀按 figures 兜底。
+// [论文助手定制] 按引用路径定位磁盘目录：figures → figures，materials → 根目录，未知前缀按 figures 兜底。
 export const refToPath = (ref: string): string => {
   const [location, ...rest] = ref.split("/")
-  if (location === ASSET_MATERIALS) return `${MATERIALS_DIR}/${rest.join("/")}`
+  if (location === ASSET_MATERIALS) return rest.join("/")
   return `${FIGURES_DIR}/${rest.join("/")}`
 }
 
@@ -91,3 +91,79 @@ export async function ensureFigureDataUrls(sdk: DirectorySDK, directory: string,
 // [论文助手定制] 同步替换文本里的 asset:// 引用为已缓存的 data URL（未缓存的原样保留 alt 文本）。
 export const resolveAssetUrls = (md: string, directory: string): string =>
   md.replace(ASSET_URL_RE, (match, ref: string) => cachedDataUrl(directory, ref) ?? match)
+
+// [论文助手定制] 本地相对路径图片（如 ![4](4.jpg)）的 data URL 缓存：key = 目录|路径，
+// 与 asset:// 插图缓存同一策略，避免每次预览/每次按键都重新读文件导致图片闪烁或偶尔加载不出。
+// 只缓存成功读取的图片；失败不缓存，下次预览可以重试。
+const localImageUrls = new Map<string, string>()
+const localImageKey = (directory: string, path: string) => `${directory}\u0000${path}`
+
+export const cachedLocalImageUrl = (directory: string, path: string): string | undefined =>
+  localImageUrls.get(localImageKey(directory, path)) || undefined
+
+export const cacheLocalImageUrl = (directory: string, path: string, dataUrl: string) => {
+  localImageUrls.set(localImageKey(directory, path), dataUrl)
+}
+// [论文助手定制] 把 Markdown 里的本地相对路径图片（非 http/data/asset 开头）解析成本机 data URL。
+// 相对路径以 md 文件所在目录（baseDir）为基准（如正文/ 或项目根）；读取失败（图片不存在）保留原样。
+export const LOCAL_IMAGE_MARKER_RE = /!\[([^\]]*)\]\(([^)]+)\)/g
+
+export async function resolveLocalImages(
+  md: string,
+  directory: string,
+  baseDir: string,
+  read: (path: string) => Promise<string | undefined>,
+): Promise<string> {
+  const matches = [...md.matchAll(LOCAL_IMAGE_MARKER_RE)]
+  if (matches.length === 0) return md
+  let out = md
+  for (const match of matches) {
+    const alt = match[1] ?? ""
+    const src = (match[2] ?? "").trim()
+    // 跳过网络图片 / data URL / asset:// 内部引用 / 绝对路径
+    if (/^(https?:|data:|asset:|\/)/i.test(src)) continue
+    const clean = src.replace(/^\.\//, "").split(/[?#]/)[0] ?? src
+    const ext = imageExtension(clean)
+    if (!(IMAGE_EXTENSIONS as readonly string[]).includes(ext)) continue
+    const diskPath = baseDir ? `${baseDir}/${clean}` : clean
+    // [论文助手定制] 命中缓存直接用 data URL，避免反复读文件。
+    const cached = cachedLocalImageUrl(directory, diskPath)
+    if (cached) {
+      out = out.replace(match[0], `![${alt}](${cached})`)
+      continue
+    }
+    try {
+      const content = await read(diskPath)
+      if (!content) continue
+      const dataUrl = dataUrlOf(clean, content)
+      cacheLocalImageUrl(directory, diskPath, dataUrl)
+      out = out.replace(match[0], `![${alt}](${dataUrl})`)
+    } catch {
+      // 图片不存在/读取失败：保留原样（不缓存，下次可重试）
+    }
+  }
+  return out
+}
+
+// [论文助手定制] 统一的 Markdown 图片解析入口（文件空间预览 / 文稿视图 / 编辑实时预览共用）：
+// 先解析论文内部插图 asset:// 引用为 data URL，再把本地相对路径图片
+// （相对 baseDir，如文件所在目录或「正文」目录）解析成本机 data URL；
+// 读取失败的图片保留原样（渲染时以 alt 兜底，不会裂图）。
+export async function resolveMarkdownImages(
+  sdk: DirectorySDK,
+  directory: string,
+  baseDir: string,
+  md: string,
+): Promise<string> {
+  let resolved = md
+  const refs = parseFigures(md).map((figure) => figure.ref)
+  if (refs.length > 0) {
+    await ensureFigureDataUrls(sdk, directory, refs)
+    resolved = resolveAssetUrls(md, directory)
+  }
+  return resolveLocalImages(resolved, directory, baseDir, async (path) => {
+    const res = await sdk.client.file.read({ directory, path })
+    if (res.error || res.data?.type !== "binary") return undefined
+    return res.data.content
+  })
+}

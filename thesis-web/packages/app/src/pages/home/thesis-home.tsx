@@ -159,7 +159,7 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
     <div class="flex min-h-0 flex-col gap-3">
       <div class="flex items-center justify-between gap-2">
         <Button size="small" variant="ghost" icon="arrow-left" onClick={props.onBack}>
-          返回资料列表
+          返回文件列表
         </Button>
         <Show when={preview()}>
           <span class="min-w-0 truncate text-12-regular text-v2-text-text-faint">{preview()?.filename}</span>
@@ -274,7 +274,7 @@ function MaterialDeleteBody(props: { thesis: Project; name: string; onDone: () =
       props.onDone()
       void queryClient.invalidateQueries({ queryKey: ["thesis", "materials", props.thesis.id] })
       void queryClient.invalidateQueries({ queryKey: THESIS_QUERY_KEY })
-      showToast({ variant: "success", icon: "circle-check", title: `已删除资料「${props.name}」` })
+      showToast({ variant: "success", icon: "circle-check", title: `已删除文件「${props.name}」` })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -285,7 +285,7 @@ function MaterialDeleteBody(props: { thesis: Project; name: string; onDone: () =
   return (
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-1.5">
-        <div class="text-14-medium text-v2-text-text-strong">删除资料</div>
+        <div class="text-14-medium text-v2-text-text-strong">删除文件</div>
         <div class="text-13-regular text-v2-text-text-weak">
           确定删除「{props.name}」吗？
           {isPdf({ name: props.name }) ? "若为 PDF，其提取文本也会一并删除。" : ""}删除后不可恢复。
@@ -318,11 +318,21 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
   const [previewPath, setPreviewPath] = createSignal<string | undefined>(undefined)
   const [deleteName, setDeleteName] = createSignal<string | undefined>(undefined)
 
+  // [论文助手定制] 文件空间：平铺列出项目根目录的上传文件（正文已并入工作台「文件空间」按目录浏览）。
   const materials = useQuery(() => ({
     queryKey: ["thesis", "materials", props.thesis.id],
     queryFn: async () => {
-      const res = await sdk().client.file.list({ directory: props.thesis.worktree, path: "资料" })
-      return res.data ?? []
+      let files: FileNode[] = []
+      try {
+        const rootRes = await sdk().client.file.list({ directory: props.thesis.worktree, path: "" })
+        files = (rootRes.data ?? [])
+          .filter((node): node is FileNode & { type: "file" } => node.type === "file")
+          // [论文助手定制] 过滤 .gitignore 等隐藏文件，只展示用户上传的可见文件。
+          .filter((node) => !node.name.startsWith("."))
+      } catch {
+        files = []
+      }
+      return files
     },
   }))
 
@@ -372,7 +382,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
           filename: file.name,
           content,
         })
-        if (res.error) throw new Error(thesisErrorMessage(res.error, "上传资料失败"))
+        if (res.error) throw new Error(thesisErrorMessage(res.error, "上传文件失败"))
       }
       let extracted = 0
       for (const file of files.filter((file) => isPdf(file))) {
@@ -385,7 +395,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
       showToast({
         variant: "success",
         icon: "circle-check",
-        title: extracted > 0 ? `已上传 ${files.length} 个资料并提取 ${extracted} 个 PDF 文本` : `已上传 ${files.length} 个资料文件`,
+        title: extracted > 0 ? `已上传 ${files.length} 个文件并提取 ${extracted} 个 PDF 文本` : `已上传 ${files.length} 个文件`,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -395,7 +405,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
   }
 
   return (
-    <Dialog title="论文资料" description={`${thesisName(props.thesis)} · 上传的参考资料会存放在论文工作空间的「资料」目录`}>
+    <Dialog title="文件空间" description={`${thesisName(props.thesis)} · 上传的文件将存放在项目根目录`}>
       <div class="flex max-h-[65vh] min-h-[45vh] flex-col gap-4 overflow-y-auto px-2.5 pb-4">
         <Show when={previewPath()}>
           <MaterialPreviewBody thesis={props.thesis} path={previewPath()!} onBack={() => setPreviewPath(undefined)} />
@@ -409,11 +419,12 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
           />
         </Show>
         <Show when={!previewPath() && !deleteName()}>
+        {/* [论文助手定制] 文件空间：平铺列出已上传文件（可提取文本/查看/删除）。 */}
         <div class="flex flex-col gap-1.5">
-          <div class="text-13-regular text-v2-text-text-weak">已上传资料</div>
+          <div class="text-13-regular text-v2-text-text-weak">已上传文件</div>
           <Show
             when={materials.data && materials.data.length > 0}
-            fallback={<div class="text-13-regular text-v2-text-text-weak">暂无资料</div>}
+            fallback={<div class="text-13-regular text-v2-text-text-weak">暂无文件，点击下方上传</div>}
           >
             <ul class="flex flex-col gap-1">
               <For each={materials.data}>
@@ -431,7 +442,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
                         {extracting() === entry.name ? "提取中…" : "提取文本"}
                       </button>
                     </Show>
-                    {/* [论文助手定制] 资料操作：查看（预览 md/txt/pdf/docx/图片）+ 删除（确认后删除文件）。 */}
+                    {/* [论文助手定制] 文件操作：查看（预览 md/txt/pdf/docx/图片）+ 删除（确认后删除文件）。 */}
                     <IconButton
                       type="button"
                       icon="open-file"
@@ -463,7 +474,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
           onClick={() => fileInput?.click()}
         >
           <Icon name="cloud-upload" size="large" />
-          <div class="text-13-regular text-v2-text-text-strong">点击选择资料文件</div>
+          <div class="text-13-regular text-v2-text-text-strong">点击选择文件</div>
           <div class="text-12-regular text-v2-text-text-weak">支持 PDF、Word、Markdown、图片等文件（图片可在 Step 2 插图面板引用为论文插图）</div>
           <input
             ref={fileInput}
@@ -488,7 +499,7 @@ export function ThesisUploadDialog(props: { thesis: Project }) {
             取消
           </Button>
           <Button variant="primary" icon="cloud-upload" disabled={busy() || selected().length === 0} onClick={upload}>
-            {busy() ? "上传中…" : "上传资料"}
+            {busy() ? "上传中…" : "上传文件"}
           </Button>
         </div>
       </Show>
@@ -762,7 +773,7 @@ export function ThesisHome() {
                   icon="cloud-upload"
                   onClick={() => dialog.show(() => <ThesisUploadDialog thesis={thesis} />)}
                 >
-                  资料
+                  文件空间
                 </Button>
                 <Button size="small" variant="primary" onClick={() => startWriting(thesis.worktree)}>
                   开始写作

@@ -11,10 +11,10 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { MANUSCRIPT_FILENAMES, type ManuscriptStep } from "./thesis-manuscript-file"
 import { usePersistentWidth } from "./thesis-panel-layout"
-import type { StepKey, StepStatus } from "./thesis-workflow-store"
+import type { InputSource, StepKey, StepStatus } from "./thesis-workflow-store"
 import { useThesisWorkflow } from "./thesis-workflow-store"
 import { ThesisSessionView } from "./thesis-session-view"
-import { ensureFigureDataUrls, parseFigures, resolveAssetUrls } from "./thesis-assets"
+import { resolveMarkdownImages } from "./thesis-assets"
 
 // [论文助手定制] 生成提示词里的工具约束文本：随配置面板「生成时允许使用工具」开关变化。
 // 开启时允许模型按需调用工具（脚本型 Skill 需要执行脚本/读文件）；
@@ -49,7 +49,8 @@ export function StepLayout(props: { form: JSX.Element; product: JSX.Element }) {
 }
 
 export function StepFormPanel(props: {
-  stepLabel: string
+  // [论文助手定制] 方案 B：stepLabel 改为可选（四个模块并列，不再标注 Step N）。
+  stepLabel?: string
   title: string
   subtitle?: string
   children: JSX.Element
@@ -58,7 +59,9 @@ export function StepFormPanel(props: {
   return (
     <div class="flex h-full min-h-0 flex-col gap-3 overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-3 shadow-[var(--v2-elevation-raised)]">
       <div>
-        <div class="text-11-regular text-v2-text-text-accent">{props.stepLabel}</div>
+        <Show when={props.stepLabel}>
+          <div class="text-11-regular text-v2-text-text-accent">{props.stepLabel}</div>
+        </Show>
         <div class="text-14-medium text-v2-text-text-base">{props.title}</div>
         <Show when={props.subtitle}>
           <div class="text-12-regular text-v2-text-text-faint">{props.subtitle}</div>
@@ -199,20 +202,21 @@ export function StepProductPanel(props: {
     return [props.result, props.progressText].filter(Boolean).join("\n\n")
   }
 
-  // [论文助手定制] 插图渲染：把文稿里的 asset:// 引用解析成本机 data URL（先确保图片已缓存），
-  // 避免预览出现空图。解析异步完成前先用原文渲染（alt 兜底）。
+  // [论文助手定制] 插图渲染：把文稿里的 asset:// 引用与本地相对路径图片统一解析成本机 data URL
+  // （复用 thesis-assets 的 resolveMarkdownImages）；文稿文件保存在「正文」目录，
+  // 相对路径图片以「正文」为基准；解析异步完成前先用原文渲染（alt 兜底），避免预览出现空图。
+  // 竞态保护：生成/切换步骤时文本会连续变化，用版本号丢弃过期的异步解析结果，避免显示旧内容。
   const [resolvedText, setResolvedText] = createSignal<string | undefined>(undefined)
+  let resolveVersion = 0
   createEffect(() => {
+    const version = ++resolveVersion
     const text = manuscriptText()
     const directory = props.manuscript?.directory
     setResolvedText(text)
-    if (!directory) return
-    const refs = parseFigures(text).map((figure) => figure.ref)
-    if (refs.length === 0) return
-    void (async () => {
-      await ensureFigureDataUrls(sdk(), directory, refs)
-      setResolvedText(resolveAssetUrls(text, directory))
-    })()
+    if (!text || !directory) return
+    void resolveMarkdownImages(sdk(), directory, "正文", text).then((next) => {
+      if (version === resolveVersion && next !== text) setResolvedText(next)
+    })
   })
 
   return (
@@ -347,5 +351,34 @@ export function StepProductPanel(props: {
         </Show>
       </Show>
     </div>
+  )
+}
+
+// [论文助手定制] 方案 B（去线性化）：输入材料来源选择（auto / manual / none），
+// 写作 / 排版 / 评审 三个下游模块共用。不再强制依赖前一步产物：
+// - auto：自动引用其他模块的产物（有则用，没有则在提示词里提示）；
+// - manual：手动粘贴内容；
+// - none：不用（按通用模板生成）。
+export function InputSourceSelect(props: {
+  label: string
+  value: InputSource
+  onChange: (value: InputSource) => void
+  autoLabel: string
+  manualLabel: string
+  noneLabel: string
+}) {
+  return (
+    <section data-action="thesis-input-source" class="flex flex-col gap-1.5">
+      <div class="text-12-medium text-v2-text-text-base">{props.label}</div>
+      <select
+        class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
+        value={props.value}
+        onChange={(event) => props.onChange(event.currentTarget.value as InputSource)}
+      >
+        <option value="auto">{props.autoLabel}</option>
+        <option value="manual">{props.manualLabel}</option>
+        <option value="none">{props.noneLabel}</option>
+      </select>
+    </section>
   )
 }
