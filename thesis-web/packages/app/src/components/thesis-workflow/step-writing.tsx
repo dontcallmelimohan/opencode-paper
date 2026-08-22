@@ -9,6 +9,7 @@ import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
+import { useThesisLive } from "./thesis-live-store"
 import { InputSourceSelect, promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { ThesisFigurePanel } from "./thesis-figure-panel"
@@ -21,8 +22,10 @@ const REFERENCE_STYLES = ["GB/T 7714-2015", "APA 7th", "Vancouver", "IEEE"]
 
 export function StepWriting() {
   const sdk = useSDK()
-  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID } =
+  const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } =
     useThesisWorkflow()
+  // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
+  const live = useThesisLive()
   const generator = useThesisGenerator()
   // [论文助手定制] 文稿文件化：全文稿写入项目「正文/全文稿.md」。
   const manuscript = useThesisManuscriptFile(sdk().directory)
@@ -93,7 +96,7 @@ export function StepWriting() {
         // [论文助手定制] 边生成边显示：本次章节的实时文本先写入 progress，完成后再追加进 result（全文稿）。
         // [论文助手定制] 方案 B：会话写进「辅助写作」自己的 StepState（每步独立会话）。
         onSessionCreated: (id) => setStepSessionID("writing", id),
-        onProgress: (partial) => setStepProgress("writing", partial),
+        onProgress: (partial) => live.setStepProgress("writing", partial),
       })
       setStepSessionID("writing", sessionID)
       // [论文助手定制] 新生成的章节追加到全文稿后面（result 即全文稿）。
@@ -102,6 +105,8 @@ export function StepWriting() {
       // [论文助手定制] 落盘：全文稿写入 正文/全文稿.md（文稿视图随后从文件读取）。
       await manuscript.save("writing", next)
       setStepResult("writing", next)
+      // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
+      live.clearStepProgress("writing")
       showToast({ variant: "success", icon: "circle-check", title: "草稿已生成并追加到全文稿" })
     } catch {
       setStepStatus("writing", writing().result ? "done" : "idle")
@@ -251,7 +256,7 @@ export function StepWriting() {
         <StepProductPanel
           title="论文全文稿（可继续追加章节）"
           status={writing().status}
-          progressText={writing().progress}
+          progressText={live.progress().writing}
           result={writing().result}
           onExportDocx={() => void exportDocx(writing().result ?? "")}
           onExportPdf={() => void exportPdf(writing().result ?? "")}

@@ -5,13 +5,17 @@
 //   - 输入框左侧「插入文件」按钮：弹出文件选择窗口，可浏览文件空间并选中任意文件，
 //     以 opencode 原生的文件引用方式插入输入框（@路径 彩色 mention，发送后消息里显示带图标的文件卡片）；
 //   - 每条助手消息可「存为当前文稿」：把该回复采纳为当前步骤的产物，支持反复修改迭代。
+// [论文助手定制] 输出路由（三个通道，见下方 auto-save 位置注释）：自由对话的回复默认只留在
+// 会话里，不会自动覆盖画布；配置面板生成的回复走各板块生成流程落盘，选区改写的回复只替换选中文本。
 import { Icon } from "@opencode-ai/ui/icon"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { useNavigate } from "@solidjs/router"
+import { Button } from "@opencode-ai/ui/button"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { TextField } from "@opencode-ai/ui/text-field"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Message } from "@opencode-ai/session-ui/message-part"
@@ -198,6 +202,63 @@ function FilePickerDialog(props: { directory: string; onPick: (path: string, nam
   )
 }
 
+// [论文助手定制] 「另存为独立文档」标题输入弹窗：独立会话的回复保存为 docs/<标题>.md。
+// 标题默认「对话文档」，校验非空并去掉 / \ : * ? " < > | 等非法字符（避免路径逃逸或变成多级目录）。
+function SaveAsDocDialog(props: { onSave: (title: string) => void }) {
+  const dialog = useDialog()
+  const [title, setTitle] = createSignal("对话文档")
+  const [error, setError] = createSignal<string | undefined>(undefined)
+
+  const sanitize = (value: string) => value.replace(/[\\/:*?"<>|]/g, "").trim()
+
+  const submit = () => {
+    const clean = sanitize(title())
+    if (!clean) {
+      setError("标题为空或只包含非法字符，请重新输入")
+      return
+    }
+    props.onSave(clean)
+    dialog.close()
+  }
+
+  return (
+    <Dialog
+      title="另存为独立文档"
+      description="将这条回复保存为独立文档（docs/ 目录，.md），可在画布文稿下拉中查看与编辑"
+      // [论文助手定制] fit：弹窗高度贴合表单内容，与新建弹窗视觉一致。
+      fit
+    >
+      <div class="mx-auto flex w-[420px] max-w-full flex-col gap-3 px-2.5 pb-4">
+        <TextField
+          type="text"
+          label="文档标题"
+          placeholder="例如：研究背景综述"
+          value={title()}
+          autofocus
+          onChange={(value) => {
+            setTitle(value)
+            setError(undefined)
+          }}
+          onKeyDown={(event: KeyboardEvent) => {
+            if (event.key === "Enter") submit()
+          }}
+        />
+        <Show when={error()}>
+          <div class="text-13-regular text-icon-critical-base">{error()}</div>
+        </Show>
+        <div class="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => dialog.close()}>
+            取消
+          </Button>
+          <Button type="button" variant="primary" disabled={!title().trim()} onClick={() => submit()}>
+            保存
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
 export function ThesisSessionView(props: { fixedSessionID?: string }) {
   const sdk = useSDK()
   const navigate = useNavigate()
@@ -316,6 +377,14 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
     autoScroll.resume()
   })
 
+  // [论文助手定制] 最后一条 assistant 消息：用于完成判定（非最后一条历史回复一律视为已完成，
+  // 只有最后一条才需要等 finish/time.completed——它是当前正在流式输出的回复）。
+  const lastAssistantId = createMemo(() => {
+    const messages = normalized().messages
+    const index = messages.findLastIndex((m) => m.role === "assistant")
+    return index >= 0 ? messages[index]?.id : undefined
+  })
+
   // [论文助手定制] 提取某条助手消息的纯文本（读流式 part store，与生成器取回复文本的方式一致）。
   const assistantText = (messageId: string) => {
     const parts = sync().data.part[messageId] ?? []
@@ -326,23 +395,43 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
       .trim()
   }
 
-  // [论文助手定制] 采纳回复：把该条助手消息的文本存为当前步骤的文稿（反复修改的落点）。
+  // [论文助手定制] 输出路由（三个通道，不再自动猜测）：
+  // 1. 配置面板「生成草稿」= 文档通道：回复由各板块的生成流程落盘到画布（如 step-writing 的
+  //    manuscript.save + setStepResult），会话视图不参与。
+  // 2. 选区 AI 改写 = 编辑通道：回复只替换选中文本（thesis-workflow-ui 的 askSuggestion，
+  //    编辑器原地替换或文本级回退落盘），不会整篇覆盖画布。
+  // 3. 本视图的自由对话 = 聊天通道：回复只留在会话记录里，要进画布必须手动点该条消息的
+  //    「存为当前文稿」（saveAsResult）。
+  // 以前这里有一个「最后一条 assistant 回复完成就自动存为文稿」的 effect，导致
+  // 自由提问、选区改写的回复都会被当成整篇文稿覆盖画布；现已删除，改为按通道显式路由。
+
+  // [论文助手定制] 采纳回复：板块专属会话存为当前步骤的文稿；独立会话另存为独立文档（docs/<标题>.md）。
   const saveAsResult = async (messageId: string) => {
-    // [论文助手定制] 只有板块专属会话可以「存为当前文稿」（普通会话没有对应的步骤产物）。
     const step = sessionStep()
-    if (!step) {
-      showToast({ variant: "error", icon: "circle-x", title: "该会话不属于任何板块，无法存为文稿" })
-      return
-    }
     const text = assistantText(messageId)
     if (!text) {
       showToast({ variant: "error", icon: "circle-x", title: "这条回复还没有文本内容" })
       return
     }
-    // [论文助手定制] 先落盘再更新 result：文稿视图重读文件时能读到新内容。
-    await manuscript.save(step, text)
-    setStepResult(step, text)
-    showToast({ variant: "success", icon: "circle-check", title: "已存为当前步骤文稿" })
+    // [论文助手定制] 按归属分流：板块专属会话 → 存为当前步骤文稿（覆盖画布 <step>.md）；
+    // 独立会话 → 弹标题输入框，另存为独立文档 docs/<标题>.md（复用 thesisWriteFile 落盘）。
+    if (step) {
+      // [论文助手定制] 先落盘再更新 result：文稿视图重读文件时能读到新内容。
+      await manuscript.save(step, text)
+      setStepResult(step, text)
+      showToast({ variant: "success", icon: "circle-check", title: "已存为当前步骤文稿" })
+      return
+    }
+    dialog.show(() => (
+      <SaveAsDocDialog
+        onSave={(title) => {
+          void (async () => {
+            await manuscript.saveFile(`docs/${title}.md`, text)
+            showToast({ variant: "success", icon: "circle-check", title: `已存为独立文档「${title}」` })
+          })()
+        }}
+      />
+    ))
   }
 
   return (
@@ -385,12 +474,17 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
               {(message) => {
                 // [论文助手定制] 类型收窄：只有助手消息才有 finish/error，用于「存为当前文稿」按钮。
                 const assistant = message.role === "assistant" ? (message as AssistantMessage) : undefined
-                // [论文助手定制] 完成判定：该后端消息完成可能只带 time.completed（没有 finish），两个都认。
-                const done = !!assistant && (!!assistant.finish || !!assistant.time.completed)
+                // [论文助手定制] 完成判定：该后端消息完成可能只带 time.completed（没有 finish），两个都认；
+                // 且只对「最后一条 assistant」做流式完成判定——历史回复（非最后一条）一律视为已完成，
+                // 否则个别协议不写 finish/time.completed 时，最后一条的按钮会永远禁用。
+                const isLastAssistant = !!assistant && assistant.id === lastAssistantId()
+                const done =
+                  !!assistant && (!isLastAssistant || !!assistant.finish || !!assistant.time.completed)
                 return (
                   <div class="px-4 py-2 md:px-5">
-                    {/* [论文助手定制] 助手消息完成且无错误、且是板块专属会话时，提供「存为当前文稿」 */}
-                    <Show when={assistant && !assistant.error && sessionStep()}>
+                    {/* [论文助手定制] 助手消息完成且无错误时提供「保存」按钮：
+                        板块专属会话 = 存为当前文稿；独立会话 = 存为独立文档（不再报「无法存为文稿」）。 */}
+                    <Show when={assistant && !assistant.error}>
                       <div class="flex items-center justify-end pb-1">
                         <button
                           type="button"
@@ -401,7 +495,7 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
                           onClick={() => void saveAsResult(assistant!.id)}
                         >
                           <Icon name="circle-check" size="small" />
-                          {done ? "存为当前文稿" : "生成中…"}
+                          {done ? (sessionStep() ? "存为当前文稿" : "存为独立文档") : "生成中…"}
                         </button>
                       </div>
                     </Show>

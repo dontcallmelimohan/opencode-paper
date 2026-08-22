@@ -9,6 +9,7 @@ import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { ThesisReviewReport } from "./thesis-review-report"
 import { useThesisWorkflow } from "./thesis-workflow-store"
+import { useThesisLive } from "./thesis-live-store"
 import { InputSourceSelect, promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { showToast } from "@/utils/toast"
@@ -17,7 +18,9 @@ const REVIEW_MODES = ["全面评审", "格式与规范评审", "内容与论证�
 
 export function StepReview() {
   const sdk = useSDK()
-  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID } = useThesisWorkflow()
+  const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } = useThesisWorkflow()
+  // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
+  const live = useThesisLive()
   const generator = useThesisGenerator()
   // [论文助手定制] 文稿文件化：评审报告写入项目「正文/评审报告.md」。
   const manuscript = useThesisManuscriptFile(sdk().directory)
@@ -65,12 +68,14 @@ export function StepReview() {
         // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
         // [论文助手定制] 方案 B：会话写进「论文评审」自己的 StepState（每步独立会话）。
         onSessionCreated: (id) => setStepSessionID("review", id),
-        onProgress: (partial) => setStepProgress("review", partial),
+        onProgress: (partial) => live.setStepProgress("review", partial),
       })
       setStepSessionID("review", sessionID)
       // [论文助手定制] 落盘：评审报告写入 正文/评审报告.md（文稿视图随后从文件读取）。
       await manuscript.save("review", text)
       setStepResult("review", text)
+      // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
+      live.clearStepProgress("review")
       showToast({ variant: "success", icon: "circle-check", title: "评审报告已生成" })
     } catch {
       setStepStatus("review", review().result ? "done" : "idle")
@@ -146,7 +151,7 @@ export function StepReview() {
         <StepProductPanel
           title="评审报告"
           status={review().status}
-          progressText={review().progress}
+          progressText={live.progress().review}
           result={review().result}
           onExportDocx={() => void exportDocx(review().result ?? "")}
           onExportPdf={() => void exportPdf(review().result ?? "")}

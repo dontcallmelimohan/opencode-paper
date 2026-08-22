@@ -1,0 +1,206 @@
+/* [论文助手定制] Milkdown 编辑器样式：headless 无自带样式，
+   这里复刻 session-ui markdown.css 的排版，保证「渲染即编辑」与查看态观感一致。 */
+.thesis-editor-root {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  color: var(--v2-text-text-base);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-base);
+  line-height: 160%;
+}
+
+.thesis-editor-root .ProseMirror {
+  outline: none;
+  min-height: 100%;
+  padding-bottom: 24px;
+}
+
+.thesis-editor-root .ProseMirror > *:first-child {
+  margin-top: 0;
+}
+.thesis-editor-root .ProseMirror > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Headings */
+.thesis-editor-root .ProseMirror h1 {
+  font-size: 17px;
+  color: var(--v2-text-text-base);
+  font-weight: 600;
+  margin-top: 28px;
+  margin-bottom: 12px;
+  line-height: var(--line-height-large);
+}
+.thesis-editor-root .ProseMirror h2 {
+  font-size: 15px;
+  color: var(--v2-text-text-base);
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 10px;
+  line-height: var(--line-height-large);
+}
+.thesis-editor-root .ProseMirror h3 {
+  font-size: 13px;
+  color: var(--v2-text-text-base);
+  font-weight: var(--font-weight-medium);
+  margin-top: 20px;
+  margin-bottom: 8px;
+  line-height: var(--line-height-large);
+}
+.thesis-editor-root .ProseMirror h4,
+.thesis-editor-root .ProseMirror h5,
+.thesis-editor-root .ProseMirror h6 {
+  font-size: 13px;
+  color: var(--v2-text-text-muted);
+  font-weight: var(--font-weight-medium);
+  margin-top: 20px;
+  margin-bottom: 8px;
+  line-height: var(--line-height-large);
+}
+
+/* Emphasis & Strong */
+.thesis-editor-root .ProseMirror strong,
+.thesis-editor-root .ProseMirror b {
+  color: var(--v2-text-text-base);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Paragraphs */
+.thesis-editor-root .ProseMirror p {
+  margin-bottom: 12px;
+}
+
+/* Links */
+.thesis-editor-root .ProseMirror a {
+  color: var(--text-interactive-base);
+  text-decoration: none;
+  font-weight: inherit;
+}
+.thesis-editor-root .ProseMirror a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Lists */
+.thesis-editor-root .ProseMirror ul,
+.thesis-editor-root .ProseMirror ol {
+  margin-top: 8px;
+  margin-bottom: 12px;
+  margin-inline-start: 0;
+  padding-inline-start: 32px;
+  list-style-position: outside;
+}
+.thesis-editor-root .ProseMirror ul {
+  list-style-type: disc;
+}
+.thesis-editor-root .ProseMirror ol {
+  list-style-type: decimal;
+  padding-inline-start: 2.25rem;
+}
+.thesis-editor-root .ProseMirror li {
+  margin-bottom: 8px;
+}
+.thesis-editor-root .ProseMirror li > p:first-child {
+  display: inline;
+  margin: 0;
+}
+.thesis-editor-root .ProseMirror li::marker {
+  color: var(--v2-text-text-muted);
+}
+.thesis-editor-root .ProseMirror li > ul,
+.thesis-editor-root .ProseMirror li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  padding-inline-start: 1rem;
+}
+.thesis-editor-root .ProseMirror li > ol {
+  padding-inline-start: 1.75rem;
+}
+
+/* Blockquotes */
+.thesis-editor-root .ProseMirror blockquote {
+  border-inline-start: 0.5px solid var(--v2-border-border-base);
+  margin: 1rem 0;
+  padding-inline-start: 0.5rem;
+  color: var(--v2-text-text-muted);
+  font-style: normal;
+}
+
+/* Horizontal Rule */
+.thesis-editor-root .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--v2-border-border-muted);
+  margin: 32px 0;
+}
+
+/* Inline code */
+.thesis-editor-root .ProseMirror :not(pre) > code {
+  font-family: var(--font-family-mono);
+  font-feature-settings: var(--font-family-mono--font-feature-settings);
+  color: var(--v2-text-text-base);
+  font-weight: var(--font-weight-medium);
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--v2-text-text-base) 8%, transparent);
+}
+
+/* Code blocks */
+.thesis-editor-root .ProseMirror pre {
+  margin-top: 12px;
+  margin-bottom: 24px;
+  overflow: auto;
+  background: var(--v2-background-bg-layer-02);
+  border: 0.5px solid var(--v2-border-border-base);
+  border-radius: 6px;
+  padding: 12px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 160%;
+}
+.thesis-editor-root .ProseMirror pre code {
+  font-family: var(--font-family-mono);
+  color: var(--v2-text-text-base);
+  background: none;
+  padding: 0;
+}
+
+/* Tables */
+.thesis-editor-root .ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: var(--font-size-base);
+  display: block;
+  overflow-x: auto;
+}
+.thesis-editor-root .ProseMirror th,
+.thesis-editor-root .ProseMirror td {
+  border-bottom: 0.5px solid var(--v2-border-border-muted);
+  padding: 12px;
+  text-align: start;
+  vertical-align: top;
+}
+.thesis-editor-root .ProseMirror th {
+  color: var(--v2-text-text-base);
+  font-weight: var(--font-weight-medium);
+  border-bottom: 0.5px solid var(--v2-border-border-base);
+}
+
+/* Images */
+.thesis-editor-root .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 1.5rem 0;
+  display: block;
+}
+
+/* 空文档提示：与查看态 empty 提示风格一致 */
+.thesis-editor-root .ProseMirror p.is-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--v2-text-text-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

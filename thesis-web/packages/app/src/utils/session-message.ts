@@ -82,7 +82,9 @@ export function normalizeSessionMessages(sessionID: string, source: readonly Ses
     if (message.type === "assistant") {
       agent = message.agent
       model = message.model
-      if (!parentID) return
+      // [论文助手定制] 不再丢弃无 parent 的 assistant：shell 消息之后 / 会话以 assistant 开头的回复
+      // 会被整条丢弃（这是「会话输出不进画布」的根因）。parentID 缺失时 findLast 天然返回 undefined，
+      // parent 回退分支不会误挂，assistant 本身照常保留。
       const parent = messages.findLast((item) => item.id === parentID)
       if (parent?.role === "user") {
         parent.agent = message.agent
@@ -230,7 +232,11 @@ function userParts(sessionID: string, message: SessionMessageUser): Part[] {
   ]
 }
 
-function assistantMessage(sessionID: string, parentID: string, message: SessionMessageAssistant): AssistantMessage {
+function assistantMessage(
+  sessionID: string,
+  parentID: string | undefined,
+  message: SessionMessageAssistant,
+): AssistantMessage {
   const error = message.error
     ? message.error.type.toLowerCase().includes("abort") || message.error.type.toLowerCase().includes("interrupt")
       ? { name: "MessageAbortedError" as const, data: { message: message.error.message } }
@@ -242,7 +248,9 @@ function assistantMessage(sessionID: string, parentID: string, message: SessionM
     role: "assistant",
     time: message.time,
     error,
-    parentID,
+    // [论文助手定制] parentID 缺失时回退到自身 id（SDK 类型要求必填 string），
+    // 保证无父 user 的 assistant 消息也能正常挂载展示。
+    parentID: parentID ?? message.id,
     modelID: message.model.id,
     providerID: message.model.providerID,
     variant: message.model.variant,

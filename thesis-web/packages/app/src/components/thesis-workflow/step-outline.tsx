@@ -13,6 +13,7 @@ import { useThesisKnowledge } from "./thesis-knowledge-store"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { ThesisKnowledgePanel } from "./thesis-knowledge-panel"
 import { useThesisWorkflow } from "./thesis-workflow-store"
+import { useThesisLive } from "./thesis-live-store"
 import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 
@@ -34,8 +35,10 @@ type DirectionKey = (typeof DIRECTIONS)[number]["key"]
 
 export function StepOutline() {
   const sdk = useSDK()
-  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID } =
+  const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } =
     useThesisWorkflow()
+  // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
+  const live = useThesisLive()
   const generator = useThesisGenerator()
   // [论文助手定制] 文稿文件化：生成完成后把正文写入项目「正文/提纲.md」。
   const manuscript = useThesisManuscriptFile(sdk().directory)
@@ -158,12 +161,14 @@ export function StepOutline() {
         // [论文助手定制] 边生成边显示：把当前已生成的文本实时写入 store.progress。
         // [论文助手定制] 方案 B：会话写进「提纲助手」自己的 StepState（每步独立会话）。
         onSessionCreated: (id) => setStepSessionID("outline", id),
-        onProgress: (partial) => setStepProgress("outline", partial),
+        onProgress: (partial) => live.setStepProgress("outline", partial),
       })
       setStepSessionID("outline", sessionID)
       // [论文助手定制] 落盘：提纲正文写入 正文/提纲.md（文稿视图随后从文件读取）。
       await manuscript.save("outline", text)
       setStepResult("outline", text)
+      // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
+      live.clearStepProgress("outline")
       showToast({ variant: "success", icon: "circle-check", title: "提纲已生成" })
     } catch {
       setStepStatus("outline", outline().result ? "done" : "idle")
@@ -275,7 +280,7 @@ export function StepOutline() {
         <StepProductPanel
           title="分章节综述大纲"
           status={outline().status}
-          progressText={outline().progress}
+          progressText={live.progress().outline}
           result={outline().result}
           onExportDocx={() => void exportDocx(outline().result ?? "")}
           onExportPdf={() => void exportPdf(outline().result ?? "")}

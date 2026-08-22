@@ -118,9 +118,11 @@ function NewEntryDialog(props: { kind: "folder" | "file"; onDone: (name: string)
     <Dialog
       title={isFolder ? "新建文件夹" : "新建文件"}
       description={isFolder ? "支持多级路径，如 资料/图片" : "支持子目录路径，如 摘要/结论.md"}
+      // [论文助手定制] fit：弹窗高度贴合表单内容，消除下方大片空白（默认 normal 尺寸过高）。
+      fit
     >
       <form
-        class="flex w-[420px] max-w-full flex-col gap-4 px-2.5 pb-4"
+        class="mx-auto flex w-[420px] max-w-full flex-col gap-4 px-2.5 pb-4"
         onSubmit={(event) => {
           event.preventDefault()
           if (name().trim()) {
@@ -180,8 +182,10 @@ function DeleteEntryDialog(props: { path: string; name: string; isDir: boolean; 
     <Dialog
       title="删除确认"
       description={`确定删除「${props.name}」吗？${props.isDir ? "文件夹内的内容将一并删除，" : ""}删除后不可恢复。`}
+      // [论文助手定制] fit：弹窗高度贴合内容，与新建弹窗视觉一致，消除下方空白。
+      fit
     >
-      <div class="flex w-[420px] max-w-full flex-col gap-3 px-2.5 pb-4">
+      <div class="mx-auto flex w-[420px] max-w-full flex-col gap-3 px-2.5 pb-4">
         <Show when={error()}>
           <div class="text-13-regular text-icon-critical-base">{error()}</div>
         </Show>

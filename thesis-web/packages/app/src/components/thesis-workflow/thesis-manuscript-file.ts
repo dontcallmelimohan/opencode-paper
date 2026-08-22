@@ -34,6 +34,23 @@ export function useThesisManuscriptFile(directory: string) {
     void queryClient.invalidateQueries({ queryKey: ["thesis", "manuscript", directory] })
   }
 
+  // [论文助手定制] 通用文件落盘：把任意相对路径的正文写入项目文件空间（如 docs/独立文档.md）。
+  // 复用 thesisWriteFile（后端 fs.writeWithDirs 自动创建父目录，如 docs/），与板块文稿
+  // thesisSaveManuscript 的区别：不限定固定 step 名，可写任意路径，用于「独立文档」载体。
+  // 落盘成功后同样让该项目的文稿 query 失效，文件空间与画布下拉联动刷新。
+  const saveFile = async (relPath: string, content: string) => {
+    if (!content?.trim()) return
+    const proj = await resolveProject()
+    if (!proj) return
+    const res = await sdk().client.instance.thesisWriteFile({
+      projectID: proj.id,
+      path: relPath,
+      content,
+    })
+    if (res.error) return
+    void queryClient.invalidateQueries({ queryKey: ["thesis", "manuscript", directory] })
+  }
+
   // [论文助手定制] 读文件：返回项目根目录 <step>.md 的文本内容（文件不存在时为 undefined）。
   // 用函数式 createQuery（而非对象字面量），与项目内 createQuery(() => ({...})) 的既有用法保持一致。
   const read = (step: ManuscriptStep) =>
@@ -48,5 +65,5 @@ export function useThesisManuscriptFile(directory: string) {
       },
     }))
 
-  return { save, read, filename: (step: ManuscriptStep) => MANUSCRIPT_FILENAMES[step] }
+  return { save, saveFile, read, filename: (step: ManuscriptStep) => MANUSCRIPT_FILENAMES[step] }
 }

@@ -43,6 +43,11 @@ export function waitForAssistantReply(
     // 才判定整轮结束（避免中途拿到空文本或“好的，我来处理”这类半截话）。
     let stableTicks = 0
     let lastCandidate: { id: string; text: string } | undefined
+    // [论文助手定制] 上一轮已回调的文本：文本没变化就不重复回调（避免流式期间高频触发 live store 更新）。
+    let lastEmittedText: string | undefined
+    // [论文助手定制] 无 finish 兜底辅助：候选消息是否含 tool part（工具调用步骤没有正文，
+    // 不能按“文本稳定”提前结束，须等后续最终文本消息出现或覆盖它）。
+    const hasToolPart = (m: { content?: readonly { type: string }[] }) => (m.content ?? []).some((p) => p.type === "tool")
     const finish = (text?: string, error?: Error) => {
       if (settled) return
       settled = true
@@ -77,16 +82,27 @@ export function waitForAssistantReply(
               return typeof delta === "string" && delta.length > current.length ? delta : current
             })
             .join("") || inlineText
-        onProgress?.(text)
+        // [论文助手定制] 文本变化判断：与上一轮相同则跳过回调，不触发 live store 更新。
+        if (onProgress && text !== lastEmittedText) {
+          lastEmittedText = text
+          onProgress(text)
+        }
         if (message.error) {
           finish(undefined, new Error(message.error.message ?? "模型返回错误"))
           return
         }
-        // [论文助手定制] 还在流式输出（没 finish）→ 下一轮再查。
-        if (!(message.finish || message.time.completed)) break
-        // [论文助手定制] 已 finish 但不是会话最后一条 → 中间的工具调用步骤，
+        // [论文助手定制] 完成判定：
+        // 显式 finish/time.completed 视为完成信号；个别协议不写 finish 时，若当前候选是
+        // 「最后一条 assistant 消息、文本非空、且 content 不含 tool part」，也按
+        // “连续 8 轮文本与 id 均不变”判定完成（约 3.2s 稳定），避免等到 10 分钟超时。
+        const explicitDone = !!(message.finish || message.time.completed)
+        const isLast = index === messages.length - 1
+        const fallbackEligible = isLast && !!text.trim() && !hasToolPart(message)
+        // [论文助手定制] 既无显式完成、也不满足兜底条件 → 还在流式输出，下一轮再查。
+        if (!explicitDone && !fallbackEligible) break
+        // [论文助手定制] 显式完成但不是会话最后一条 → 中间的工具调用步骤，
         // 等后续的工具结果/最终文本消息出现。
-        if (index !== messages.length - 1) {
+        if (explicitDone && !isLast) {
           lastCandidate = undefined
           stableTicks = 0
           break
@@ -97,10 +113,12 @@ export function waitForAssistantReply(
           stableTicks = 0
           break
         }
-        // [论文助手定制] 最后一条且文本非空：连续两轮（id 与文本都不变）才算稳定结束。
+        // [论文助手定制] 最后一条且文本非空：显式完成时连续 2 轮（id 与文本都不变）即结束；
+        // 无 finish 兜底时需连续 8 轮（约 3.2s 稳定）确认文本不再增长。
+        const stableThreshold = explicitDone ? 2 : 8
         if (lastCandidate?.id === message.id && lastCandidate.text === text) {
           stableTicks += 1
-          if (stableTicks >= 2) {
+          if (stableTicks >= stableThreshold) {
             finish(text)
             return
           }
@@ -110,7 +128,7 @@ export function waitForAssistantReply(
         }
         break
       }
-    }, 150)
+    }, 400)
   })
 }
 

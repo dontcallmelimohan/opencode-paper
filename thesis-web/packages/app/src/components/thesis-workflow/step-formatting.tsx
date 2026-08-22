@@ -11,6 +11,7 @@ import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
+import { useThesisLive } from "./thesis-live-store"
 import { InputSourceSelect, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport, useThesisProject } from "./thesis-export"
 import { showToast } from "@/utils/toast"
@@ -122,8 +123,10 @@ const mimeForSource = (path: string): string => {
 
 export function StepFormatting() {
   const sdk = useSDK()
-  const { state, updateInput, setStepStatus, setStepProgress, setStepResult, setStepSessionID } =
+  const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } =
     useThesisWorkflow()
+  // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
+  const live = useThesisLive()
   const generator = useThesisGenerator()
   // [论文助手定制] 上传模板：解析当前论文项目拿 projectID（复用文件空间的上传接口 thesisUpload）。
   const resolveProject = useThesisProject()
@@ -408,13 +411,15 @@ export function StepFormatting() {
         // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
         // [论文助手定制] 方案 B：会话写进「论文排版」自己的 StepState（每步独立会话）。
         onSessionCreated: (id) => setStepSessionID("formatting", id),
-        onProgress: (partial) => setStepProgress("formatting", partial),
+        onProgress: (partial) => live.setStepProgress("formatting", partial),
       })
       setStepSessionID("formatting", sessionID)
       if (input().skills.length > 0) {
         // [论文助手定制] Skill 路径：Skill 自己把排版文件写进项目（docx/pdf 由 Skill 脚本直接产出），
         // 会话回复只是汇报文字——不覆盖排版稿.md、不二次导出；产物在「文件空间」查看。
         setStepResult("formatting", text)
+        // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
+        live.clearStepProgress("formatting")
         showToast({
           variant: "success",
           icon: "circle-check",
@@ -427,6 +432,8 @@ export function StepFormatting() {
       // （docx 有模板时后端 applyDocxTemplate 把正文插进模板，保留页眉/页脚/页面设置）。
       await manuscript.save("formatting", text)
       setStepResult("formatting", text)
+      // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
+      live.clearStepProgress("formatting")
       // [论文助手定制] 按所选排版文件格式自动交付：
       // md=只保存 Markdown 排版稿；docx/pdf=保存排版稿后自动导出对应文件（导出引擎会弹成功提示）。
       if (input().outputFormat === "docx") {
@@ -828,7 +835,7 @@ export function StepFormatting() {
         <StepProductPanel
           title="排版后的最终稿"
           status={formatting().status}
-          progressText={formatting().progress}
+          progressText={live.progress().formatting}
           result={formatting().result}
           onExportDocx={() => void exportDocx(formatting().result ?? "")}
           onExportPdf={() => void exportPdf(formatting().result ?? "")}

@@ -16,6 +16,7 @@ import { StepOutline } from "@/components/thesis-workflow/step-outline"
 import { StepReview } from "@/components/thesis-workflow/step-review"
 import { StepWriting } from "@/components/thesis-workflow/step-writing"
 import { ThesisKnowledgeProvider } from "@/components/thesis-workflow/thesis-knowledge-store"
+import { ThesisLiveProvider } from "@/components/thesis-workflow/thesis-live-store"
 import { useThesisManuscriptFile } from "@/components/thesis-workflow/thesis-manuscript-file"
 import { useThesisProject } from "@/components/thesis-workflow/thesis-export"
 import { usePersistentWidth } from "@/components/thesis-workflow/thesis-panel-layout"
@@ -30,11 +31,13 @@ export default function ThesisWorkbenchPage() {
   const sdk = useSDK()
   const directory = () => sdk().directory
   return (
-    // [论文助手定制] 每篇论文一份工作流状态 + 知识库（都按工作区路径隔离）。
+    // [论文助手定制] 每篇论文一份工作流状态 + 知识库 + 流式 progress（都按工作区路径隔离）。
     <ThesisWorkflowProvider directory={directory()}>
-      <ThesisKnowledgeProvider directory={directory()}>
-        <ThesisWorkbenchInner />
-      </ThesisKnowledgeProvider>
+      <ThesisLiveProvider>
+        <ThesisKnowledgeProvider directory={directory()}>
+          <ThesisWorkbenchInner />
+        </ThesisKnowledgeProvider>
+      </ThesisLiveProvider>
     </ThesisWorkflowProvider>
   )
 }
