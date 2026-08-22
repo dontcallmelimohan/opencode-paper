@@ -3,11 +3,12 @@
 import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
-import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
+import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { PromptInputV2SkillsMenu } from "@opencode-ai/session-ui/v2/prompt-input"
-import { createEffect, createResource, createSignal, For, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Show, type JSX } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { MANUSCRIPT_FILENAMES, useThesisManuscriptFile, type ManuscriptStep } from "./thesis-manuscript-file"
@@ -32,25 +33,38 @@ export const promptToolRestriction = (useTools: boolean): string =>
     ? "允许在必要时调用工具（如读取文件、执行脚本）完成任务，但工具调用本身不要以 <tool_calls> 等 XML 形式出现在最终结果中；"
     : "严禁调用任何工具、skill、文件读取或外部命令，不要输出 <tool_calls> 等 XML 标记；"
 
-export function StepLayout(props: { form: JSX.Element; product: JSX.Element }) {
+export function StepLayout(props: {
+  form: JSX.Element
+  product: JSX.Element
+  // [论文助手定制] 配置面板左侧列形态（弱化配置，不遮挡文稿/会话界面）：
+  // collapsed=false 时左侧为可拖拽表单列（与右侧产物 flex-1 并排，无 Portal/fixed 浮层遮罩）；
+  // collapsed=true 时左侧收为窄轨（约 w-11），内部 StepFormPanel 显示收起齿轮点击展开。
+  collapsed?: boolean
+  onExpand?: () => void
+}) {
   // [论文助手定制] 可拖拽布局：左侧「输入表单」宽度可拖拽调整（默认 340，范围 240~560，
   // localStorage 记住），右侧「产物」面板自动占满剩余空间。
   const formWidth = usePersistentWidth("thesis-workbench.formWidth", 340)
   return (
     <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-2 md:flex-row">
-      <div class="relative flex w-full shrink-0 md:w-auto" style={{ width: `min(${formWidth.width()}px, 100%)` }}>
-        {/* [论文助手定制] 修复滚动：内层必须是 flex-1 + min-h-0 + overflow-y-auto，
-            否则高度跟随内容（auto）撑开，overflow-y-auto 永不触发，配置面板就无法上下滚动。 */}
-        <div class="min-h-0 flex-1 overflow-y-auto">{props.form}</div>
-        <ResizeHandle
-          direction="horizontal"
-          edge="end"
-          size={formWidth.width()}
-          min={240}
-          max={560}
-          onResize={formWidth.setWidth}
-        />
-      </div>
+      <Show
+        when={!props.collapsed}
+        fallback={null}
+      >
+        <div class="relative flex w-full shrink-0 md:w-auto" style={{ width: `min(${formWidth.width()}px, 100%)` }}>
+          {/* [论文助手定制] 修复滚动：内层必须是 flex-1 + min-h-0 + overflow-y-auto，
+              否则高度跟随内容（auto）撑开，overflow-y-auto 永不触发，配置面板就无法上下滚动。 */}
+          <div class="min-h-0 flex-1 overflow-y-auto">{props.form}</div>
+          <ResizeHandle
+            direction="horizontal"
+            edge="end"
+            size={formWidth.width()}
+            min={240}
+            max={560}
+            onResize={formWidth.setWidth}
+          />
+        </div>
+      </Show>
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">{props.product}</div>
     </div>
   )
@@ -63,9 +77,14 @@ export function StepFormPanel(props: {
   subtitle?: string
   children: JSX.Element
   footer?: JSX.Element
+  collapsed?: boolean
+  collapsedSummary?: string
 }) {
   return (
     <div class="flex h-full min-h-0 flex-col gap-3 overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-3 shadow-[var(--v2-elevation-raised)]">
+      {/* [论文助手定制] 配置面板头部只保留标题/副标题；
+          打开/收起配置面板的按钮已移到右侧产物面板标题栏（StepProductPanel），
+          否则面板收起后按钮也跟着消失、配置将无法再展开。 */}
       <div>
         <Show when={props.stepLabel}>
           <div class="text-11-regular text-v2-text-text-accent">{props.stepLabel}</div>
@@ -75,10 +94,15 @@ export function StepFormPanel(props: {
           <div class="text-12-regular text-v2-text-text-faint">{props.subtitle}</div>
         </Show>
       </div>
-      {/* [论文助手定制] 修复按钮重叠：配置内容超高时必须在自己区域内滚动（overflow-y-auto），
-          否则内容会溢出到下方 footer（生成/下一步按钮）区域，视觉上与按钮重叠。 */}
-      <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">{props.children}</div>
-      <Show when={props.footer}>{props.footer}</Show>
+      <Show
+        when={!props.collapsed}
+        fallback={null}
+      >
+        {/* [论文助手定制] 修复按钮重叠：配置内容超高时必须在自己区域内滚动（overflow-y-auto），
+            否则内容会溢出到下方 footer（生成/下一步按钮）区域，视觉上与按钮重叠。 */}
+        <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">{props.children}</div>
+        <Show when={props.footer}>{props.footer}</Show>
+      </Show>
     </div>
   )
 }
@@ -163,6 +187,11 @@ const SUGGESTION_PROMPTS: Record<string, (text: string) => string> = {
     `请将下面这段论文文稿压缩得更精炼，保留核心信息与论点，保持学术语气。只输出压缩后的段落本身，不要任何解释。\n\n${t}`,
 }
 
+// [论文助手定制] 选区改写剥离会话：模块级唯一「编辑 session」，不写任何板块的 sessionID。
+// 复用工作区首次创建的独立 session，后续改写请求都走它，避免改写消息混入板块会话的对话流
+// （板块会话只承载「生成」相关轮次，选区改写是独立编辑操作，本不该出现在会话记录里）。
+let editSessionID: string | null = null
+
 export function StepProductPanel(props: {
   title: string
   status: StepStatus
@@ -175,14 +204,20 @@ export function StepProductPanel(props: {
   onExportPdf?: () => void
   // [论文助手定制] 可选自定义产物渲染（如评审报告的结构化展示），默认 Markdown。
   render?: (result: string) => JSX.Element
+  // [论文助手定制] 标题栏动作插槽：与状态徽章同一行右侧区渲染（各 step 传入「生成/重新生成」主按钮 +「配置」按钮）。
+  titleActions?: JSX.Element
   // [论文助手定制] 文稿文件化：传入步骤名与项目目录后，完成态从项目根目录「<step>.md」文件读取渲染，
   // 生成中仍用流式 progress 实时显示；文件缺失时回退显示 result（与文件内容一致）。
   manuscript?: { directory: string; step: ManuscriptStep }
+  // [论文助手定制] 配置面板开合状态 + 切换回调：按钮放在产物标题栏（文稿界面），
+  // 而不是配置面板自身头部——面板收起后按钮依然可见，随时可以再展开配置。
+  configOpen?: boolean
+  onToggleConfig?: () => void
 }) {
   // [论文助手定制] 产物区域顶部加「文稿 / 会话」切换：会话视图在同一个位置显示会话聊天记录，
   // 生成过程中可以来回切换看“文稿进度”和“对话过程”。
   // 视图状态放到 workflow store（productView），侧边栏「会话记录」点击后能直接切到右侧会话界面。
-  const { state, setProductView, setDisplaySession, setStepResult, setStepSessionID } = useThesisWorkflow()
+  const { state, setProductView, setDisplaySession, setStepResult, setCurrentArtifact, markTurn, consumeTurn } = useThesisWorkflow()
   const sdk = useSDK()
   const sync = useSync()
   // [论文助手定制] 文稿文件化：编辑保存 / 接受建议时落盘到项目根目录 <step>.md（与「存为当前文稿」同一链路）。
@@ -194,8 +229,19 @@ export function StepProductPanel(props: {
   const [viewPath, setViewPath] = createSignal<string | null>(null)
   // [论文助手定制] 导出下拉菜单展开状态（统一「导出」按钮：md / word / pdf 三种格式）。
   const [exportMenuOpen, setExportMenuOpen] = createSignal(false)
-  const currentPath = () =>
-    viewPath() ?? (props.manuscript ? MANUSCRIPT_FILENAMES[props.manuscript.step] : null)
+  const artifactOptions = () =>
+    state().artifacts.filter((artifact) => artifact.kind === "scratch" || (props.manuscript && artifact.kind === "step" && artifact.step === props.manuscript.step))
+  const currentArtifact = () => {
+    const selected = state().currentArtifactID
+    if (!selected) return null
+    return state().artifacts.find((artifact) => artifact.id === selected) ?? null
+  }
+  const currentPath = () => {
+    const selectedArtifact = currentArtifact()
+    if (selectedArtifact?.kind === "scratch") return `docs/${selectedArtifact.fileName}`
+    if (selectedArtifact?.kind === "step" && selectedArtifact.step && selectedArtifact.fileName) return selectedArtifact.fileName
+    return viewPath() ?? (props.manuscript ? MANUSCRIPT_FILENAMES[props.manuscript.step] : null)
+  }
   // [论文助手定制] 独立文档落盘版本号：docs/ 独立文档 saveFile 成功后 bump，并入 fileContent source，
   // 保证独立文档编辑落盘后文稿视图自动重读文件（独立文档没有对应的 step updatedAt）。
   const [docsVersion, setDocsVersion] = createSignal(0)
@@ -350,6 +396,17 @@ export function StepProductPanel(props: {
   const editorApiRef: { current: ThesisEditorApi | undefined } = { current: undefined }
   // historyVersion 只用于驱动撤销/重做按钮禁用态刷新（Solid 不追踪非信号引用变化）。
   const [historyVersion, setHistoryVersion] = createSignal(0)
+  // [论文助手定制] 撤销/重做按钮可用态：Solid 不会追踪 editorApiRef.current（普通对象引用），
+  // 所以用 historyVersion 作响应式依赖——编辑器就绪、每次编辑/替换/撤销/重做都会 bump 版本号，
+  // 触发这两个 memo 重算，按钮禁用态才能实时刷新（否则首次渲染后永远停在初始 disabled 状态）。
+  const canUndo = createMemo(() => {
+    historyVersion()
+    return editorApiRef.current?.canUndo() ?? false
+  })
+  const canRedo = createMemo(() => {
+    historyVersion()
+    return editorApiRef.current?.canRedo() ?? false
+  })
   const [suggesting, setSuggesting] = createSignal(false)
   const [suggestError, setSuggestError] = createSignal<string | null>(null)
   // [论文助手定制] 撤销浮条：AI 替换完成后短暂显示，点击「撤销」走编辑器 history 回退。
@@ -433,8 +490,8 @@ export function StepProductPanel(props: {
     if (!opts?.silent) showToast({ variant: "success", icon: "circle-check", title: "文稿已保存" })
   }
 
-  // [论文助手定制] 段落级 AI 建议：复用板块专属会话发送指令 prompt 并同步拿回复；
-  // 无板块会话时自动创建；回复无效时按「未返回有效建议」处理。
+  // [论文助手定制] 段落级 AI 建议：作为独立编辑操作走独立编辑 session（editSessionID，
+  // 首次自动创建，之后复用），不读不写任何板块 sessionID，不进板块会话的对话流。
   // customPrompt（可选）：改写/润色时用户在输入框填的具体要求，并入指令一起发给模型。
   const askSuggestion = async (
     kind: "rewrite" | "expand" | "polish" | "shorten",
@@ -451,25 +508,25 @@ export function StepProductPanel(props: {
       const instruction = customPrompt?.trim()
         ? `${SUGGESTION_PROMPTS[kind](sel.text)}\n\n额外要求：${customPrompt.trim()}`
         : SUGGESTION_PROMPTS[kind](sel.text)
-      // [论文助手定制] 无板块专属会话时自动创建并写回 store（与 thesis-generator 同一链路），
-      // 用户不需要先手动对话一次才能用段落建议。
-      let sessionId = state().steps[step].sessionID
-      if (!sessionId) {
+      // [论文助手定制] 选区改写剥离会话：复用模块级 editSessionID（首次自动创建），
+      // 不读不写任何板块的 sessionID——改写是独立编辑操作，不进板块会话的对话流。
+      if (!editSessionID) {
         const created = await sdk().api.session.create({ location: { directory: sdk().directory } })
-        sessionId = created.id
-        setStepSessionID(step, sessionId)
+        editSessionID = created.id
       }
       // [论文助手定制] 主动 sync：工作台没打开会话页时，必须 sync 后 SSE 事件才会写入 store，
       // waitForAssistantReply 轮询才能读到回复（与 thesis-generator 一致）。
-      await sync().session.sync(sessionId).catch(() => {})
-      const before = (sync().data.session_message[sessionId] ?? []).length
+      await sync().session.sync(editSessionID).catch(() => {})
+      const before = (sync().data.session_message[editSessionID] ?? []).length
+      markTurn(editSessionID, { target: "selection", artifactID: state().currentArtifactID ?? undefined, selection: sel.text })
       const res = await sdk().client.session.promptAsync({
-        sessionID: sessionId,
+        sessionID: editSessionID,
         directory: sdk().directory,
         parts: [{ type: "text", text: instruction }],
       })
       if (res.error) throw res.error
-      const text = (await waitForAssistantReply(sync, sessionId, before)).trim()
+      const text = (await waitForAssistantReply(sync, editSessionID, before)).trim()
+      consumeTurn(editSessionID)
       if (!text) {
         setSuggestError("模型未返回有效建议，请重试")
         return
@@ -588,6 +645,11 @@ export function StepProductPanel(props: {
             </span>
           </Show>
         </span>
+        {/* [论文助手定制] 标题栏动作插槽：与状态徽章同一行右侧区，保持 shrink-0。
+            各 step 传「生成/重新生成」主按钮 +「配置」按钮（配置面板浮窗化的高频入口）。 */}
+        <Show when={props.titleActions}>
+          <div class="flex shrink-0 items-center gap-2">{props.titleActions}</div>
+        </Show>
         {/* [论文助手定制] 统一「导出」下拉：Markdown（下载）/ Word / PDF（走各板块导出回调）。 */}
         <Show when={(props.onExportDocx || props.onExportPdf) && props.result && props.status === "done"}>
           <DropdownMenu
@@ -629,11 +691,33 @@ export function StepProductPanel(props: {
         {/* [论文助手定制] 文稿文件切换：默认当前板块文稿文件（提纲.md 等），
             可切换到文件空间里其它 .md/.txt 文本文件查看内容（docs/ 独立文档可编辑，其余只读）。
             编辑态隐藏。 */}
+        <Show when={artifactOptions().length > 0}>
+          <select
+            class="h-7 w-44 shrink-0 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none"
+            value={state().currentArtifactID ?? ""}
+            onChange={(event) => {
+              const next = event.currentTarget.value || null
+              setCurrentArtifact(next)
+              setViewPath(null)
+            }}
+          >
+            <For each={artifactOptions()}>
+              {(artifact) => (
+                <option value={artifact.id}>
+                  {artifact.kind === "scratch" ? `[独立] ${artifact.title}` : artifact.title}
+                </option>
+              )}
+            </For>
+          </select>
+        </Show>
         <Show when={props.manuscript && textFiles() && textFiles()!.length > 0}>
           <select
             class="h-7 w-44 shrink-0 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none"
-            value={currentPath() ?? ""}
-            onChange={(event) => setViewPath(event.currentTarget.value || null)}
+            value={viewPath() ?? currentPath() ?? ""}
+            onChange={(event) => {
+              setViewPath(event.currentTarget.value || null)
+              if (state().currentArtifactID) setCurrentArtifact(null)
+            }}
           >
             <For each={textFiles()}>
               {(node) => (
@@ -677,6 +761,8 @@ export function StepProductPanel(props: {
             会话
           </button>
         </div>
+        {/* [论文助手定制] 配置入口已移到侧边栏顶部，不再在产物标题栏重复出现；
+            这样配置始终与左侧面板的层级一致，且收起状态不再留下额外占位。 */}
       </div>
       <Show
         when={view() !== "session"}
@@ -727,7 +813,7 @@ export function StepProductPanel(props: {
                   <div class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
                     <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
                     <div class="text-12-regular text-v2-text-text-faint">
-                      模型正在输出，正文会实时显示在这里…
+                      模型正在输出…
                     </div>
                   </div>
                 </Show>
@@ -817,7 +903,7 @@ export function StepProductPanel(props: {
                     style={{ left: `${floatAnchor()?.x ?? 8}px`, top: `${floatAnchor()?.y ?? 8}px` }}
                   >
                     <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
-                    生成建议中…
+                    AI编辑中…
                   </div>
                 </Show>
                 <Show when={suggestError()}>
@@ -853,7 +939,7 @@ export function StepProductPanel(props: {
                     type="button"
                     variant="ghost"
                     size="small"
-                    disabled={!editorApiRef.current?.canUndo()}
+                    disabled={!canUndo()}
                     onClick={() => undoReplace()}
                     title="撤销 (Cmd/Ctrl+Z)"
                   >
@@ -863,7 +949,7 @@ export function StepProductPanel(props: {
                     type="button"
                     variant="ghost"
                     size="small"
-                    disabled={!editorApiRef.current?.canRedo()}
+                    disabled={!canRedo()}
                     onClick={() => redoReplace()}
                     title="重做 (Cmd/Ctrl+Shift+Z)"
                   >

@@ -6,7 +6,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { TextField } from "@opencode-ai/ui/text-field"
 // [论文助手定制] 真实调用 Skill：file part 的文件名解析工具。
 import { getFilename } from "@opencode-ai/core/util/path"
-import { createResource, createSignal, For, Show } from "solid-js"
+import { createEffect, createResource, createSignal, For, Show } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
@@ -121,8 +121,14 @@ const mimeForSource = (path: string): string => {
   return "text/plain"
 }
 
-export function StepFormatting() {
+export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: () => void; onSetConfigOpen?: (next: boolean) => void }) {
   const sdk = useSDK()
+  const [localConfigOpen, setLocalConfigOpen] = createSignal(true)
+  const configOpen = () => props?.configOpen ?? localConfigOpen()
+  const setConfigOpen = (next: boolean) => {
+    if (props?.onSetConfigOpen) props.onSetConfigOpen(next)
+    else setLocalConfigOpen(next)
+  }
   const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } =
     useThesisWorkflow()
   // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
@@ -163,6 +169,11 @@ export function StepFormatting() {
   const { exportPdf } = useThesisPdfExport("排版稿")
   const formatting = () => state().steps.formatting
   const input = () => formatting().input
+  const configSummary = () => {
+    const values = input()
+    const summary = [values.outputFormat.toUpperCase(), values.templateMode === "upload" ? "模板已选" : "手动参数", values.journal.trim() || "未指定期刊"]
+    return summary.join(" · ")
+  }
   const sourcePaper = () => state().steps.writing.result ?? ""
 
   // [论文助手定制] 文件来源模式的文件清单：递归枚举文件空间（最多 3 层、排除隐藏项），
@@ -388,6 +399,19 @@ export function StepFormatting() {
     return attachments
   }
 
+  // [论文助手定制] 配置面板浮窗化·自动开合：首次进入（idle）自动弹出配置抽屉；
+  // 生成中自动收起（产物全宽，配置弱化为首次生成时的浮窗填写）。
+  let autoOpened = false
+  createEffect(() => {
+    const st = formatting().status
+    if (st === "idle" && !autoOpened) {
+      setConfigOpen(true)
+      autoOpened = true
+    } else if (st === "generating") {
+      setConfigOpen(false)
+    }
+  })
+
   const generate = async () => {
     if (generator.generating()) return
     setStepStatus("formatting", "generating")
@@ -418,6 +442,7 @@ export function StepFormatting() {
         // [论文助手定制] Skill 路径：Skill 自己把排版文件写进项目（docx/pdf 由 Skill 脚本直接产出），
         // 会话回复只是汇报文字——不覆盖排版稿.md、不二次导出；产物在「文件空间」查看。
         setStepResult("formatting", text)
+        setConfigOpen(false)
         // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
         live.clearStepProgress("formatting")
         showToast({
@@ -432,6 +457,7 @@ export function StepFormatting() {
       // （docx 有模板时后端 applyDocxTemplate 把正文插进模板，保留页眉/页脚/页面设置）。
       await manuscript.save("formatting", text)
       setStepResult("formatting", text)
+      setConfigOpen(false)
       // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
       live.clearStepProgress("formatting")
       // [论文助手定制] 按所选排版文件格式自动交付：
@@ -452,10 +478,15 @@ export function StepFormatting() {
 
   return (
     <StepLayout
+      // [论文助手定制] 配置面板左侧列形态（弱化配置）：collapsed=收起为左侧窄轨；
+      // 展开时左侧为可拖拽表单列，与右侧产物并排，不遮挡文稿/会话界面，onExpand 展开。
+      collapsed={!configOpen()}
+      onExpand={() => setConfigOpen(true)}
       form={
         <StepFormPanel
           title="论文排版"
-          subtitle="独立模块：按选定排版来源与格式要求整理最终稿。"
+          collapsed={!configOpen()}
+          collapsedSummary={configSummary()}
           footer={
             <Button type="button" variant="primary" icon="layout-left" disabled={generator.generating()} onClick={() => void generate()}>
               {generator.generating() ? "生成中…" : "生成排版稿"}
@@ -545,7 +576,7 @@ export function StepFormatting() {
           {/* [论文助手定制] 方案 B：排版源稿来源（auto/manual/file/none），
               不再强制依赖辅助写作先完成；file=从文件空间选择已上传的文件。 */}
           <InputSourceSelect
-            label="排版来源"
+            label="内容来源"
             value={input().paperSource}
             onChange={(value) => updateInput("formatting", { paperSource: value })}
             autoLabel="自动使用辅助写作的全文稿"
@@ -575,7 +606,7 @@ export function StepFormatting() {
                 <option value="">请选择文件…</option>
                 <For each={sourceFiles() ?? []}>{(file) => <option value={file}>{file}</option>}</For>
               </select>
-              <div class="text-11-regular text-v2-text-text-faint">支持 md/txt/docx/pdf/tex 等，选中的文件会作为附件交给模型排版。</div>
+              <div class="text-11-regular text-v2-text-text-faint">支持 md/txt/docx/pdf/tex 等</div>
             </section>
           </Show>
           {/* [论文助手定制] 有模板时由模板决定版式与规范，隐藏内容级配置（目标期刊/论文类型/参考文献格式/标题层级/排版风格/额外要求），
@@ -839,8 +870,22 @@ export function StepFormatting() {
           result={formatting().result}
           onExportDocx={() => void exportDocx(formatting().result ?? "")}
           onExportPdf={() => void exportPdf(formatting().result ?? "")}
-          emptyHint="设定排版要求后点击「生成排版稿」，最终稿会显示在这里。"
+          // [论文助手定制] 产物标题栏动作：保留生成/重新生成主按钮（配置入口已移至左侧表单列/窄轨齿轮）。
+          titleActions={
+            <Button
+              type="button"
+              variant="primary"
+              icon="layout-left"
+              disabled={generator.generating()}
+              onClick={() => void generate()}
+            >
+              {generator.generating() ? "生成中…" : formatting().status === "done" ? "重新生成" : "生成排版稿"}
+            </Button>
+          }
+          emptyHint="「生成排版稿」"
           manuscript={{ directory: sdk().directory, step: "formatting" }}
+          configOpen={configOpen()}
+          onToggleConfig={() => setConfigOpen(!configOpen())}
         />
       }
     />

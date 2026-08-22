@@ -27,8 +27,10 @@ const STEPS = [
 export function ThesisStepSidebar(props: {
   title: string
   hasProject: boolean
+  configOpen?: boolean
   onHome: () => void
   onCollapse: () => void
+  onToggleConfig?: () => void
   onUpload: () => void
 }) {
   // [论文助手定制] 会话记录联动：点击会话记录条目后在右侧产物面板显示该会话。
@@ -99,6 +101,15 @@ export function ThesisStepSidebar(props: {
         >
           主页
         </Button>
+        <IconButton
+          type="button"
+          icon="settings-gear"
+          variant="ghost"
+          size="small"
+          aria-label={props.configOpen ? "收起配置面板" : "打开设置"}
+          title={props.configOpen ? "收起配置面板" : "打开设置"}
+          onClick={props.onToggleConfig}
+        />
         <IconButton
           type="button"
           icon="collapse"

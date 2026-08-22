@@ -12,7 +12,7 @@
 // （快捷键 Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z 自带）；「被修改文本段淡黄高亮」用自定义 ProseMirror 插件的
 // DecorationSet 实现（纯展示层，不进文档、不污染 Markdown），选区移出高亮区间时自动清除。
 import { onCleanup, onMount } from "solid-js"
-import { Editor, defaultValueCtx, editorViewCtx, parserCtx, rootCtx } from "@milkdown/kit/core"
+import { Editor, defaultValueCtx, editorStateOptionsCtx, editorViewCtx, parserCtx, rootCtx } from "@milkdown/kit/core"
 import { commonmark } from "@milkdown/kit/preset/commonmark"
 import { gfm } from "@milkdown/kit/preset/gfm"
 import { history } from "@milkdown/kit/plugin/history"
@@ -20,6 +20,7 @@ import { listener, listenerCtx } from "@milkdown/kit/plugin/listener"
 import { trailing } from "@milkdown/kit/plugin/trailing"
 import { Plugin, PluginKey, TextSelection } from "@milkdown/kit/prose/state"
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view"
+import type { Node as ProseMirrorNode } from "@milkdown/kit/prose/model"
 import type { EditorView } from "@milkdown/kit/prose/view"
 import { redo as prosemirrorRedo, undo as prosemirrorUndo, undoDepth, redoDepth } from "@milkdown/kit/prose/history"
 
@@ -54,8 +55,23 @@ export interface ThesisEditorProps {
   apiRef?: { current: ThesisEditorApi | undefined }
 }
 
-// [论文助手定制] AI 修改段高亮：淡黄背景的 inline decoration，存于插件状态（不进文档）。
+// [论文助手定制] AI 修改段高亮：淡黄泛光的 inline decoration，存于插件状态（不进文档）。
+// 替换内容可能包含多个段落/列表项，而 inline decoration 不能跨块级节点，
+// 所以先把 [from, to) 按文本块拆成多个区间，再逐块生成装饰，保证整段新内容都泛光。
 const aiHighlightKey = new PluginKey("thesis-ai-highlight")
+const collectTextRanges = (doc: ProseMirrorNode, from: number, to: number) => {
+  const ranges: { from: number; to: number }[] = []
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (node.isTextblock) {
+      // 文本块内真正的文字区间是 [pos+1, pos+1+content.size)（跳过块首尾各 1 个位置）。
+      const start = Math.max(from, pos + 1)
+      const end = Math.min(to, pos + 1 + node.content.size)
+      if (end > start) ranges.push({ from: start, to: end })
+    }
+    return true
+  })
+  return ranges
+}
 const aiHighlightPlugin = new Plugin({
   key: aiHighlightKey,
   state: {
@@ -64,11 +80,11 @@ const aiHighlightPlugin = new Plugin({
       const meta = tr.getMeta(aiHighlightKey)
       if (meta === "clear") return DecorationSet.empty
       if (meta && typeof meta.from === "number" && meta.to > meta.from) {
-        return DecorationSet.create(tr.doc, [
-          Decoration.inline(meta.from, meta.to, {
-            style: "background-color: rgba(253, 230, 138, 0.65); border-radius: 3px; padding: 0 1px;",
-          }),
-        ])
+        const ranges = collectTextRanges(tr.doc, meta.from, meta.to)
+        return DecorationSet.create(
+          tr.doc,
+          ranges.map((range) => Decoration.inline(range.from, range.to, { class: "thesis-ai-glow" })),
+        )
       }
       return set.map(tr.mapping, tr.doc)
     },
@@ -122,7 +138,7 @@ export function ThesisEditor(props: ThesisEditorProps) {
   }
 
   // [论文助手定制] AI 原地替换：parser 解析返回的 Markdown → replaceWith 选区 → 光标移到替换末尾，
-  // 设置淡黄高亮（覆盖替换后第一段文本），并通知外层弹「撤销」浮条。
+  // 设置淡黄泛光高亮（覆盖整段替换内容，见 collectTextRanges），并通知外层弹「撤销」浮条。
   // 选区优先取调用方传入的捕获区间（点击改写那一刻的 from/to/text）：
   // 实时选区在等待回复期间可能漂移，传入区间保证只替换用户当时选中的那一段。
   const doReplace = (markdown: string, range?: { from: number; to: number; text: string }): boolean => {
@@ -140,13 +156,14 @@ export function ThesisEditor(props: ThesisEditorProps) {
     const contentSize = "size" in content ? content.size : content.nodeSize
     const endPos = Math.min(from + contentSize, tr.doc.content.size)
     tr.setSelection(TextSelection.near(tr.doc.resolve(endPos)))
-    view.dispatch(tr)
-    // 高亮覆盖替换后第一段文本（跳过块级起止，保证 inline decoration 在文本内生效）。
-    const firstLine = markdown.split("\n")[0]
-    const hlFrom = from + 1
-    const hlTo = Math.min(from + 1 + firstLine.length, tr.doc.content.size)
-    if (hlTo > hlFrom) setHighlightRange(view, hlFrom, hlTo)
+    // [论文助手定制] 先设「抑制清除高亮」再 dispatch：替换/高亮两个事务触发的 selectionUpdated
+    // 会立刻以「光标停在替换末尾、位于装饰区间之外」为由清掉刚挂上的泛光（历史 bug：
+    // 之前把抑制设在 dispatch 之后，泛光一出现就被清掉，用户从来看不到）。
     suppressClearUntil = Date.now() + 800
+    view.dispatch(tr)
+    // 高亮覆盖替换后的整段新内容：替换区间 [from, endPos)（endPos 即新内容末尾），
+    // 由插件的 collectTextRanges 按文本块拆分后再挂 inline 装饰。
+    if (endPos > from) setHighlightRange(view, from, endPos)
     // 替换后选区已变化，坐标在 dispatch 前用原选区捕获，仅用于外层撤销浮条展示。
     const rect = view.coordsAtPos(from)
     props.onReplaced?.({
@@ -165,11 +182,19 @@ export function ThesisEditor(props: ThesisEditorProps) {
     replace: (markdown, range) => doReplace(markdown, range),
     undo: () => {
       const view = getView()
-      if (view) prosemirrorUndo(view.state, view.dispatch)
+      if (view) {
+        prosemirrorUndo(view.state, view.dispatch)
+        // [论文助手定制] 撤销后清掉泛光高亮：恢复的原文不该再显示「新生成」标记。
+        clearHighlight(view)
+      }
     },
     redo: () => {
       const view = getView()
-      if (view) prosemirrorRedo(view.state, view.dispatch)
+      if (view) {
+        prosemirrorRedo(view.state, view.dispatch)
+        // [论文助手定制] 重做后同样清掉泛光（撤销/重做都不携带插件装饰状态）。
+        clearHighlight(view)
+      }
     },
     canUndo: () => {
       const view = getView()
@@ -211,6 +236,12 @@ export function ThesisEditor(props: ThesisEditorProps) {
       .config((ctx) => {
         ctx.set(rootCtx, rootRef!)
         ctx.set(defaultValueCtx, props.initialMd)
+        // [论文助手定制] 挂载 AI 修改段泛光插件：Milkdown 的 .use() 只接收 MilkdownPlugin，
+        // 原生 ProseMirror Plugin 要通过 editorStateOptionsCtx 追加进 EditorState.create 的 plugins。
+        // 此前这里漏挂了 aiHighlightPlugin，导致替换后的淡黄高亮装饰从未生效（getState 恒为空）。
+        ctx.update(editorStateOptionsCtx, (prev) => (options) =>
+          prev({ ...options, plugins: [...(options.plugins ?? []), aiHighlightPlugin] }),
+        )
         ctx.get(listenerCtx)
           .markdownUpdated((_ctx, markdown) => props.onMdChange?.(markdown))
           .selectionUpdated((ctx) => {
@@ -221,8 +252,13 @@ export function ThesisEditor(props: ThesisEditorProps) {
             if (Date.now() < suppressClearUntil) return
             const sel = view.state.selection
             const decorations = aiHighlightKey.getState(view.state) as DecorationSet | undefined
-            if (decorations && decorations.find(sel.from, sel.to).length === 0) {
-              clearHighlight(view)
+            // [论文助手定制] 只在「确有高亮存在」时才可能清除：装饰集为空时若也 dispatch clear，
+            // 会再次触发 selectionUpdated → 再次 clear → 无限递归（Maximum call stack size exceeded）。
+            if (decorations) {
+              const hasAny = decorations.find(0, view.state.doc.content.size).length > 0
+              if (hasAny && decorations.find(sel.from, sel.to).length === 0) {
+                clearHighlight(view)
+              }
             }
           })
       })

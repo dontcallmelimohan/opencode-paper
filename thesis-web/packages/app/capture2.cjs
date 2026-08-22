@@ -1,0 +1,21 @@
+const { chromium } = require("@playwright/test")
+const fs = require("fs")
+;(async () => {
+  const browser = await chromium.launch({ channel: "chrome" })
+  const page = await browser.newPage()
+  const logs = []
+  page.on("console", (msg) => { if (msg.type() === "error") logs.push(`[console] ${msg.text()}`) })
+  page.on("pageerror", (err) => logs.push(`[pageerror] ${err.message}`))
+  page.on("requestfailed", (req) => logs.push(`[reqfail] ${req.url()} ${req.failure()?.errorText}`))
+  await page.goto("http://127.0.0.1:4173/", { waitUntil: "domcontentloaded", timeout: 20000 })
+  await page.waitForTimeout(3000)
+  // 点击第一个「开始写作」
+  const start = page.locator("text=开始写作").first()
+  await start.click().catch((e) => logs.push(`[click-start] ${e.message}`))
+  await page.waitForTimeout(6000)
+  logs.push(`[URL] ${page.url()}`)
+  const body = await page.locator("body").innerText().catch(() => "?")
+  logs.push("[BODY]\n" + body.slice(0, 1200))
+  fs.writeFileSync("/tmp/wb.log", logs.join("\n---\n"))
+  await browser.close()
+})().catch((e) => { fs.appendFileSync("/tmp/wb.log", "FATAL " + e.message); process.exit(1) })

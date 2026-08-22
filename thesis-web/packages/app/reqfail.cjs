@@ -1,0 +1,12 @@
+const { chromium } = require("@playwright/test")
+;(async () => {
+  const browser = await chromium.launch({ channel: "chrome" })
+  const page = await browser.newPage()
+  page.on("response", (res) => { if (res.status() >= 400) console.log("[resp]", res.status(), res.url().slice(0, 140)) })
+  page.on("requestfailed", (req) => console.log("[reqfail]", req.url().slice(0, 140), req.failure()?.errorText))
+  page.on("pageerror", (err) => console.log("[pageerror]", err.message))
+  await page.goto("http://127.0.0.1:4173/L1VzZXJzL2xpbW9oYW4vdGhlc2lzLXdvcmtzcGFjZS_ljpXmiYAtYWU3cWw3/workbench", { waitUntil: "domcontentloaded", timeout: 20000 })
+  await page.waitForTimeout(8000)
+  console.log("done")
+  await browser.close()
+})().catch((e) => { console.error(e.message); process.exit(1) })

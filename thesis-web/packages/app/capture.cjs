@@ -1,0 +1,16 @@
+const { chromium } = require("@playwright/test")
+;(async () => {
+  const browser = await chromium.launch({ channel: "chrome" })
+  const page = await browser.newPage()
+  const errors = []
+  page.on("console", (msg) => { if (msg.type() === "error") errors.push(`[console] ${msg.text()}`) })
+  page.on("pageerror", (err) => errors.push(`[pageerror] ${err.message}`))
+  await page.goto("http://127.0.0.1:4173/", { waitUntil: "networkidle", timeout: 20000 }).catch((e) => errors.push(`[goto] ${e.message}`))
+  await page.waitForTimeout(5000)
+  console.log("URL:", page.url())
+  const body = await page.locator("body").innerText().catch(() => "?")
+  console.log("BODY:", body.slice(0, 400))
+  console.log("--- ERRORS ---")
+  console.log(errors.slice(0, 20).join("\n") || "(none)")
+  await browser.close()
+})().catch((e) => { console.error("FATAL", e); process.exit(1) })

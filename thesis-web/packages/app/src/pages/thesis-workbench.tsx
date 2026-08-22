@@ -21,7 +21,7 @@ import { useThesisManuscriptFile } from "@/components/thesis-workflow/thesis-man
 import { useThesisProject } from "@/components/thesis-workflow/thesis-export"
 import { usePersistentWidth } from "@/components/thesis-workflow/thesis-panel-layout"
 import { ThesisStepSidebar } from "@/components/thesis-workflow/thesis-step-sidebar"
-import { ThesisWorkflowProvider, useThesisWorkflow } from "@/components/thesis-workflow/thesis-workflow-store"
+import { ThesisWorkflowProvider, useThesisWorkflow, type StepKey } from "@/components/thesis-workflow/thesis-workflow-store"
 import { useLayout } from "@/context/layout"
 import { useSDK } from "@/context/sdk"
 import { getFilename } from "@opencode-ai/core/util/path"
@@ -65,6 +65,24 @@ function ThesisWorkbenchInner() {
 
   // [论文助手定制] 侧边栏收起状态（localStorage 记住）。
   const [collapsed, setCollapsed] = createSignal(localStorage.getItem("thesis-workbench.sidebarCollapsed") === "1")
+  const [stepConfigOpen, setStepConfigOpen] = createSignal<Record<StepKey, boolean>>({
+    outline: true,
+    writing: true,
+    formatting: true,
+    review: true,
+  })
+  const toggleStepConfig = (step: StepKey) => {
+    setStepConfigOpen((current) => ({
+      ...current,
+      [step]: !(current[step] ?? true),
+    }))
+  }
+  const setStepConfig = (step: StepKey, next: boolean) => {
+    setStepConfigOpen((current) => ({
+      ...current,
+      [step]: next,
+    }))
+  }
   const toggleCollapsed = (next: boolean) => {
     setCollapsed(next)
     localStorage.setItem("thesis-workbench.sidebarCollapsed", next ? "1" : "0")
@@ -107,8 +125,10 @@ function ThesisWorkbenchInner() {
             <ThesisStepSidebar
               title={title()}
               hasProject={!!project()}
+              configOpen={stepConfigOpen()[state().activeStep] ?? true}
               onHome={() => navigate("/")}
               onCollapse={() => toggleCollapsed(true)}
+              onToggleConfig={() => toggleStepConfig(state().activeStep)}
               onUpload={() => {
                 // [论文助手定制] 直接访问工作台 URL 时 layout 可能还没加载项目，用 useThesisProject 兜底查询服务端。
                 void resolveProject().then((current) => {
@@ -131,16 +151,32 @@ function ThesisWorkbenchInner() {
         {/* 右侧当前步骤内容（表单 + 产物） */}
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
           <Show when={state().activeStep === "outline"}>
-            <StepOutline />
+            <StepOutline
+              configOpen={stepConfigOpen().outline ?? true}
+              onToggleConfig={() => toggleStepConfig("outline")}
+              onSetConfigOpen={(next) => setStepConfig("outline", next)}
+            />
           </Show>
           <Show when={state().activeStep === "writing"}>
-            <StepWriting />
+            <StepWriting
+              configOpen={stepConfigOpen().writing ?? true}
+              onToggleConfig={() => toggleStepConfig("writing")}
+              onSetConfigOpen={(next) => setStepConfig("writing", next)}
+            />
           </Show>
           <Show when={state().activeStep === "formatting"}>
-            <StepFormatting />
+            <StepFormatting
+              configOpen={stepConfigOpen().formatting ?? true}
+              onToggleConfig={() => toggleStepConfig("formatting")}
+              onSetConfigOpen={(next) => setStepConfig("formatting", next)}
+            />
           </Show>
           <Show when={state().activeStep === "review"}>
-            <StepReview />
+            <StepReview
+              configOpen={stepConfigOpen().review ?? true}
+              onToggleConfig={() => toggleStepConfig("review")}
+              onSetConfigOpen={(next) => setStepConfig("review", next)}
+            />
           </Show>
         </div>
       </div>

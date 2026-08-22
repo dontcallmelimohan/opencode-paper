@@ -7,6 +7,8 @@
 // 数据持久化到 localStorage（key 按工作区路径隔离），刷新不丢。
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createSignal } from "solid-js"
+import { createScratchArtifact, createStepArtifact, type ThesisArtifact } from "./thesis-artifact"
+import { consumeTurn as consumeTurnRegistry, getTurn as getTurnRegistry, markTurn as markTurnRegistry, type TurnRegistration } from "./thesis-channel"
 
 export type StepKey = "outline" | "writing" | "formatting" | "review"
 
@@ -111,9 +113,10 @@ export type WritingInput = {
   skills: string[]
   // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
   useTools: boolean
-  // [论文助手定制] 方案 B：参考提纲的来源——auto=用提纲模块结果，manual=手动粘贴，none=不用提纲。
+  // [论文助手定制] 方案 B：参考提纲的来源——auto=用提纲模块结果，manual=手动粘贴，file=从文件空间选文件，none=不用提纲。
   outlineSource: InputSource
   manualOutline: string
+  sourceFile: string
   journal: string
   style: string
   focus: string
@@ -169,9 +172,10 @@ export type ReviewInput = {
   skills: string[]
   // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
   useTools: boolean
-  // [论文助手定制] 方案 B：评审对象来源——auto=排版稿/全文稿，manual=手动粘贴，none=无源稿。
+  // [论文助手定制] 方案 B：评审对象来源——auto=排版稿/全文稿，manual=手动粘贴，file=从文件空间选文件，none=无源稿。
   paperSource: InputSource
   manualPaper: string
+  sourceFile: string
   journal: string
   mode: string
   focus: string
@@ -191,12 +195,15 @@ export type StepState<I> = {
 }
 
 export type ThesisWorkflowState = {
-  version: 2
+  version: 3
   activeStep: StepKey
+  currentArtifactID: string | null
   // [论文助手定制] 会话记录联动：右侧产物面板当前显示模式（document=文稿 / session=会话）。
   productView: "document" | "session"
   // [论文助手定制] 会话记录联动：当前在右侧会话界面显示的会话 ID（null=跟随当前板块专属会话）。
   displaySessionID: string | null
+  artifacts: ThesisArtifact[]
+  turns: Record<string, TurnRegistration>
   steps: {
     outline: StepState<OutlineInput>
     writing: StepState<WritingInput>
@@ -230,6 +237,7 @@ const DEFAULT_INPUTS: {
     useTools: false,
     outlineSource: "auto",
     manualOutline: "",
+    sourceFile: "",
     journal: "",
     style: "学术、审慎、综述型",
     focus: "研究脉络与概念边界",
@@ -269,14 +277,17 @@ const DEFAULT_INPUTS: {
     paragraphSpacing: "6",
     pageNumber: true,
   },
-  review: { skills: [], useTools: false, paperSource: "auto", manualPaper: "", journal: "", mode: "全面评审", focus: "" },
+  review: { skills: [], useTools: false, paperSource: "auto", manualPaper: "", sourceFile: "", journal: "", mode: "全面评审", focus: "" },
 }
 
 export const createDefaultWorkflowState = (): ThesisWorkflowState => ({
-  version: 2,
+  version: 3,
   activeStep: "outline",
+  currentArtifactID: null,
   productView: "document",
   displaySessionID: null,
+  artifacts: [],
+  turns: {},
   steps: {
     outline: { status: "idle", input: { ...DEFAULT_INPUTS.outline } },
     writing: { status: "idle", input: { ...DEFAULT_INPUTS.writing } },
@@ -298,6 +309,9 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
       // [论文助手定制] 旧版（v1）全局共用一个会话，读出来做迁移用。
       sessionID?: string
       activeStep?: string
+      currentArtifactID?: string
+      artifacts?: ThesisArtifact[]
+      turns?: Record<string, TurnRegistration>
       steps?: {
         outline?: Partial<StepState<OutlineInput>>
         writing?: Partial<StepState<WritingInput>>
@@ -305,29 +319,37 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
         review?: Partial<StepState<ReviewInput>>
       }
     }
-    if ((parsed?.version !== 1 && parsed?.version !== 2) || !parsed.steps) return fallback
-    // [论文助手定制] 局部引用便于下方闭包使用（TS 不会把 steps 的非空收窄带进 keepSession）。
+    if ((parsed?.version !== 1 && parsed?.version !== 2 && parsed?.version !== 3) || !parsed.steps) return fallback
     const steps = parsed.steps
     const activeStep = (["outline", "writing", "formatting", "review"] as StepKey[]).includes(parsed.activeStep as StepKey)
       ? (parsed.activeStep as StepKey)
       : "outline"
-    // [论文助手定制] 读取时对历史 result 也做清理（stripDocMeta + stripAiFooter）：
-    // 旧项目 localStorage 里可能已存了带排版说明或 AI 总结的产物，读取时清理一次。
     const clean = (result?: string) => (result ? stripDocMeta(stripAiFooter(result)) : result)
-    // [论文助手定制] v1→v2 迁移（方案 B）：旧版四步共用一个全局 sessionID，
-    // 升级后把这个旧会话归给「辅助写作」步（全文稿主产区，保留原有对话可继续），
-    // 其余步骤不再继承，各自从新的专属会话开始，做到互不污染。
-    // v2 状态则原样保留各步骤已持久化的 sessionID（否则离开工作台再回来会话 ID 会丢，
-    // 会话视图显示「还没有会话」且继续对话会新建会话而非复用）。
     const legacySession = parsed.version === 1 ? parsed.sessionID : undefined
     const keepSession = (step: "outline" | "writing" | "formatting" | "review") =>
-      parsed.version === 2 ? steps[step]?.sessionID : undefined
+      parsed.version === 2 || parsed.version === 3 ? steps[step]?.sessionID : undefined
+    const migratedArtifacts = Array.isArray(parsed.artifacts) && parsed.artifacts.length > 0
+      ? parsed.artifacts
+      : (Object.entries(steps) as [StepKey, Partial<StepState<any>>][])
+          .filter(([step, state]) => !!state?.result)
+          .map(([step, state]) =>
+            createStepArtifact(step, directory, {
+              title: step === "writing" ? "全文稿" : step === "outline" ? "提纲" : step === "formatting" ? "排版稿" : "评审报告",
+              fileName: step === "writing" ? "全文稿.md" : step === "outline" ? "提纲.md" : step === "formatting" ? "排版稿.md" : "评审报告.md",
+              sessionID: state?.sessionID,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            }),
+          )
+    const currentArtifactID = typeof parsed.currentArtifactID === "string" ? parsed.currentArtifactID : null
     return {
-      version: 2,
+      version: 3,
       activeStep,
-      // [论文助手定制] 读取历史状态时重置显示状态（不持久化面板视图/选中会话）。
+      currentArtifactID,
       productView: "document",
       displaySessionID: null,
+      artifacts: migratedArtifacts,
+      turns: parsed.turns ?? {},
       steps: {
         outline: { ...fallback.steps.outline, ...parsed.steps.outline, input: { ...fallback.steps.outline.input, ...parsed.steps.outline?.input }, result: clean(parsed.steps.outline?.result), sessionID: keepSession("outline") },
         writing: { ...fallback.steps.writing, ...parsed.steps.writing, input: { ...fallback.steps.writing.input, ...parsed.steps.writing?.input }, result: clean(parsed.steps.writing?.result), sessionID: legacySession ?? keepSession("writing") },
@@ -354,6 +376,58 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       } catch {
         // ignore storage errors
       }
+    }
+
+    const markTurn = (sessionID: string, entry: Omit<TurnRegistration, "createdAt">) => {
+      const current = state()
+      commit({ ...current, turns: markTurnRegistry(current.turns, sessionID, entry) })
+    }
+
+    const consumeTurn = (sessionID: string) => {
+      const current = state()
+      const turn = consumeTurnRegistry(current.turns, sessionID)
+      if (!turn) return undefined
+      const nextTurns = { ...current.turns }
+      delete nextTurns[sessionID]
+      commit({ ...current, turns: nextTurns })
+      return turn
+    }
+
+    const getTurn = (sessionID: string) => getTurnRegistry(state().turns, sessionID)
+
+    const upsertArtifact = (artifact: ThesisArtifact) => {
+      const current = state()
+      const next = current.artifacts.some((item) => item.id === artifact.id)
+        ? current.artifacts.map((item) => (item.id === artifact.id ? { ...item, ...artifact, updatedAt: Date.now() } : item))
+        : [artifact, ...current.artifacts]
+      commit({ ...current, artifacts: next })
+    }
+
+    const ensureArtifactForStep = (step: StepKey) => {
+      const current = state()
+      const existing = current.artifacts.find((item) => item.kind === "step" && item.step === step)
+      if (existing) {
+        commit({ ...current, currentArtifactID: existing.id })
+        return existing
+      }
+      const artifact = createStepArtifact(step, directory, { sessionID: current.steps[step].sessionID })
+      commit({ ...current, artifacts: [artifact, ...current.artifacts], currentArtifactID: artifact.id })
+      return artifact
+    }
+
+    const ensureScratchArtifact = (title: string, sessionID?: string) => {
+      const current = state()
+      const trimmed = title.trim() || "会话文档"
+      const existing = current.artifacts.find((item) => item.kind === "scratch" && item.sessionID === sessionID && item.title === trimmed)
+      if (existing) return existing
+      const artifact = createScratchArtifact(trimmed, directory, { sessionID, title: trimmed, fileName: `${trimmed}.md` })
+      commit({ ...current, artifacts: [artifact, ...current.artifacts], currentArtifactID: artifact.id })
+      return artifact
+    }
+
+    const setCurrentArtifact = (artifactID: string | null) => {
+      const current = state()
+      commit({ ...current, currentArtifactID: artifactID })
     }
 
     // [论文助手定制] 切换板块：清掉会话记录点选的会话并回到文稿视图，
@@ -416,6 +490,13 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       setStepSessionID,
       setProductView,
       setDisplaySession,
+      setCurrentArtifact,
+      markTurn,
+      consumeTurn,
+      getTurn,
+      upsertArtifact,
+      ensureArtifactForStep,
+      ensureScratchArtifact,
     }
   },
 })

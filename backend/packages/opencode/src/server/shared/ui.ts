@@ -6,8 +6,10 @@ import { ProxyUtil } from "../proxy-util"
 
 let embeddedUIPromise: Promise<Record<string, string> | null> | undefined
 
-//改成了http://localhost:3000（本地前端）
-export const UI_UPSTREAM = new URL("http://localhost:3000")
+// [论文助手定制] 后端 4096 直接访问时，把 UI 代理到本地 vite 前端（当前实际运行端口 4173）
+// 原值为 http://localhost:3000，与 vite.config.ts 的默认端口一致；但本地开发时 vite 以 --port 4173 启动，
+// 若代理目标端口没有服务，直接访问 http://127.0.0.1:4096 会整体 500。
+export const UI_UPSTREAM = new URL("http://localhost:4173")
 
 
 export const csp = (hash = "") =>

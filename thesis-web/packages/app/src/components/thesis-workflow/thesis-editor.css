@@ -204,3 +204,22 @@
   height: 0;
   pointer-events: none;
 }
+/* [论文助手定制] AI 修改段「淡黄泛光」：由 thesis-editor.tsx 的 aiHighlightPlugin
+   以 inline decoration class（thesis-ai-glow）挂到替换后的新内容上。
+   初始强泛光 → 约 3 秒渐隐到微弱的淡黄残留（说明这些文字是新生成的），
+   用户把选区移出高亮区时插件会直接清除（见 selectionUpdated）。 */
+.thesis-editor-root .ProseMirror .thesis-ai-glow {
+  border-radius: 3px;
+  padding: 0 1px;
+  animation: thesis-ai-glow-fade 3s ease-out forwards;
+}
+@keyframes thesis-ai-glow-fade {
+  0% {
+    background-color: rgba(255, 238, 140, 0.85);
+    box-shadow: 0 0 0 1px rgba(253, 224, 71, 0.5), 0 0 18px rgba(253, 224, 71, 0.7);
+  }
+  100% {
+    background-color: rgba(253, 230, 138, 0.14);
+    box-shadow: 0 0 0 1px rgba(253, 224, 71, 0.15), 0 0 6px rgba(253, 224, 71, 0.25);
+  }
+}

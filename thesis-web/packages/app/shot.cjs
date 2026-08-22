@@ -1,0 +1,11 @@
+const { chromium } = require("@playwright/test")
+;(async () => {
+  const browser = await chromium.launch({ channel: "chrome" })
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+  page.on("pageerror", (err) => console.log("[pageerror]", err.message))
+  await page.goto("http://127.0.0.1:4173/L1VzZXJzL2xpbW9oYW4vdGhlc2lzLXdvcmtzcGFjZS_ljpXmiYAtYWU3cWw3/workbench", { waitUntil: "domcontentloaded", timeout: 20000 })
+  await page.waitForTimeout(6000)
+  await page.screenshot({ path: "/tmp/wb.png" })
+  console.log("saved")
+  await browser.close()
+})().catch((e) => { console.error(e.message); process.exit(1) })

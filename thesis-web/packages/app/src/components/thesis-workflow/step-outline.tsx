@@ -5,7 +5,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { Icon } from "@opencode-ai/ui/icon"
 import { TextField } from "@opencode-ai/ui/text-field"
-import { For, Show } from "solid-js"
+import { createEffect, createSignal, For, Show } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { showToast } from "@/utils/toast"
 import { useThesisGenerator } from "./thesis-generator"
@@ -33,8 +33,14 @@ const TARGET_WORDS = ["3000", "5000", "8000", "12000", "15000", "20000"] as cons
 
 type DirectionKey = (typeof DIRECTIONS)[number]["key"]
 
-export function StepOutline() {
+export function StepOutline(props?: { configOpen?: boolean; onToggleConfig?: () => void; onSetConfigOpen?: (next: boolean) => void }) {
   const sdk = useSDK()
+  const [localConfigOpen, setLocalConfigOpen] = createSignal(true)
+  const configOpen = () => props?.configOpen ?? localConfigOpen()
+  const setConfigOpen = (next: boolean) => {
+    if (props?.onSetConfigOpen) props.onSetConfigOpen(next)
+    else setLocalConfigOpen(next)
+  }
   const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } =
     useThesisWorkflow()
   // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
@@ -50,6 +56,11 @@ export function StepOutline() {
   const input = () => outline().input
 
   const knowledge = useThesisKnowledge()
+  const configSummary = () => {
+    const values = input()
+    const summary = [values.paperType, values.language, `${values.targetWords}字`, values.directions.length > 0 ? `${values.directions.length}个方向` : "无方向偏重"]
+    return summary.join(" · ")
+  }
 
   const toggleDirection = (key: DirectionKey) => {
     const current = input().directions
@@ -142,6 +153,19 @@ export function StepOutline() {
     return lines.join("\n")
   }
 
+  // [论文助手定制] 配置面板浮窗化·自动开合：首次进入（idle）自动弹出配置抽屉；
+  // 生成中自动收起（产物全宽，配置弱化为首次生成时的浮窗填写）。
+  let autoOpened = false
+  createEffect(() => {
+    const st = outline().status
+    if (st === "idle" && !autoOpened) {
+      setConfigOpen(true)
+      autoOpened = true
+    } else if (st === "generating") {
+      setConfigOpen(false)
+    }
+  })
+
   const generate = async () => {
     if (!input().needs.trim()) {
       showToast({ variant: "error", icon: "circle-x", title: "请先填写综述需求" })
@@ -177,10 +201,15 @@ export function StepOutline() {
 
   return (
     <StepLayout
+      // [论文助手定制] 配置面板左侧列形态（弱化配置）：collapsed=收起为左侧窄轨；
+      // 展开时左侧为可拖拽表单列，与右侧产物并排，不遮挡文稿/会话界面，onExpand 展开。
+      collapsed={!configOpen()}
+      onExpand={() => setConfigOpen(true)}
       form={
         <StepFormPanel
           title="提纲助手"
-          subtitle="独立模块：把想法、草稿和论文材料整理成综述大纲。"
+          collapsed={!configOpen()}
+          collapsedSummary={configSummary()}
           footer={
             <Button type="button" variant="primary" icon="bullet-list" disabled={generator.generating()} onClick={() => void generate()}>
               {generator.generating() ? "生成中…" : "生成提纲"}
@@ -284,8 +313,22 @@ export function StepOutline() {
           result={outline().result}
           onExportDocx={() => void exportDocx(outline().result ?? "")}
           onExportPdf={() => void exportPdf(outline().result ?? "")}
-          emptyHint="填写左侧需求后点击「生成提纲」，大纲会显示在这里；辅助写作可选择引用或不引用它。"
+          // [论文助手定制] 产物标题栏动作：保留生成/重新生成主按钮（配置入口已移至左侧表单列/窄轨齿轮）。
+          titleActions={
+            <Button
+              type="button"
+              variant="primary"
+              icon="bullet-list"
+              disabled={generator.generating()}
+              onClick={() => void generate()}
+            >
+              {generator.generating() ? "生成中…" : outline().status === "done" ? "重新生成" : "生成提纲"}
+            </Button>
+          }
+          emptyHint="「生成提纲」"
           manuscript={{ directory: sdk().directory, step: "outline" }}
+          configOpen={configOpen()}
+          onToggleConfig={() => setConfigOpen(!configOpen())}
         />
       }
     />

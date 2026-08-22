@@ -12,6 +12,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { showToast } from "@/utils/toast"
+import { useThesisWorkflow } from "./thesis-workflow-store"
 
 const GENERATE_TIMEOUT_MS = 600_000
 
@@ -164,6 +165,7 @@ export function useThesisGenerator() {
   const sdk = useSDK()
   const local = useLocal()
   const sync = useSync()
+  const workflow = useThesisWorkflow()
   const [generating, setGenerating] = createSignal(false)
 
   // [论文助手定制] 核心生成函数：返回 { sessionID, text }。
@@ -186,6 +188,8 @@ export function useThesisGenerator() {
     // false 时维持 tools: {"*": false} 保证纯文本流式输出（默认）。
     useTools?: boolean
     sessionID?: string
+    target?: "artifact" | "selection" | "chat"
+    artifactID?: string
     // [论文助手定制] 会话一确定（新建或复用）就回调，让工作台立刻启用「会话」切换，
     // 生成过程中就能切过去看实时对话；不用等模型回复完。
     onSessionCreated?: (sessionID: string) => void
@@ -203,6 +207,7 @@ export function useThesisGenerator() {
       options.onSessionCreated?.(sessionID)
       // [论文助手定制] 工作台页面没有打开会话页，必须主动 sync 该会话，
       // 之后 SSE 消息事件才会写入 sync().data.session_message，等待回复才能读到。
+      workflow.markTurn(sessionID, { target: options.target ?? "artifact", artifactID: options.artifactID })
       await sync().session.sync(sessionID).catch(() => {})
       const before = (sync().data.session_message[sessionID] ?? []).length
       const agent = local.agent.current()
@@ -253,6 +258,7 @@ export function useThesisGenerator() {
       })
       if (res.error) throw res.error
       const text = await waitForAssistantReply(sync, sessionID, before, options.onProgress)
+      workflow.consumeTurn(sessionID)
       if (!text.trim()) throw new Error("模型没有返回内容，请重试")
       return { sessionID, text }
     } catch (err) {

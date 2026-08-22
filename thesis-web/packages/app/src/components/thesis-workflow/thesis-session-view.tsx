@@ -266,7 +266,7 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
   const sync = useSync()
   const local = useLocal()
   const serverSync = useServerSync()
-  const { state, setStepSessionID, setStepResult } = useThesisWorkflow()
+  const { state, setStepSessionID, setStepResult, setCurrentArtifact, markTurn, ensureArtifactForStep, ensureScratchArtifact, upsertArtifact } = useThesisWorkflow()
   // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到项目根目录 <step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
   // [论文助手定制] 会话记录联动：显示的会话优先级 = 全屏页指定（fixedSessionID）>
@@ -313,7 +313,11 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
       if (props.fixedSessionID) return
       setStepSessionID(sessionStep() ?? state().activeStep, id)
     },
-    onSubmit: () => autoScroll.resume(),
+    onSubmit: () => {
+      const id = sessionID()
+      if (id) markTurn(id, { target: "chat" })
+      autoScroll.resume()
+    },
   })
 
   // [论文助手定制] 插入选中文件：以 opencode 原生文件引用方式加入输入框（file part），
@@ -416,18 +420,31 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
     // [论文助手定制] 按归属分流：板块专属会话 → 存为当前步骤文稿（覆盖画布 <step>.md）；
     // 独立会话 → 弹标题输入框，另存为独立文档 docs/<标题>.md（复用 thesisWriteFile 落盘）。
     if (step) {
-      // [论文助手定制] 先落盘再更新 result：文稿视图重读文件时能读到新内容。
+      const artifact = ensureArtifactForStep(step)
+      upsertArtifact({ ...artifact, title: STEP_LABELS[step], fileName: `${STEP_LABELS[step]}.md`, kind: "step", step, sessionID: sessionID(), updatedAt: Date.now() })
       await manuscript.save(step, text)
       setStepResult(step, text)
-      showToast({ variant: "success", icon: "circle-check", title: "已存为当前步骤文稿" })
+      setCurrentArtifact(artifact.id)
+      showToast({ variant: "success", icon: "circle-check", title: "已应用到画布" })
       return
     }
     dialog.show(() => (
       <SaveAsDocDialog
         onSave={(title) => {
           void (async () => {
+            const artifact = ensureScratchArtifact(title, sessionID())
             await manuscript.saveFile(`docs/${title}.md`, text)
-            showToast({ variant: "success", icon: "circle-check", title: `已存为独立文档「${title}」` })
+            const nextArtifact: ReturnType<typeof ensureScratchArtifact> = {
+              ...artifact,
+              title,
+              fileName: `${title}.md`,
+              kind: "scratch",
+              sessionID: sessionID(),
+              updatedAt: Date.now(),
+            }
+            upsertArtifact(nextArtifact)
+            setCurrentArtifact(nextArtifact.id)
+            showToast({ variant: "success", icon: "circle-check", title: `已应用到画布「${title}」` })
           })()
         }}
       />
@@ -495,7 +512,7 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
                           onClick={() => void saveAsResult(assistant!.id)}
                         >
                           <Icon name="circle-check" size="small" />
-                          {done ? (sessionStep() ? "存为当前文稿" : "存为独立文档") : "生成中…"}
+                          {done ? (sessionStep() ? "应用到画布" : "应用到画布") : "生成中…"}
                         </button>
                       </div>
                     </Show>
