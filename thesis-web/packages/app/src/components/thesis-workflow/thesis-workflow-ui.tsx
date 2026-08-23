@@ -416,6 +416,9 @@ export function StepProductPanel(props: {
   // 确认后并入发送给模型的 prompt（扩写/缩短仍是一键直发）。
   const [custom, setCustom] = createSignal<{ kind: "rewrite" | "polish"; prompt: string } | null>(null)
   const [customRef, setCustomRef] = createSignal<HTMLInputElement | undefined>(undefined)
+  const applyQuickFormat = (kind: "bold" | "italic" | "code" | "heading" | "size", value?: string) => {
+    editorApiRef.current?.applyFormat(kind, value)
+  }
 
   // [论文助手定制] 清理选区与建议状态（生成中 / 无文稿 / 查看其它文件时调用）。
   // 同时清空草稿与自动保存定时器：避免跨板块/跨文件残留旧草稿导致切走时误保存覆盖文件。
@@ -844,6 +847,36 @@ export function StepProductPanel(props: {
                     class="absolute z-50 flex items-center gap-0.5 rounded-[10px] border border-v2-border-border-base bg-v2-background-bg-layer-02 px-1.5 py-1 shadow-[0_6px_20px_rgba(0,0,0,0.14)]"
                     style={{ left: `${floatAnchor()?.x ?? 8}px`, top: `${floatAnchor()?.y ?? 8}px` }}
                   >
+                    <Button type="button" variant="ghost" size="small" onClick={() => applyQuickFormat("bold")} title="加粗">
+                      B
+                    </Button>
+                    <Button type="button" variant="ghost" size="small" onClick={() => applyQuickFormat("italic")} title="斜体">
+                      I
+                    </Button>
+                    <Button type="button" variant="ghost" size="small" onClick={() => applyQuickFormat("heading")} title="二级标题">
+                      H2
+                    </Button>
+                    <select
+                      class="h-7 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none"
+                      title="字号（Markdown 源码）"
+                      value=""
+                      onChange={(event) => {
+                        const value = event.currentTarget.value
+                        if (value) applyQuickFormat("size", value)
+                        event.currentTarget.value = ""
+                      }}
+                    >
+                      <option value="">字号</option>
+                      <option value="12px">12px</option>
+                      <option value="14px">14px</option>
+                      <option value="16px">16px</option>
+                      <option value="18px">18px</option>
+                      <option value="20px">20px</option>
+                    </select>
+                    <Button type="button" variant="ghost" size="small" onClick={() => applyQuickFormat("code")} title="行内代码">
+                      &lt;/&gt;
+                    </Button>
+                    <div class="mx-1 h-4 w-px bg-v2-border-border-base" />
                     <Button type="button" variant="ghost" size="small" onClick={() => setCustom({ kind: "rewrite", prompt: "" })}>
                       改写
                     </Button>

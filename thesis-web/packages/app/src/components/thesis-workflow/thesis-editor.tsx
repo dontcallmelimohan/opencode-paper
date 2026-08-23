@@ -41,6 +41,7 @@ export interface ThesisEditorApi {
   // 实时选区：AI 回复等待期间选区可能漂移成全选/整篇（如误触 Cmd+A、焦点/选区被干扰），
   // 若用实时选区会把整篇文档替换成改写片段（历史 bug）。text 用于校验等待期间文档未被改动。
   replace: (markdown: string, range?: { from: number; to: number; text: string }) => boolean
+  applyFormat: (kind: "bold" | "italic" | "code" | "heading" | "size", value?: string) => boolean
   undo: () => void
   redo: () => void
   canUndo: () => boolean
@@ -178,8 +179,50 @@ export function ThesisEditor(props: ThesisEditorProps) {
     return true
   }
 
+  const applyFormat = (kind: "bold" | "italic" | "code" | "heading" | "size", value?: string) => {
+    const view = getView()
+    if (!view || !editor) return false
+    const { from, to } = view.state.selection
+    if (to <= from) return false
+    const text = view.state.doc.textBetween(from, to, "\n").trim()
+    if (!text) return false
+
+    // [论文助手定制] 本质上都改 Markdown 源码：
+    // - 标题 / 加粗 / 斜体 / 行内代码 都是标准 Markdown 语法；
+    // - 字号没有原生 Markdown 语法，故用 Markdown 允许的内联 HTML（<span>）写进源码，
+    //   仍然保留为 Markdown 文本源，而不是直接改 DOM 样式对象。
+    let markdown = text
+    switch (kind) {
+      case "bold":
+        markdown = `**${text}**`
+        break
+      case "italic":
+        markdown = `*${text}*`
+        break
+      case "code":
+        markdown = `\`${text}\``
+        break
+      case "heading":
+        markdown = `## ${text}`
+        break
+      case "size": {
+        const size = value ?? "16px"
+        markdown = `<span style="font-size:${size};">${text}</span>`
+        break
+      }
+    }
+    const node = editor.action((ctx) => ctx.get(parserCtx)(markdown))
+    const content = node.type.name === "doc" ? node.content : node
+    const tr = view.state.tr.replaceWith(from, to, content)
+    const endPos = Math.min(from + content.size, tr.doc.content.size)
+    tr.setSelection(TextSelection.near(tr.doc.resolve(endPos)))
+    view.dispatch(tr)
+    return true
+  }
+
   const api: ThesisEditorApi = {
     replace: (markdown, range) => doReplace(markdown, range),
+    applyFormat,
     undo: () => {
       const view = getView()
       if (view) {
