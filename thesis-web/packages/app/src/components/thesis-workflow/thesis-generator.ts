@@ -18,7 +18,8 @@ const GENERATE_TIMEOUT_MS = 600_000
 
 // [论文助手定制] 把工作台相对路径（如 模板/xxx.dotx、全文稿.md）解析为绝对路径，
 // 规则与会话输入框 build-request-parts.ts 的 absolute() 一致，file part 用 file:// URL 提交给后端。
-const absolutePath = (directory: string, path: string) => {
+// 导出供画布 AI 编辑（thesis-workflow-ui 的选区改写/扩写）把当前文稿文件作为附件提交时复用。
+export const absolutePath = (directory: string, path: string) => {
   if (path.startsWith("/")) return path
   if (/^[A-Za-z]:[\\/]/.test(path) || /^[A-Za-z]:$/.test(path)) return path
   if (path.startsWith("\\\\") || path.startsWith("//")) return path

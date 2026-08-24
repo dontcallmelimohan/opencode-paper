@@ -83,11 +83,12 @@ export function ThesisStepSidebar(props: {
     const status = stepStatus(key)
     if (status === "done") return "已完成"
     if (status === "generating") return "生成中…"
-    return "未开始"
+    // 非完成/生成中的状态不显示文字（文稿随时可在画布查看，不再用「未开始」误导）。
+    return ""
   }
 
   return (
-    // [论文助手定制] 可拖拽布局：宽度由外层容器（thesis-workbench.tsx 的 ResizeHandle）控制，这里不再写死 220px。
+    // [论文助手定制] 固定布局：宽度由外层容器（thesis-workbench.tsx，固定 220px）控制，这里撑满即可。
     <div class="flex w-full shrink-0 flex-col overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
       {/* [论文助手定制] 顶部：返回主页 + 收起侧边栏 */}
       <div class="flex items-center gap-1 pr-1">

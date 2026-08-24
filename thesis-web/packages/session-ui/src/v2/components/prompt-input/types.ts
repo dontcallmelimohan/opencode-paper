@@ -92,6 +92,15 @@ export type PromptInputV2Option = {
   providerID?: string
 }
 
+// [论文助手定制] 输入框附加方块（config chip）：与 skill 方块同形态渲染在附件区，
+// 由调用方（如论文工作台配置浮窗）控制显隐与移除，不进入 draft prompt，生命周期独立于发送内容。
+export type PromptInputV2ExtraChip = {
+  id: string
+  label: string
+  tooltip?: string
+  onRemove?: () => void
+}
+
 export type PromptInputV2Suggestion = {
   id: string
   kind: "agent" | "command" | "file" | "reference" | "resource"

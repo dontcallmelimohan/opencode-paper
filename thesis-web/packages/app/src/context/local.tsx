@@ -216,7 +216,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         })
       },
       move(direction: 1 | -1) {
-        const items = list()
+        // [论文助手定制] 会话框去掉「单个 skill 选择」：agent 循环（Mod+.）只在内置 agent
+        // （native）之间切换，自定义 Skill（native === false）只通过 sparkles 多选使用。
+        const items = list().filter((item) => item.native !== false)
         if (items.length === 0) {
           setStore("current", undefined)
           return

@@ -20,13 +20,14 @@ import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePermission } from "@/context/permission"
-import { type ImageAttachmentPart, usePrompt } from "@/context/prompt"
+import { type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { showToast } from "@/utils/toast"
 import { PromptInputV2, type PromptInputV2Suggestion } from "@opencode-ai/session-ui/v2/prompt-input"
+import type { PromptInputV2ExtraChip } from "@opencode-ai/session-ui/v2/prompt-input"
 import {
   createPromptInputV2Controller,
   createPromptInputV2State,
@@ -40,7 +41,13 @@ export type PromptInputV2ComposerProps = {
   controlsSlot?: JSX.Element
 }
 
-export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission">
+export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission"> & {
+  // [论文助手定制] 发送前 prompt 转换钩子（论文工作台把配置浮窗的勾选要求打包进发送文本）。
+  promptTransform?: (prompt: Prompt) => Prompt
+  // [论文助手定制] 附加方块（config chip）：渲染在输入框附件区的额外方框（如配置要求方块），
+  // 由调用方控制显隐与移除；随 controller 暴露，PromptInputV2 读取渲染。
+  extraChips?: () => PromptInputV2ExtraChip[]
+}
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
 }
@@ -224,6 +231,8 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     // [论文助手定制] 透传嵌入模式：工作台会话视图复用专属会话、发送后不跳转。
     embedded: props.embedded,
     onSessionCreated: props.onSessionCreated,
+    // [论文助手定制] 透传发送前 prompt 转换钩子（论文工作台配置浮窗打包进提示词）。
+    promptTransform: props.promptTransform,
   })
 
   const referenceDescription = (reference: ReferenceInfo) =>
@@ -346,6 +355,8 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
           .filter((agent) => !agent.hidden && agent.native === false)
           .map((agent) => ({ id: agent.name, label: agent.name })),
     },
+    // [论文助手定制] 附加方块（config chip）：透传给输入框 UI，由论文工作台控制显隐与移除。
+    extraChips: props.extraChips,
     searchContextFiles: async (query) =>
       (await files.searchFilesAndDirectories(query)).map((path) => ({
         id: `file:${path}`,
@@ -396,9 +407,14 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     view: {
       placeholder: designPlaceholder,
       get agent() {
-        return props.controls.agents.visible && props.controls.agents.options.length > 0
+        // [论文助手定制] 会话框去掉「单个 skill 选择」：agent 下拉只列内置 agent（native），
+        // 自定义 Skill（native === false）只通过 sparkles 多选菜单选择，避免单/多两套入口并存。
+        const options = props.controls.agents.available.filter(
+          (agent) => !agent.hidden && agent.mode !== "subagent" && agent.native !== false,
+        )
+        return props.controls.agents.visible && options.length > 0
           ? {
-              options: () => props.controls.agents.options.map((name) => ({ id: name, label: name })),
+              options: () => options.map((agent) => ({ id: agent.name, label: agent.name })),
               current: () => props.controls.agents.current,
               onSelect: (value: string) => props.controls.agents.select(value),
               keybind: () => command.keybindParts("agent.cycle"),

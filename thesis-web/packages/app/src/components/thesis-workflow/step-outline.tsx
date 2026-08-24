@@ -1,336 +1,77 @@
 // [论文助手定制] 「提纲助手」模块（论文工作台，方案 B 去线性化）：
 // 独立模块：填写综述需求、方向侧重、勾选知识库材料 → 一键“生成提纲” → 产物（分章节综述大纲）以 Markdown 展示。
 // 产物存在 workflow state 的 outline.result；辅助写作模块可选择是否引用它。
-import { Button } from "@opencode-ai/ui/button"
-import { Checkbox } from "@opencode-ai/ui/checkbox"
-import { Icon } from "@opencode-ai/ui/icon"
-import { TextField } from "@opencode-ai/ui/text-field"
-import { createEffect, createSignal, For, Show } from "solid-js"
+// [论文助手定制] 配置面板弱化（第二轮）：左侧配置列取消，改为会话视图输入框底栏「配置」图标 →
+// 居中浮窗（勾选表单，无 Skill / 知识库 / 插图区块）；生成 = 会话发送，不自动落盘；
+// 回复留在会话里，由用户手动「应用到画布」才写入 正文/提纲.md。产物区域改为全宽 StepProductPanel。
+import { createEffect, createSignal } from "solid-js"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useSDK } from "@/context/sdk"
-import { showToast } from "@/utils/toast"
-import { useThesisGenerator } from "./thesis-generator"
-import { useThesisKnowledge } from "./thesis-knowledge-store"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
-import { ThesisKnowledgePanel } from "./thesis-knowledge-panel"
 import { useThesisWorkflow } from "./thesis-workflow-store"
-import { useThesisLive } from "./thesis-live-store"
-import { promptToolRestriction, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
+import { StepProductPanel } from "./thesis-workflow-ui"
 import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
-
-// [论文助手定制] 方向侧重选项（写入提示词）。
-const DIRECTIONS = [
-  { key: "review", label: "现状梳理", hint: "梳理该方向的研究现状与进展" },
-  { key: "depth", label: "深度", hint: "对关键问题做深入分析" },
-  { key: "standard", label: "标准", hint: "按学术规范组织章节" },
-  { key: "clue", label: "论文线索", hint: "标注各章节相关的论文线索" },
-] as const
-
-// [论文助手定制] Step 1 论文设定选项：类型 / 语言 / 图表 / 目标字数（全部写入提示词）。
-const PAPER_TYPES = ["期刊论文", "毕业论文", "会议论文", "综述论文", "其他"] as const
-const LANGUAGES = ["中文", "英文"] as const
-const HAS_FIGURES = ["有图表", "无图表"] as const
-const TARGET_WORDS = ["3000", "5000", "8000", "12000", "15000", "20000"] as const
-
-type DirectionKey = (typeof DIRECTIONS)[number]["key"]
+import { OutlineConfigForm } from "./thesis-config-forms"
 
 export function StepOutline(props?: { configOpen?: boolean; onToggleConfig?: () => void; onSetConfigOpen?: (next: boolean) => void }) {
   const sdk = useSDK()
-  const [localConfigOpen, setLocalConfigOpen] = createSignal(true)
+  const dialog = useDialog()
+  // [论文助手定制] 配置浮窗仅由点击底栏「配置」图标打开（取消切换板块时自动弹出）。
+  const [localConfigOpen, setLocalConfigOpen] = createSignal(false)
   const configOpen = () => props?.configOpen ?? localConfigOpen()
   const setConfigOpen = (next: boolean) => {
     if (props?.onSetConfigOpen) props.onSetConfigOpen(next)
     else setLocalConfigOpen(next)
   }
-  const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } =
-    useThesisWorkflow()
-  // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
-  const live = useThesisLive()
-  const generator = useThesisGenerator()
-  // [论文助手定制] 文稿文件化：生成完成后把正文写入项目「正文/提纲.md」。
+  const { state } = useThesisWorkflow()
+  // [论文助手定制] 文稿文件化：「应用到画布」时写入项目「正文/提纲.md」。
   const manuscript = useThesisManuscriptFile(sdk().directory)
   // [论文助手定制] 导出 Word：把生成的大纲转成 .docx 保存到项目「正文」目录。
   const { exportDocx } = useThesisDocxExport("提纲")
   // [论文助手定制] 导出 PDF：把生成的大纲渲染成 PDF 保存到项目「正文」目录。
   const { exportPdf } = useThesisPdfExport("提纲")
   const outline = () => state().steps.outline
-  const input = () => outline().input
 
-  const knowledge = useThesisKnowledge()
-  const configSummary = () => {
-    const values = input()
-    const summary = [values.paperType, values.language, `${values.targetWords}字`, values.directions.length > 0 ? `${values.directions.length}个方向` : "无方向偏重"]
-    return summary.join(" · ")
-  }
-
-  const toggleDirection = (key: DirectionKey) => {
-    const current = input().directions
-    updateInput("outline", {
-      directions: current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
-    })
-  }
-
-  const toggleFile = (path: string) => {
-    const current = input().selected
-    updateInput("outline", {
-      selected: current.includes(path) ? current.filter((item) => item !== path) : [...current, path],
-    })
-  }
-
-  const toggleNote = (id: string) => {
-    const current = input().selectedKnowledgeIds
-    updateInput("outline", {
-      selectedKnowledgeIds: current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-    })
-  }
-
-  // [论文助手定制] 读取已勾选材料的文本内容（资料文件 + 手写知识条目，限制总量避免提示词过长）。
-  const readMaterials = async (): Promise<string> => {
-    const selected = input().selected
-    const selectedNotes = input().selectedKnowledgeIds
-    if (selected.length === 0 && selectedNotes.length === 0) return ""
-    const chunks: string[] = []
-    let total = 0
-    // 手写知识条目：直接取内容。
-    for (const id of selectedNotes) {
-      if (total > 20_000) break
-      const item = knowledge.state().items.find((entry) => entry.id === id)
-      if (!item) continue
-      const text = item.content.slice(0, 8_000)
-      chunks.push(`--- ${item.title}（知识条目） ---\n${text}`)
-      total += text.length
+  // [论文助手定制] 配置浮窗：configOpen 变 true 时居中弹出 OutlineConfigForm。
+  // dialog.show 注册 dialog 层 onClose：无论用户用「添加到输入框」按钮 / 右上角 X / 遮罩 / ESC 关闭，
+  // 都统一重置哨兵并把 configOpen 同步回 false（否则哨兵被吞、图标再次点不开）。
+  // configOpen 变 false（发送自动关 / 图标 toggle 关）时调用 dialog.close() 同步关闭浮窗。
+  // 注意：关闭统一走 setConfigOpen(false)，由本 effect 的 close 分支调 dialog.close()，
+  // 表单按钮不再直接调 dialog.close()（dialog 有 100ms closing 窗口 + lock 防重入，
+  // 直接 close 一旦被 lock 吞掉 onClose 不触发，configOpen/哨兵会卡死导致「点了没反应」）。
+  let configDialogShown = false
+  createEffect((prev: boolean | undefined) => {
+    const open = configOpen()
+    if (open && !prev) {
+      configDialogShown = true
+      dialog.show(
+        () => <OutlineConfigForm onClose={() => setConfigOpen(false)} />,
+        () => {
+          configDialogShown = false
+          setConfigOpen(false)
+        },
+      )
+    } else if (!open && prev && configDialogShown) {
+      // 主动先重置哨兵：即使 dialog.close() 被 lock 吞掉，状态也已归位，下次打开不受影响。
+      configDialogShown = false
+      dialog.close()
     }
-    // 资料目录文件：读取文本内容。
-    for (const path of selected) {
-      if (total > 20_000) break
-      try {
-        const res = await sdk().client.file.read({ directory: sdk().directory, path })
-        if (res.error || res.data?.type !== "text") continue
-        const text = res.data.content.slice(0, 8_000)
-        chunks.push(`--- ${path.split("/").pop()} ---\n${text}`)
-        total += text.length
-      } catch {
-        // 单个文件读取失败不阻塞整体
-      }
-    }
-    return chunks.join("\n\n")
-  }
-
-  const buildPrompt = async () => {
-    const values = input()
-    const lines: string[] = []
-    lines.push("请基于以下信息，为我生成一份「分章节综述大纲」。")
-    lines.push("")
-    lines.push("## 一、综述需求")
-    lines.push(values.needs.trim())
-    lines.push("")
-    // [论文助手定制] 论文设定（类型 / 语言 / 图表 / 字数）作为独立小节打包给模型，
-    // 让大纲结构、篇幅规划与图表章节安排都匹配这些设定。
-    lines.push("## 二、论文设定")
-    lines.push(`- 论文类型：${values.paperType}`)
-    lines.push(`- 论文语言：${values.language}`)
-    lines.push(`- 图表要求：${values.hasFigures}`)
-    lines.push(`- 目标篇幅：约 ${values.targetWords} 字`)
-    lines.push("")
-    lines.push("## 三、方向侧重")
-    const chosen = values.directions.map((key) => {
-      const item = DIRECTIONS.find((direction) => direction.key === key)
-      return item ? `${item.label}（${item.hint}）` : key
-    })
-    lines.push(chosen.length > 0 ? chosen.join("；") : "无特别侧重")
-    if (values.aiSuggest) lines.push("- 请为每个章节给出 AI 建议（写作要点与提示）")
-    if (values.optimize) lines.push("- 请在最后给出提纲优化提醒")
-    lines.push("")
-    lines.push("## 四、参考材料（知识库）")
-    const materialsText = await readMaterials()
-    lines.push(materialsText || "（未选择材料）")
-    lines.push("")
-    lines.push("## 五、输出要求")
-    lines.push(
-      `按「${values.language}」学术写作习惯输出综述大纲：每个章节包含标题、写作要点、相关论文线索与写作建议，结构清晰，可直接用于后续辅助写作。` +
-        (values.hasFigures === "有图表" ? "请在合适的章节规划图表 / 表格，并标注图表用途。" : "") +
-        promptToolRestriction(input().useTools) + "上文已包含全部所需材料，直接输出正文本身。",
-    )
-    return lines.join("\n")
-  }
-
-  // [论文助手定制] 配置面板浮窗化·自动开合：首次进入（idle）自动弹出配置抽屉；
-  // 生成中自动收起（产物全宽，配置弱化为首次生成时的浮窗填写）。
-  let autoOpened = false
-  createEffect(() => {
-    const st = outline().status
-    if (st === "idle" && !autoOpened) {
-      setConfigOpen(true)
-      autoOpened = true
-    } else if (st === "generating") {
-      setConfigOpen(false)
-    }
-  })
-
-  const generate = async () => {
-    if (!input().needs.trim()) {
-      showToast({ variant: "error", icon: "circle-x", title: "请先填写综述需求" })
-      return
-    }
-    if (generator.generating()) return
-    setStepStatus("outline", "generating")
-    try {
-      const prompt = await buildPrompt()
-      const { sessionID, text } = await generator.generate({
-        prompt,
-        // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
-        skills: input().skills,
-        // [论文助手定制] 把本步配置面板的工具开关传给生成器（true=允许工具调用）。
-        useTools: input().useTools,
-        sessionID: state().steps.outline.sessionID,
-        // [论文助手定制] 边生成边显示：把当前已生成的文本实时写入 store.progress。
-        // [论文助手定制] 方案 B：会话写进「提纲助手」自己的 StepState（每步独立会话）。
-        onSessionCreated: (id) => setStepSessionID("outline", id),
-        onProgress: (partial) => live.setStepProgress("outline", partial),
-      })
-      setStepSessionID("outline", sessionID)
-      // [论文助手定制] 落盘：提纲正文写入 正文/提纲.md（文稿视图随后从文件读取）。
-      await manuscript.save("outline", text)
-      setStepResult("outline", text)
-      // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
-      live.clearStepProgress("outline")
-      showToast({ variant: "success", icon: "circle-check", title: "提纲已生成" })
-    } catch {
-      setStepStatus("outline", outline().result ? "done" : "idle")
-    }
-  }
+    return open
+  }, false)
 
   return (
-    <StepLayout
-      // [论文助手定制] 配置面板左侧列形态（弱化配置）：collapsed=收起为左侧窄轨；
-      // 展开时左侧为可拖拽表单列，与右侧产物并排，不遮挡文稿/会话界面，onExpand 展开。
-      collapsed={!configOpen()}
-      onExpand={() => setConfigOpen(true)}
-      form={
-        <StepFormPanel
-          title="提纲助手"
-          collapsed={!configOpen()}
-          collapsedSummary={configSummary()}
-          footer={
-            <Button type="button" variant="primary" icon="bullet-list" disabled={generator.generating()} onClick={() => void generate()}>
-              {generator.generating() ? "生成中…" : "生成提纲"}
-            </Button>
-          }
-        >
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">描述综述需求</div>
-            <TextField
-              multiline
-              placeholder="输入选题想法、已有草稿、老师意见、论文摘要或文献摘录..."
-              value={input().needs}
-              onChange={(value) => updateInput("outline", { needs: value })}
-            />
-          </section>
-          {/* [论文助手定制] 论文设定：类型 / 语言 / 图表 / 字数，两列下拉，改动即时写入 store 并参与生成。 */}
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">论文设定</div>
-            <div class="grid grid-cols-2 gap-2">
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">论文类型</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().paperType}
-                  onChange={(event) => updateInput("outline", { paperType: event.currentTarget.value })}
-                >
-                  <For each={PAPER_TYPES}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">论文语言</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().language}
-                  onChange={(event) => updateInput("outline", { language: event.currentTarget.value })}
-                >
-                  <For each={LANGUAGES}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">图表</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().hasFigures}
-                  onChange={(event) => updateInput("outline", { hasFigures: event.currentTarget.value })}
-                >
-                  <For each={HAS_FIGURES}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">大约字数</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().targetWords}
-                  onChange={(event) => updateInput("outline", { targetWords: event.currentTarget.value })}
-                >
-                  <For each={TARGET_WORDS}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-            </div>
-          </section>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">方向</div>
-            <div class="flex flex-col gap-1">
-              <For each={DIRECTIONS}>
-                {(item) => (
-                  <Checkbox checked={input().directions.includes(item.key)} onChange={() => toggleDirection(item.key)}>
-                    {item.label}
-                  </Checkbox>
-                )}
-              </For>
-            </div>
-          </section>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">生成选项</div>
-            <Checkbox checked={input().aiSuggest} onChange={(value) => updateInput("outline", { aiSuggest: value })}>
-              AI 建议（每章写作要点与提示）
-            </Checkbox>
-            <Checkbox checked={input().optimize} onChange={(value) => updateInput("outline", { optimize: value })}>
-              提纲优化提醒
-            </Checkbox>
-          </section>
-          {/* [论文助手定制] Skill 多选：勾选的 Skill 在生成时注入提示词（见 thesis-generator）。 */}
-          <ThesisSkillPicker step="outline" />
-          <section class="flex flex-col gap-1.5">
-            {/* [论文助手定制] 知识库面板：文件夹筛选 + 搜索 + 手写条目 + 资料文件，统一勾选参与生成 */}
-            <ThesisKnowledgePanel
-              selectedFiles={input().selected}
-              selectedNotes={input().selectedKnowledgeIds}
-              onToggleFile={toggleFile}
-              onToggleNote={toggleNote}
-            />
-          </section>
-        </StepFormPanel>
-      }
-      product={
-        <StepProductPanel
-          title="分章节综述大纲"
-          status={outline().status}
-          progressText={live.progress().outline}
-          result={outline().result}
-          onExportDocx={() => void exportDocx(outline().result ?? "")}
-          onExportPdf={() => void exportPdf(outline().result ?? "")}
-          // [论文助手定制] 产物标题栏动作：保留生成/重新生成主按钮（配置入口已移至左侧表单列/窄轨齿轮）。
-          titleActions={
-            <Button
-              type="button"
-              variant="primary"
-              icon="bullet-list"
-              disabled={generator.generating()}
-              onClick={() => void generate()}
-            >
-              {generator.generating() ? "生成中…" : outline().status === "done" ? "重新生成" : "生成提纲"}
-            </Button>
-          }
-          emptyHint="「生成提纲」"
-          manuscript={{ directory: sdk().directory, step: "outline" }}
-          configOpen={configOpen()}
-          onToggleConfig={() => setConfigOpen(!configOpen())}
-        />
-      }
+    <StepProductPanel
+      title="分章节综述大纲"
+      status={outline().status}
+      progressText=""
+      result={outline().result}
+      onExportDocx={() => void exportDocx(outline().result ?? "")}
+      onExportPdf={() => void exportPdf(outline().result ?? "")}
+      emptyHint="在下方会话输入框发送需求开始生成"
+      manuscript={{ directory: sdk().directory, step: "outline" }}
+      configOpen={configOpen()}
+      onToggleConfig={() => setConfigOpen(!configOpen())}
+      onSetConfigOpen={(next) => setConfigOpen(next)}
     />
   )
 }

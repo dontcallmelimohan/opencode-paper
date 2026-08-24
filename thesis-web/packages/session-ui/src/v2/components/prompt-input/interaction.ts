@@ -7,6 +7,7 @@ import type {
   PromptInputV2AgentPart,
   PromptInputV2Attachment,
   PromptInputV2Comment,
+  PromptInputV2ExtraChip,
   PromptInputV2History,
   PromptInputV2HistoryEntry,
   PromptInputV2Option,
@@ -69,6 +70,9 @@ export function createPromptInputV2Controller(input: {
   skills?: {
     options: Accessor<PromptInputV2Option[]>
   }
+  // [论文助手定制] 附加方块（config chip）：由调用方控制显隐与移除，随 controller 暴露给
+  // PromptInputV2 渲染在附件区（不进入 draft prompt，不影响 canSubmit / 发送内容）。
+  extraChips?: Accessor<PromptInputV2ExtraChip[]>
   searchContextFiles: (query: string) => PromptInputV2Suggestion[] | Promise<PromptInputV2Suggestion[]>
   openAttachment?: (attachment: PromptInputV2Attachment) => void
   openContext?: (key: string) => void
@@ -330,6 +334,10 @@ export function createPromptInputV2Controller(input: {
     },
     toggleSkill(id: string) {
       skills?.toggle(id)
+    },
+    // [论文助手定制] 附加方块（config chip）：原样透传调用方提供的列表（可为 undefined）。
+    extraChips() {
+      return input.extraChips?.() ?? []
     },
     addPart,
     contextItem(id: string) {

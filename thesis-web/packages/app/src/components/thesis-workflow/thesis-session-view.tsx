@@ -21,6 +21,7 @@ import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Message } from "@opencode-ai/session-ui/message-part"
 import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
+import type { Prompt, TextPart } from "@/context/prompt"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import type { PromptInputV2PersistedState } from "@opencode-ai/session-ui/v2/prompt-input"
 import { useServerSync } from "@/context/server-sync"
@@ -34,8 +35,12 @@ import { legacySessionHref } from "@/utils/session-route"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
 import { showToast } from "@/utils/toast"
 import { normalizeSessionMessages } from "@/utils/session-message"
-import { useThesisManuscriptFile } from "./thesis-manuscript-file"
+import { MANUSCRIPT_FILENAMES, useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
+import { buildRequirementPrompt, summarizeRequirement } from "./thesis-config-forms"
+import { useThesisFigureActions } from "./thesis-figure-actions"
+import { ThesisFigurePanel } from "./thesis-figure-panel"
+import { parseFigures } from "./thesis-assets"
 
 // [论文助手定制] 板块标识（会话记录/会话视图共用）：用于把会话 ID 映射回所属板块。
 const STEP_KEYS: StepKey[] = ["outline", "writing", "formatting", "review"]
@@ -259,16 +264,25 @@ function SaveAsDocDialog(props: { onSave: (title: string) => void }) {
   )
 }
 
-export function ThesisSessionView(props: { fixedSessionID?: string }) {
+export function ThesisSessionView(props: {
+  fixedSessionID?: string
+  // [论文助手定制] 配置面板弱化（第二轮）：当前板块标识 + 配置浮窗开合状态 + 开合回调，
+  // 由 StepProductPanel 透传；控制输入框底栏「配置/插图」图标的显示与浮窗开关。
+  step?: StepKey
+  configOpen?: boolean
+  onSetConfigOpen?: (next: boolean) => void
+}) {
   const sdk = useSDK()
   const navigate = useNavigate()
   const dialog = useDialog()
   const sync = useSync()
   const local = useLocal()
   const serverSync = useServerSync()
-  const { state, setStepSessionID, setStepResult, setCurrentArtifact, markTurn, ensureArtifactForStep, ensureScratchArtifact, upsertArtifact } = useThesisWorkflow()
+  const { state, updateInput, setStepSessionID, setStepResult, setCurrentArtifact, markTurn, ensureArtifactForStep, ensureScratchArtifact, upsertArtifact } = useThesisWorkflow()
   // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到项目根目录 <step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
+  // [论文助手定制] 插图动作（writing）：输入框底栏「插图」浮窗复用，插资料图/改图注/删图统一落盘。
+  const { insertMaterialFigure, renameFigure, removeFigureFromManuscript } = useThesisFigureActions()
   // [论文助手定制] 会话记录联动：显示的会话优先级 = 全屏页指定（fixedSessionID）>
   // 会话记录点选的会话（displaySessionID）> 当前板块专属会话。
   const sessionID = () =>
@@ -279,6 +293,18 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
     if (!id) return null
     return STEP_KEYS.find((step) => state().steps[step].sessionID === id) ?? null
   }
+  // [论文助手定制] 配置注入/配置方块归属板块：优先取「当前显示会话所属板块」，
+  // 还没有专属会话（首次配置、尚未发送）时回退到当前模块（outline/writing）——
+  // 否则「添加到输入框」后、第一次发送前 sessionStep() 为 null，方块不显示、发送也不注入配置。
+  const attachStep = createMemo((): "outline" | "writing" | undefined => {
+    const step = sessionStep()
+    if (step === "outline" || step === "writing") return step
+    // 显示的是其它板块（formatting/review）的会话时不注入配置。
+    if (step !== null) return undefined
+    return props.step === "outline" || props.step === "writing" ? props.step : undefined
+  })
+  // [论文助手定制] 配置图标/配置方块仅 outline/writing 显示：收窄 step 类型避免 undefined 索引。
+  const configStep = createMemo(() => (props.step === "outline" || props.step === "writing" ? props.step : undefined))
   const route = useSessionKey()
 
   // [论文助手定制] 复用主会话页的自动滚动 Hook：内容渲染完成后（ResizeObserver 在布局后触发）
@@ -317,6 +343,60 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
       const id = sessionID()
       if (id) markTurn(id, { target: "chat" })
       autoScroll.resume()
+      // [论文助手定制] 配置面板弱化（第二轮）：发送即生成——发送时自动关闭配置浮窗（outline/writing）。
+      if (props.step === "outline" || props.step === "writing") props.onSetConfigOpen?.(false)
+      // [论文助手定制] 发送后自动移除配置方块：本次配置已随消息注入（promptTransform 先于 onSubmit 执行），
+      // 发送完清掉 configAttached，输入框方块消失，后续消息不再重复注入；下次需要再点「添加到输入框」。
+      const step = attachStep()
+      if (step && state().steps[step].input.configAttached) updateInput(step, { configAttached: false })
+    },
+    // [论文助手定制] 配置面板弱化（第二轮）：仅当配置方块已「添加到输入框」（configAttached）
+    // 时，发送前才把当前板块的「配置要求」段追加到文本末尾（outline/writing 专属；
+    // formatting/review/独立会话原样返回）。方块未添加时不注入——避免用户没配置也静默带上默认配置。
+    // 历史记录仍存用户原始输入，不含注入段。
+    promptTransform: (prompt: Prompt) => {
+      const step = attachStep()
+      if (!step) return prompt
+      if (!state().steps[step].input.configAttached) return prompt
+      const index = prompt.findLastIndex((part) => part.type === "text")
+      if (index < 0) return prompt
+      const targetPart = prompt[index]
+      if (targetPart.type !== "text") return prompt
+      const extra = buildRequirementPrompt(
+        step,
+        targetPart.content,
+        state().steps[step].input,
+        step === "writing" ? state().steps.outline.result : undefined,
+      )
+      if (!extra) return prompt
+      const next = prompt.map((part) => ({ ...part }))
+      const target = next[index] as TextPart
+      target.content = `${target.content}\n\n${extra}`
+      let offset = 0
+      const withOffsets: Prompt = next.map((part) => {
+        if (part.type === "image") return part
+        const mapped = { ...part, start: offset, end: offset + part.content.length }
+        offset = mapped.end
+        return mapped
+      })
+      return withOffsets
+    },
+    // [论文助手定制] 配置方块（config chip）：configAttached 且当前为 outline/writing 时，
+    // 把配置摘要渲染成输入框方块（与 skill 方块同形态，悬停显示完整配置清单）；
+    // 点方块 × 移除 = 取消附加，之后的发送不再注入配置段。
+    extraChips: () => {
+      const step = attachStep()
+      if (!step) return []
+      if (!state().steps[step].input.configAttached) return []
+      const summary = summarizeRequirement(step, state().steps[step].input)
+      return [
+        {
+          id: `config:${step}`,
+          label: summary.label,
+          tooltip: summary.detail,
+          onRemove: () => updateInput(step, { configAttached: false }),
+        },
+      ]
     },
   })
 
@@ -421,7 +501,7 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
     // 独立会话 → 弹标题输入框，另存为独立文档 docs/<标题>.md（复用 thesisWriteFile 落盘）。
     if (step) {
       const artifact = ensureArtifactForStep(step)
-      upsertArtifact({ ...artifact, title: STEP_LABELS[step], fileName: `${STEP_LABELS[step]}.md`, kind: "step", step, sessionID: sessionID(), updatedAt: Date.now() })
+      upsertArtifact({ ...artifact, title: STEP_LABELS[step], fileName: MANUSCRIPT_FILENAMES[step], kind: "step", step, sessionID: sessionID(), updatedAt: Date.now() })
       await manuscript.save(step, text)
       setStepResult(step, text)
       setCurrentArtifact(artifact.id)
@@ -533,20 +613,71 @@ export function ThesisSessionView(props: { fixedSessionID?: string }) {
           controller={input}
           borderUnderlay
           controlsSlot={
-            <TooltipV2 placement="top" value="插入文件">
-              <IconButtonV2
-                type="button"
-                icon={<IconV2 name="folder-add-left" />}
-                variant="ghost-muted"
-                size="large"
-                aria-label="插入文件"
-                onClick={() =>
-                  dialog.show(() => (
-                    <FilePickerDialog directory={sdk().directory} onPick={(path, name) => insertFile(path, name)} />
-                  ))
-                }
-              />
-            </TooltipV2>
+            <>
+              {/* [论文助手定制] 配置面板弱化（第二轮）：「配置」图标（仅 outline/writing 显示）——
+                  点击切换配置浮窗（step 文件的 effect 监听 configOpen 弹 OutlineConfigForm/WritingConfigForm）。
+                  已「添加到输入框」时图标高亮（variant ghost-muted → ghost-base），提示配置方块生效中。 */}
+              <Show when={configStep() !== undefined}>
+                <TooltipV2
+                  placement="top"
+                  value={
+                    state().steps[configStep()!].input.configAttached
+                      ? "配置（已添加到输入框）"
+                      : "配置"
+                  }
+                >
+                  <IconButtonV2
+                    type="button"
+                    icon={<IconV2 name="settings-gear" />}
+                    variant={state().steps[configStep()!].input.configAttached ? "ghost" : "ghost-muted"}
+                    size="large"
+                    aria-label="配置"
+                    onClick={() => props.onSetConfigOpen?.(!props.configOpen)}
+                  />
+                </TooltipV2>
+              </Show>
+              {/* [论文助手定制] 配置面板弱化（第二轮）：「插图」图标（仅 writing 显示）——
+                  弹出插图管理浮窗（复用 ThesisFigurePanel，插资料图/改图注/删图，改动落盘到 全文稿.md）。 */}
+              <Show when={props.step === "writing"}>
+                <TooltipV2 placement="top" value="插图">
+                  <IconButtonV2
+                    type="button"
+                    icon={<Icon name="photo" />}
+                    variant="ghost-muted"
+                    size="large"
+                    aria-label="插图"
+                    onClick={() =>
+                      dialog.show(() => (
+                        <ThesisFigurePanel
+                          directory={sdk().directory}
+                          figures={parseFigures(state().steps.writing.result ?? "")}
+                          busy={false}
+                          onInsertMaterial={insertMaterialFigure}
+                          onRename={renameFigure}
+                          onRemove={removeFigureFromManuscript}
+                        />
+                      ))
+                    }
+                  />
+                </TooltipV2>
+              </Show>
+              {/* [论文助手定制] 「插入文件」按钮：打开文件选择弹窗，从文件空间选任意文件，
+                以原生文件引用方式插入输入框（带图标，路径相对项目文件空间）。 */}
+              <TooltipV2 placement="top" value="插入文件">
+                <IconButtonV2
+                  type="button"
+                  icon={<IconV2 name="folder-add-left" />}
+                  variant="ghost-muted"
+                  size="large"
+                  aria-label="插入文件"
+                  onClick={() =>
+                    dialog.show(() => (
+                      <FilePickerDialog directory={sdk().directory} onPick={(path, name) => insertFile(path, name)} />
+                    ))
+                  }
+                />
+              </TooltipV2>
+            </>
           }
         />
       </div>

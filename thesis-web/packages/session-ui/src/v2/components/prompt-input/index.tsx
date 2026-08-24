@@ -19,6 +19,7 @@ import type {
   PromptInputV2AgentPart,
   PromptInputV2Attachment,
   PromptInputV2Comment,
+  PromptInputV2ExtraChip,
   PromptInputV2Option,
   PromptInputV2PersistedState,
   PromptInputV2Prompt,
@@ -30,6 +31,7 @@ import "./attachments.css"
 export type {
   PromptInputV2Attachment,
   PromptInputV2Comment,
+  PromptInputV2ExtraChip,
   PromptInputV2Option,
   PromptInputV2PersistedState,
   PromptInputV2Suggestion,
@@ -139,6 +141,7 @@ export function PromptInputV2(props: PromptInputV2Props) {
             attachments={props.controller.attachments()}
             comments={props.controller.comments()}
             skills={props.controller.skills()}
+            extraChips={props.controller.extraChips()}
             activeCommentID={state.activeContextID}
             removeLabel={i18n.t("ui.promptInput.removeAttachment")}
             skillRemoveLabel={i18n.t("ui.promptInput.removeSkill")}
@@ -400,6 +403,7 @@ export function PromptInputV2Attachments(props: {
   attachments: PromptInputV2Attachment[]
   comments?: PromptInputV2Comment[]
   skills?: PromptInputV2AgentPart[]
+  extraChips?: PromptInputV2ExtraChip[]
   activeCommentID?: string
   removeLabel: string
   skillRemoveLabel?: string
@@ -411,7 +415,14 @@ export function PromptInputV2Attachments(props: {
 }) {
   const i18n = useI18n()
   return (
-    <Show when={props.attachments.length > 0 || (props.comments?.length ?? 0) > 0 || (props.skills?.length ?? 0) > 0}>
+    <Show
+      when={
+        props.attachments.length > 0 ||
+        (props.comments?.length ?? 0) > 0 ||
+        (props.skills?.length ?? 0) > 0 ||
+        (props.extraChips?.length ?? 0) > 0
+      }
+    >
       <div data-component="prompt-input-v2-attachments" data-slot="prompt-attachments" class="relative">
         <div
           data-slot="prompt-attachments-scroll"
@@ -464,6 +475,35 @@ export function PromptInputV2Attachments(props: {
                 >
                   <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
                 </button>
+              </div>
+            )}
+          </For>
+          <For each={props.extraChips ?? []}>
+            {(chip) => (
+              <div class="relative group shrink-0">
+                <TooltipV2
+                  value={chip.tooltip ?? chip.label}
+                  placement="top"
+                  openDelay={800}
+                  contentClass="max-w-[300px] break-words"
+                >
+                  <div class="flex h-12 items-center gap-1.5 rounded-[6px] bg-v2-background-bg-stronger px-2.5 py-1.5 shadow-xs-border">
+                    <IconV2 name="settings-gear" class="shrink-0 text-v2-icon-icon-info" />
+                    <span class="text-[12px] font-medium leading-5 text-v2-text-text-strong whitespace-nowrap">
+                      {chip.label}
+                    </span>
+                  </div>
+                </TooltipV2>
+                <Show when={chip.onRemove}>
+                  <button
+                    type="button"
+                    onClick={() => chip.onRemove?.()}
+                    class="absolute -top-1 -end-1 size-4 rounded-full bg-v2-icon-icon-muted outline-solid outline-1 outline-v2-icon-icon-contrast flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label={props.removeLabel}
+                  >
+                    <IconV2 name="outline-xmark" class="text-v2-icon-icon-contrast" />
+                  </button>
+                </Show>
               </div>
             )}
           </For>

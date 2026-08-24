@@ -32,6 +32,7 @@ export function useThesisManuscriptFile(directory: string) {
     })
     if (res.error) return
     void queryClient.invalidateQueries({ queryKey: ["thesis", "manuscript", directory] })
+    void queryClient.invalidateQueries({ queryKey: ["thesis", "workflow-files", directory] })
   }
 
   // [论文助手定制] 通用文件落盘：把任意相对路径的正文写入项目文件空间（如 docs/独立文档.md）。
@@ -49,6 +50,7 @@ export function useThesisManuscriptFile(directory: string) {
     })
     if (res.error) return
     void queryClient.invalidateQueries({ queryKey: ["thesis", "manuscript", directory] })
+    void queryClient.invalidateQueries({ queryKey: ["thesis", "workflow-files", directory] })
   }
 
   // [论文助手定制] 读文件：返回项目根目录 <step>.md 的文本内容（文件不存在时为 undefined）。

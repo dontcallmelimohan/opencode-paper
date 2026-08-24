@@ -233,6 +233,9 @@ type PromptSubmitInput = {
   // 发送后不跳转会话页；会话不存在时自动创建，并通过 onSessionCreated 把新会话回传。
   embedded?: boolean
   onSessionCreated?: (sessionID: string, sessionDirectory: string) => void
+  // [论文助手定制] 发送前 prompt 转换钩子：论文工作台把配置浮窗的勾选要求打包进发送文本
+  // （追加到最后一个 text part）。历史记录仍存用户原始输入，不把注入段写进历史。
+  promptTransform?: (prompt: Prompt) => Prompt
 }
 
 export function createPromptSubmit(input: PromptSubmitInput) {
@@ -330,7 +333,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       prompt: target.current(),
       context: target.context.items().slice(),
     })
-    const currentPrompt = submission.prompt
+    // [论文助手定制] 发送前先应用转换钩子（论文工作台把配置浮窗的勾选要求打包进发送文本）；
+    // 未配置时按原 prompt 原样发送。后续 buildRequestParts / draft.prompt 均用转换后的 currentPrompt。
+    const currentPrompt = input.promptTransform ? input.promptTransform(submission.prompt) : submission.prompt
     const context = submission.context
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
@@ -353,7 +358,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    input.addToHistory(currentPrompt, mode)
+    // [论文助手定制] 历史记录存用户原始输入（不含 promptTransform 注入的配置要求段）。
+    input.addToHistory(submission.prompt, mode)
     input.resetHistoryNavigation()
 
     const projectDirectory = sdk().directory

@@ -214,7 +214,8 @@ export function ThesisEditor(props: ThesisEditorProps) {
     const node = editor.action((ctx) => ctx.get(parserCtx)(markdown))
     const content = node.type.name === "doc" ? node.content : node
     const tr = view.state.tr.replaceWith(from, to, content)
-    const endPos = Math.min(from + content.size, tr.doc.content.size)
+    // [论文助手定制] 类型收窄：Fragment 有 size；普通 Node 取 content（Fragment）的 size。
+    const endPos = Math.min(from + ("size" in content ? content.size : content.content.size), tr.doc.content.size)
     tr.setSelection(TextSelection.near(tr.doc.resolve(endPos)))
     view.dispatch(tr)
     return true

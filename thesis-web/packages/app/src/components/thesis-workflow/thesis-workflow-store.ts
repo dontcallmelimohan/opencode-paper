@@ -7,6 +7,7 @@
 // 数据持久化到 localStorage（key 按工作区路径隔离），刷新不丢。
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createSignal } from "solid-js"
+import { useQueryClient } from "@tanstack/solid-query"
 import { createScratchArtifact, createStepArtifact, type ThesisArtifact } from "./thesis-artifact"
 import { consumeTurn as consumeTurnRegistry, getTurn as getTurnRegistry, markTurn as markTurnRegistry, type TurnRegistration } from "./thesis-channel"
 
@@ -107,6 +108,9 @@ export type OutlineInput = {
   selected: string[]
   // [论文助手定制] 知识库手写条目 id（与 selected 文件路径互补，都参与提纲生成）。
   selectedKnowledgeIds: string[]
+  // [论文助手定制] 配置方块（config chip）：是否已「添加到输入框」——为 true 时输入框显示
+  // 配置方块，发送时随 prompt 注入配置要求段；点方块 × 或浮窗重新添加可切换。持久化随 input。
+  configAttached: boolean
 }
 export type WritingInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
@@ -124,6 +128,9 @@ export type WritingInput = {
   length: string
   chapter: string
   extra: string
+  // [论文助手定制] 配置方块（config chip）：是否已「添加到输入框」——为 true 时输入框显示
+  // 配置方块，发送时随 prompt 注入配置要求段；点方块 × 或浮窗重新添加可切换。持久化随 input。
+  configAttached: boolean
 }
 export type FormattingInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
@@ -231,6 +238,7 @@ const DEFAULT_INPUTS: {
     optimize: true,
     selected: [],
     selectedKnowledgeIds: [],
+    configAttached: false,
   },
   writing: {
     skills: [],
@@ -245,6 +253,7 @@ const DEFAULT_INPUTS: {
     length: "8000",
     chapter: "",
     extra: "",
+    configAttached: false,
   },
   formatting: {
     skills: [],
@@ -310,6 +319,7 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
       sessionID?: string
       activeStep?: string
       currentArtifactID?: string
+      productView?: string
       artifacts?: ThesisArtifact[]
       turns?: Record<string, TurnRegistration>
       steps?: {
@@ -342,11 +352,15 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
             }),
           )
     const currentArtifactID = typeof parsed.currentArtifactID === "string" ? parsed.currentArtifactID : null
+    // [论文助手定制] 恢复上次的「文稿/会话」视图（画布编辑为主界面）：合法值才采用，
+    // 非法或缺失时回退文稿视图，避免打开工作台/刷新后看不到文稿画布。
+    const productView: ThesisWorkflowState["productView"] =
+      parsed.productView === "document" || parsed.productView === "session" ? parsed.productView : "document"
     return {
       version: 3,
       activeStep,
       currentArtifactID,
-      productView: "document",
+      productView,
       displaySessionID: null,
       artifacts: migratedArtifacts,
       turns: parsed.turns ?? {},
@@ -366,6 +380,7 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
   name: "ThesisWorkflow",
   init: (props: { directory: string }) => {
     const directory = props.directory
+    const queryClient = useQueryClient()
     const [state, setState] = createSignal<ThesisWorkflowState>(readWorkflow(directory))
 
     // [论文助手定制] 所有修改都走这里：更新后立即写回 localStorage。
@@ -430,7 +445,7 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       commit({ ...current, currentArtifactID: artifactID })
     }
 
-    // [论文助手定制] 切换板块：清掉会话记录点选的会话并回到文稿视图，
+    // [论文助手定制] 切换板块：清掉会话记录点选的会话并默认回到文稿（画布）视图，
     // 避免上一个板块的「查看会话」串到新板块（openSessionInPanel 会随后重新设置显示会话）。
     const setActiveStep = (step: StepKey) =>
       commit({ ...state(), activeStep: step, displaySessionID: null, productView: "document" })
@@ -473,6 +488,9 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       const current = state()
       const steps = { ...current.steps, [step]: { ...current.steps[step], sessionID } }
       commit({ ...current, steps })
+      // [论文助手定制] 会话一旦创建/绑定（首次发送、生成、新会话）立即刷新侧边栏「会话记录」，
+      // 让新会话马上出现在列表里，不用等查询缓存过期或手动刷新。
+      void queryClient.invalidateQueries({ queryKey: ["thesis", "sessions", directory] })
     }
 
     // [论文助手定制] 会话记录联动：切换右侧产物面板显示模式 / 指定当前显示的会话。

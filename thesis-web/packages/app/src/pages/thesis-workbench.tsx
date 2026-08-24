@@ -10,7 +10,6 @@ import { useNavigate } from "@solidjs/router"
 import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import type { Project } from "@opencode-ai/sdk/v2/client"
-import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { StepFormatting } from "@/components/thesis-workflow/step-formatting"
 import { StepOutline } from "@/components/thesis-workflow/step-outline"
 import { StepReview } from "@/components/thesis-workflow/step-review"
@@ -19,7 +18,6 @@ import { ThesisKnowledgeProvider } from "@/components/thesis-workflow/thesis-kno
 import { ThesisLiveProvider } from "@/components/thesis-workflow/thesis-live-store"
 import { useThesisManuscriptFile } from "@/components/thesis-workflow/thesis-manuscript-file"
 import { useThesisProject } from "@/components/thesis-workflow/thesis-export"
-import { usePersistentWidth } from "@/components/thesis-workflow/thesis-panel-layout"
 import { ThesisStepSidebar } from "@/components/thesis-workflow/thesis-step-sidebar"
 import { ThesisWorkflowProvider, useThesisWorkflow, type StepKey } from "@/components/thesis-workflow/thesis-workflow-store"
 import { useLayout } from "@/context/layout"
@@ -50,9 +48,6 @@ function ThesisWorkbenchInner() {
   const { state } = useThesisWorkflow()
   // [论文助手定制] 文稿文件化迁移：打开工作台时把已有 result 落盘为项目根目录 <step>.md（幂等覆盖写）。
   const manuscript = useThesisManuscriptFile(sdk().directory)
-  // [论文助手定制] 可拖拽布局：左侧侧边栏宽度（默认 220，可拖到 180~360，localStorage 记住）。
-  const sidebarWidth = usePersistentWidth("thesis-workbench.sidebarWidth", 220)
-
   onMount(() => {
     const steps = state().steps
     const tasks: Promise<void>[] = []
@@ -66,8 +61,8 @@ function ThesisWorkbenchInner() {
   // [论文助手定制] 侧边栏收起状态（localStorage 记住）。
   const [collapsed, setCollapsed] = createSignal(localStorage.getItem("thesis-workbench.sidebarCollapsed") === "1")
   const [stepConfigOpen, setStepConfigOpen] = createSignal<Record<StepKey, boolean>>({
-    outline: true,
-    writing: true,
+    outline: false,
+    writing: false,
     formatting: true,
     review: true,
   })
@@ -101,11 +96,11 @@ function ThesisWorkbenchInner() {
   return (
     // [论文助手定制] 外层容器与主页卡片一致（self-stretch 撑满主区域宽度、圆角卡片浮在深色底上），
     // 顶部栏已删除（主页/标题/资料/生成记录集中到左侧边栏），布局为：侧边栏 + 当前步骤内容。
-    <div class="m-2 min-h-0 flex-1 self-stretch overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
-      <div class="flex size-full min-h-0 min-w-0 gap-2 overflow-hidden p-2">
+    <div class="m-1.5 min-h-0 flex-1 self-stretch overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)] md:m-2">
+      <div class="flex size-full min-h-0 min-w-0 gap-1.5 overflow-hidden p-1.5 md:gap-2 md:p-2">
         {/* [论文助手定制] 左侧侧边栏：四步切换 + 顶部（主页/标题）+ 底部工具（资料/生成记录）。
-            外层容器控制宽度（可拖拽，min(宽度, 100%) 保证窄屏不溢出），右侧挂 ResizeHandle 分割手柄。
-            可收起：拖拽手柄到阈值以下或点顶部「收起」按钮折叠，折叠时换成一列「展开」按钮。 */}
+            固定宽度 220px（max-w-full 保证窄屏不溢出），不再挂拖拽手柄——画布宽度保持稳定；
+            可收起：点顶部「收起」按钮折叠，折叠时换成一列「展开」按钮。 */}
         <Show
           when={!collapsed()}
           fallback={
@@ -121,11 +116,11 @@ function ThesisWorkbenchInner() {
             </div>
           }
         >
-          <div class="relative flex min-h-0 shrink-0" style={{ width: `min(${sidebarWidth.width()}px, 100%)` }}>
+          <div class="flex min-h-0 w-[220px] max-w-full shrink-0">
             <ThesisStepSidebar
               title={title()}
               hasProject={!!project()}
-              configOpen={stepConfigOpen()[state().activeStep] ?? true}
+              configOpen={stepConfigOpen()[state().activeStep] ?? false}
               onHome={() => navigate("/")}
               onCollapse={() => toggleCollapsed(true)}
               onToggleConfig={() => toggleStepConfig(state().activeStep)}
@@ -136,30 +131,20 @@ function ThesisWorkbenchInner() {
                 })
               }}
             />
-            <ResizeHandle
-              direction="horizontal"
-              edge="end"
-              size={sidebarWidth.width()}
-              min={180}
-              max={360}
-              collapseThreshold={50}
-              onCollapse={() => toggleCollapsed(true)}
-              onResize={sidebarWidth.setWidth}
-            />
           </div>
         </Show>
         {/* 右侧当前步骤内容（表单 + 产物） */}
         <div class="flex min-h-0 min-w-0 flex-1 flex-col">
           <Show when={state().activeStep === "outline"}>
             <StepOutline
-              configOpen={stepConfigOpen().outline ?? true}
+              configOpen={stepConfigOpen().outline ?? false}
               onToggleConfig={() => toggleStepConfig("outline")}
               onSetConfigOpen={(next) => setStepConfig("outline", next)}
             />
           </Show>
           <Show when={state().activeStep === "writing"}>
             <StepWriting
-              configOpen={stepConfigOpen().writing ?? true}
+              configOpen={stepConfigOpen().writing ?? false}
               onToggleConfig={() => toggleStepConfig("writing")}
               onSetConfigOpen={(next) => setStepConfig("writing", next)}
             />
