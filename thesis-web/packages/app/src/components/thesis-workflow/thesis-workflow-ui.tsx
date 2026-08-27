@@ -10,7 +10,7 @@ import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { PromptInputV2SkillsMenu } from "@opencode-ai/session-ui/v2/prompt-input"
 import { createEffect, createMemo, createResource, createSignal, For, Show, type JSX } from "solid-js"
-import { createQuery } from "@tanstack/solid-query"
+import { createQuery, useQueryClient } from "@tanstack/solid-query"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { encodeFilePath } from "@/context/file/path"
@@ -21,8 +21,9 @@ import { useThesisWorkflow } from "./thesis-workflow-store"
 import { ThesisSessionView } from "./thesis-session-view"
 import { resolveMarkdownImages } from "./thesis-assets"
 import { absolutePath, waitForAssistantReply } from "./thesis-generator"
-import { ThesisEditor } from "./thesis-editor"
+import { ThesisEditor, normalizeInlineAiReplacement, shouldKeepAiReplacementInline } from "./thesis-editor"
 import type { ThesisEditorApi, ThesisEditorSelection } from "./thesis-editor"
+import { refreshThesisSessions, upsertThesisSessionCache } from "./thesis-session-cache"
 import "./thesis-editor.css"
 import { buildPlainDoc } from "./thesis-md-text"
 import { showToast } from "@/utils/toast"
@@ -173,13 +174,13 @@ export function ThesisSkillPicker(props: { step: StepKey; hideTools?: boolean })
 // 结合全文上下文，保证改写/扩写与前后文衔接、术语一致。
 const SUGGESTION_PROMPTS: Record<string, (text: string) => string> = {
   rewrite: (t) =>
-    `请对下面这段论文文稿进行改写，保持原意与学术语气，提升表达质量。完整文稿已作为附件提供，请结合全文上下文与前后文衔接。只输出改写后的段落本身，不要任何解释、标题或前后缀。\n\n${t}`,
+    `请对下面这段论文文稿进行改写，保持原意与学术语气，提升表达质量。完整文稿已作为附件提供，请结合全文上下文与前后文衔接。只输出改写后的内容本身，尽量保持为同一段，不要换行、不要任何解释、标题或前后缀。\n\n${t}`,
   expand: (t) =>
-    `请扩写下面这段论文文稿，补充细节、论据与展开论述，使其更充实，保持学术语气。完整文稿已作为附件提供，请结合全文上下文，保持前后文衔接与术语一致。只输出扩写后的段落本身，不要任何解释。\n\n${t}`,
+    `请扩写下面这段论文文稿，补充细节、论据与展开论述，使其更充实，保持学术语气。完整文稿已作为附件提供，请结合全文上下文，保持前后文衔接与术语一致。只输出扩写后的内容本身，尽量保持为同一段，不要换行、不要任何解释。\n\n${t}`,
   polish: (t) =>
-    `请润色下面这段论文文稿，修正语病、优化用词与句式，保持原意与学术语气。完整文稿已作为附件提供，请结合全文上下文润色。只输出润色后的段落本身，不要任何解释。\n\n${t}`,
+    `请润色下面这段论文文稿，修正语病、优化用词与句式，保持原意与学术语气。完整文稿已作为附件提供，请结合全文上下文润色。只输出润色后的内容本身，尽量保持为同一段，不要换行、不要任何解释。\n\n${t}`,
   shorten: (t) =>
-    `请将下面这段论文文稿压缩得更精炼，保留核心信息与论点，保持学术语气。完整文稿已作为附件提供，可参考全文上下文。只输出压缩后的段落本身，不要任何解释。\n\n${t}`,
+    `请将下面这段论文文稿压缩得更精炼，保留核心信息与论点，保持学术语气。完整文稿已作为附件提供，可参考全文上下文。只输出压缩后的内容本身，尽量保持为同一段，不要换行、不要任何解释。\n\n${t}`,
 }
 
 // [论文助手定制] 选区改写剥离会话：模块级唯一「编辑 session」，不写任何板块的 sessionID。
@@ -199,6 +200,8 @@ export function StepProductPanel(props: {
   onExportPdf?: () => void
   // [论文助手定制] 可选自定义产物渲染（如评审报告的结构化展示），默认 Markdown。
   render?: (result: string) => JSX.Element
+  // [论文助手定制] 可选替换「文稿」画布主体（排版模块用于显示真实 docx/pdf 成品预览）。
+  documentOverride?: JSX.Element
   // [论文助手定制] 标题栏动作插槽：与状态徽章同一行右侧区渲染（各 step 传入「生成/重新生成」主按钮 +「配置」按钮）。
   titleActions?: JSX.Element
   // [论文助手定制] 文稿文件化：传入步骤名与项目目录后，完成态从项目根目录「<step>.md」文件读取渲染，
@@ -215,9 +218,19 @@ export function StepProductPanel(props: {
   // [论文助手定制] 产物区域顶部加「文稿 / 会话」切换：会话视图在同一个位置显示会话聊天记录，
   // 生成过程中可以来回切换看“文稿进度”和“对话过程”。
   // 视图状态放到 workflow store（productView），侧边栏「会话记录」点击后能直接切到右侧会话界面。
-  const { state, setProductView, setDisplaySession, setStepResult, setCurrentArtifact, markTurn, consumeTurn } = useThesisWorkflow()
+  const {
+    state,
+    setProductView,
+    setDisplaySession,
+    setStepResult,
+    setCurrentArtifact,
+    markTurn,
+    consumeTurn,
+    registerLocalSessionID,
+  } = useThesisWorkflow()
   const sdk = useSDK()
   const sync = useSync()
+  const queryClient = useQueryClient()
   // [论文助手定制] 文稿文件化：编辑保存 / 接受建议时落盘到项目根目录 <step>.md（与「存为当前文稿」同一链路）。
   const manuscript = useThesisManuscriptFile(props.manuscript?.directory ?? sdk().directory)
   const view = () => state().productView
@@ -237,9 +250,13 @@ export function StepProductPanel(props: {
   // select 拿不到匹配 option 会回退到第一个文件（如 论文主题.md），与画布实际渲染内容不一致。
   // 用 ref + effect 在选项就绪后把 select.value 强制同步回 currentPath（板块默认文稿）。
   let fileSelectRef: HTMLSelectElement | undefined
-  // [论文助手定制] 独立文档落盘版本号：docs/ 独立文档 saveFile 成功后 bump，并入 fileContent source，
-  // 保证独立文档编辑落盘后文稿视图自动重读文件（独立文档没有对应的 step updatedAt）。
+  // [论文助手定制] 按路径保存草稿：切换文件时各文件都保留自己的未保存编辑内容。
+  const [drafts, setDrafts] = createSignal<Record<string, string>>({})
+  // [论文助手定制] 文件落盘版本号：任何 saveFile 成功后 bump，并入 fileContent source，
+  // 保证文件空间里的文本文件保存后，画布/预览能重新读到新内容。
   const [docsVersion, setDocsVersion] = createSignal(0)
+  const manuscriptPath = () => (props.manuscript ? MANUSCRIPT_FILENAMES[props.manuscript.step] : null)
+  const draftForPath = (path: string | null | undefined) => (path ? drafts()[path] : undefined)
 
   // [论文助手定制] 文件下拉条目：合并根目录与 docs/ 目录下的 .md/.txt 文本文件；
   // docs/ 下视为独立文档（independent），下拉展示加 [独立] 前缀，落盘路径保持 docs/<原名>。
@@ -277,6 +294,24 @@ export function StepProductPanel(props: {
     },
   }))
 
+  // [论文助手定制] 文件空间已有文本文件时，画布必须显示真实文件，而不是停在未生成的默认文稿空状态。
+  // 典型场景：当前板块默认文稿（如 全文稿.md）还不存在，但文件空间已有 论文主题.md。
+  // 原生 select 会视觉回退到第一个 option，可组件状态仍指向不存在的默认文稿，于是显示 emptyHint。
+  // 这里在文件列表就绪后把状态也同步到一个真实存在的文本文件，保证“有文件 => 画布可见可编辑”。
+  createEffect(() => {
+    const list = textFiles.data
+    if (!props.manuscript || !list) return
+    const selected = viewPath()
+    const defaultPath = manuscriptPath()
+    const has = (path: string | null | undefined) => Boolean(path && list.some((node) => node.path === path))
+    if (has(selected)) return
+    if (has(defaultPath)) {
+      if (selected) setViewPath(null)
+      return
+    }
+    setViewPath(list[0]?.path ?? null)
+  })
+
   // [论文助手定制] 文件下拉选中值同步：options 异步加载后浏览器可能回退到第一个文件
   // （如 论文主题.md），与画布实际渲染内容不一致；这里在选项就绪 / currentPath 变化时
   // 把 select.value 强制同步回当前显示路径（板块默认文稿 或 用户选中的文件）。
@@ -287,14 +322,14 @@ export function StepProductPanel(props: {
     if (el && target && list && list.some((node) => node.path === target)) el.value = target
   })
 
-  // [论文助手定制] 可编辑路径判定：docs/ 独立文档可编辑；本板块默认文稿（提纲.md 等）
-  // 无论默认态还是从文件下拉选中都可编辑；其余根目录 .md/.txt（查看其它文件）保持只读。
+  // [论文助手定制] 可编辑路径判定：只要是当前下拉选中的文本文件（.md/.txt），都允许直接编辑。
+  // 这样切换到任意文稿后都能继续改，不再把某些文件降成只读。
   const editablePath = () => {
     const path = currentPath()
     if (!path) return null
-    const defaultManuscript = props.manuscript ? MANUSCRIPT_FILENAMES[props.manuscript.step] : null
-    return path.startsWith("docs/") || path === defaultManuscript ? path : null
+    return /\.(md|txt)$/i.test(path) ? path : null
   }
+  const editingBlockedByGeneration = () => props.status === "generating" && currentPath() === manuscriptPath()
 
   // [论文助手定制] 豆包式「自动切到文稿输出」：一次生成中，模型正文（progress）第一次出现时，
   // 如果当前停在「会话」视图，自动切回「文稿」视图，让正文像豆包一样自动落到文稿画布里。
@@ -313,11 +348,11 @@ export function StepProductPanel(props: {
     }
   })
 
-  // [论文助手定制] 完成态读文件：source 里带上 updatedAt，落盘（setStepResult 更新 updatedAt）后自动重读，
-  // 保证「文稿=文件内容」；文件还没写或读失败时返回 undefined，由渲染处回退 result。
+  // [论文助手定制] 读当前画布文件：不能只在 done 态读取。用户从文件空间切换到已有 .md/.txt 时，
+  // 即使当前模块还没生成，也应该直接在画布看到并编辑该文件；updatedAt/docsVersion 用于落盘后重读。
   const [fileContent] = createResource(
     () =>
-      props.manuscript && props.status === "done" && currentPath()
+      props.manuscript && currentPath()
         ? `${props.manuscript.directory}\u0000${currentPath()}\u0000${state().steps[props.manuscript.step].updatedAt ?? 0}\u0000${docsVersion()}`
         : undefined,
     async () => {
@@ -330,15 +365,33 @@ export function StepProductPanel(props: {
         path,
       })
       if (res.error || res.data?.type !== "text") return undefined
-      return res.data.content
+      return { path, content: res.data.content }
     },
   )
-
-  // [论文助手定制] 文稿正文源：生成中 = result + 流式 progress；完成且有文件 = 文件内容（缺失时回退 result）。
-  const manuscriptText = () => {
-    if (props.manuscript && props.status === "done") return fileContent() ?? props.result ?? ""
-    return [props.result, props.progressText].filter(Boolean).join("\n\n")
+  const loadedTextForCurrentPath = () => {
+    const path = currentPath()
+    const loaded = fileContent()
+    return path && loaded?.path === path ? loaded.content : undefined
   }
+
+  // [论文助手定制] 当前画布正文：优先用当前文件自己的草稿，其次用当前文件已读到的磁盘内容；
+  // 默认板块文稿在没有独立文件内容时再回退到 step result。其他文件未读到时返回 undefined，
+  // 避免把别的文件内容误塞进当前编辑器。
+  const currentText = () => {
+    const path = currentPath()
+    if (!path) return [props.result, props.progressText].filter(Boolean).join("\n\n")
+    const draft = draftForPath(path)
+    if (draft !== undefined) return draft
+    if (props.manuscript && path === manuscriptPath() && props.status === "generating") {
+      const streaming = [props.result, props.progressText].filter(Boolean).join("\n\n")
+      if (streaming) return streaming
+    }
+    const loaded = loadedTextForCurrentPath()
+    if (loaded !== undefined) return loaded
+    if (props.manuscript && path === manuscriptPath() && props.status === "done") return props.result ?? ""
+    return undefined
+  }
+  const currentFileLoading = () => Boolean(currentPath()) && fileContent.loading && currentText() === undefined
 
   // [论文助手定制] 稳定 cacheKey：生成中固定用「板块名」前缀（Markdown 组件按 key 做增量更新缓存，
   // key 稳定才能复用已渲染块、只更新新增内容，避免每帧全量重解析）；
@@ -346,7 +399,7 @@ export function StepProductPanel(props: {
   const stableCacheKey = () => {
     const tag = props.manuscript?.step ?? props.title
     if (props.status === "generating") return `thesis-streaming:${tag}`
-    const text = manuscriptText()
+    const text = currentText() ?? ""
     let h = 5381
     for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0
     return `thesis-done:${tag}:${h >>> 0}`
@@ -361,8 +414,6 @@ export function StepProductPanel(props: {
   }
 
   // [论文助手定制] 渲染即编辑：无编辑/查看切换，完成态默认直接进入 Milkdown 编辑器。
-  // draft 保存编辑器当前内容（Milkdown listener 同步），用于防抖自动保存 / 手动保存。
-  const [draft, setDraft] = createSignal<string>("")
   // [论文助手定制] Markdown 源码编辑模式：WYSIWYG 里 `-` 列表符号、空行等是节点结构、
   // 不能直接手改；源码模式下用纯文本 textarea 直接编辑原始 Markdown（- 符号、换行、缩进都行），
   // 切回可视化时重新解析渲染。
@@ -437,24 +488,22 @@ export function StepProductPanel(props: {
   }
 
   // [论文助手定制] 清理选区与建议状态（生成中 / 无文稿 / 查看其它文件时调用）。
-  // 同时清空草稿与自动保存定时器：避免跨板块/跨文件残留旧草稿导致切走时误保存覆盖文件。
+  // 草稿按路径保存，不在这里清空，避免切文件后把别的文件内容误带回当前画布。
   const resetSuggestionState = () => {
     setEditorSelection(null)
     setFloatAnchor(null)
     setSuggestError(null)
     setCustom(null)
     setLastReplace(null)
-    setDraft("")
     clearTimeout(replaceTimer)
-    clearTimeout(autoSaveTimer)
   }
 
-  // [论文助手定制] 渲染即编辑重置保护：生成中 / 无可编辑路径 / 查看只读文件（根目录其它 .md/.txt）时
+  // [论文助手定制] 渲染即编辑重置保护：无可编辑路径 / 加载中时
   // 清理选区与建议状态（编辑器随之卸载/暂停，避免残留选中态与撤销浮条导致画布不同步）。
   // 注意：切换到「会话」视图（view 变化）不重置——建议生成期间用户切到会话看输出、
   // 再切回文稿还要能继续「接受/放弃」，清掉会导致画布无法同步更新。
   createEffect(() => {
-    if (props.status !== "done" || currentPath() !== editablePath()) {
+    if (currentPath() !== editablePath() || currentFileLoading()) {
       resetSuggestionState()
     }
   })
@@ -462,47 +511,52 @@ export function StepProductPanel(props: {
   // [论文助手定制] 编辑内容变化：同步草稿（Milkdown listener 回调）；
   // 每次内容变化 bump 撤销/重做按钮态，并防抖自动保存到文稿文件。
   const handleEditorChange = (markdown: string) => {
-    setDraft(markdown)
+    const path = currentPath()
+    if (!path) return
+    setDrafts((prev) => ({ ...prev, [path]: markdown }))
     setHistoryVersion((v) => v + 1)
     clearTimeout(autoSaveTimer)
-    autoSaveTimer = setTimeout(() => void persistDraft({ silent: true }), 1000)
+    autoSaveTimer = setTimeout(() => void persistDraft({ path, text: markdown, silent: true }), 1000)
   }
 
   // [论文助手定制] 离开「文稿」视图（切到会话/其它板块）时，把防抖窗口内未落盘的草稿立即保存，
   // 避免最后 1s 内的改动丢失。
   createEffect(() => {
-    if (view() !== "document" && draft() && draft() !== manuscriptText()) {
-      void persistDraft({ silent: true })
+    const path = currentPath()
+    if (view() !== "document" && path) {
+      const text = draftForPath(path)
+      const loaded = loadedTextForCurrentPath()
+      const baseline = loaded ?? (props.manuscript && path === manuscriptPath() && props.status === "done" ? props.result ?? "" : undefined)
+      if (text !== undefined && text !== baseline) void persistDraft({ path, text, silent: true })
     }
   })
 
-  // [论文助手定制] 落盘统一入口：按当前可编辑路径分流——
-  // docs/ 独立文档走 saveFile（不 setStepResult，bump docsVersion 触发 fileContent 重读）；
-  // 板块默认文稿走 manuscript.save + setStepResult（updatedAt 变化触发 fileContent 重读）。
-  const saveCurrent = async (text: string) => {
-    const path = editablePath()
+  // [论文助手定制] 落盘统一入口：默认板块文稿走 manuscript.save + setStepResult；
+  // 其它文本文件（包括 docs/ 独立文档与根目录里的额外 md/txt）统一走 saveFile。
+  const saveCurrent = async (path: string, text: string) => {
     if (!path) return
-    if (path.startsWith("docs/")) {
+    if (props.manuscript && path === manuscriptPath() && props.manuscript.step) {
+      await manuscript.save(props.manuscript.step, text)
+      setStepResult(props.manuscript.step, text)
+    } else {
       await manuscript.saveFile(path, text)
       setDocsVersion((v) => v + 1)
-    } else {
-      const step = props.manuscript?.step
-      if (!step) return
-      await manuscript.save(step, text)
-      setStepResult(step, text)
     }
+    setDrafts((prev) => ({ ...prev, [path]: text }))
   }
 
   // [论文助手定制] 保存草稿：写盘到当前文稿文件（板块文稿或 docs/ 独立文档）+ 更新 store
   // （板块文稿 updatedAt / 独立文档 docsVersion 变化后 fileContent 自动重读）。
   // silent 用于自动保存（内容为空时静默跳过不打断编辑）；手动保存时给出 toast 与「已保存」提示。
-  const persistDraft = async (opts?: { silent?: boolean }) => {
-    const text = draft().trim()
+  const persistDraft = async (opts?: { path?: string; text?: string; silent?: boolean }) => {
+    const path = opts?.path ?? currentPath()
+    const text = (opts?.text ?? draftForPath(path) ?? currentText() ?? "").trim()
+    if (!path) return
     if (!text) {
       if (!opts?.silent) showToast({ variant: "error", icon: "circle-x", title: "文稿内容为空" })
       return
     }
-    await saveCurrent(text)
+    await saveCurrent(path, text)
     setSavedAt(Date.now())
     clearTimeout(savedTimer)
     savedTimer = setTimeout(() => setSavedAt(0), 1500)
@@ -515,7 +569,7 @@ export function StepProductPanel(props: {
     const next = !sourceMode()
     if (!next) {
       clearTimeout(autoSaveTimer)
-      void persistDraft({ silent: true })
+      void persistDraft({ path: currentPath() ?? undefined, text: currentText() ?? undefined, silent: true })
     }
     setSourceMode(next)
   }
@@ -556,7 +610,10 @@ export function StepProductPanel(props: {
       if (!editSessionID) {
         const created = await sdk().api.session.create({ location: { directory: sdk().directory } })
         editSessionID = created.id
+        upsertThesisSessionCache(queryClient, sdk().directory, created)
+        refreshThesisSessions(queryClient, sdk().directory)
       }
+      if (editSessionID) registerLocalSessionID(editSessionID)
       // [论文助手定制] 主动 sync：工作台没打开会话页时，必须 sync 后 SSE 事件才会写入 store，
       // waitForAssistantReply 轮询才能读到回复（与 thesis-generator 一致）。
       await sync().session.sync(editSessionID).catch(() => {})
@@ -586,7 +643,8 @@ export function StepProductPanel(props: {
         setHistoryVersion((v) => v + 1)
         return
       }
-      if (applySuggestionToManuscript(sel.text, text)) {
+      const fallbackText = shouldKeepAiReplacementInline(sel.text, text) ? normalizeInlineAiReplacement(text) : text
+      if (applySuggestionToManuscript(sel.text, fallbackText)) {
         showToast({ variant: "success", icon: "circle-check", title: "AI 改写已应用并保存到文稿" })
         return
       }
@@ -604,7 +662,7 @@ export function StepProductPanel(props: {
   const applySuggestionToManuscript = (selected: string, replacement: string): boolean => {
     const step = props.manuscript?.step
     if (!step || !selected.trim()) return false
-    const source = draft() || manuscriptText()
+    const source = currentText() ?? ""
     // [论文助手定制] 先按原样匹配（最常见：选中的就是 Markdown 里的普通文字）；
     // 匹配不到时用「纯文本偏移映射」定位（选中文字在 Markdown 里可能带 #、**、` 等标记），
     // 并把区间向外扩展到紧邻的标记字符，避免替换后残留 ** 或 ` 等半截标记。
@@ -624,9 +682,10 @@ export function StepProductPanel(props: {
       while (end < source.length && /[*#`~]/.test(source[end])) end += 1
     }
     const next = source.slice(0, start) + replacement + source.slice(end)
-    setDraft(next)
+    const path = currentPath()
+    if (path) setDrafts((prev) => ({ ...prev, [path]: next }))
     // [论文助手定制] 统一走 saveCurrent：独立文档（docs/）落回原文件，板块文稿落盘并同步 store。
-    void saveCurrent(next)
+    if (path) void saveCurrent(path, next)
     return true
   }
 
@@ -656,7 +715,7 @@ export function StepProductPanel(props: {
   const [resolvedText, setResolvedText] = createSignal<string | undefined>(undefined)
   let resolveVersion = 0
   createEffect(() => {
-    const text = manuscriptText()
+    const text = currentText()
     const directory = props.manuscript?.directory
     setResolvedText(text)
     if (!text || !directory) return
@@ -668,9 +727,9 @@ export function StepProductPanel(props: {
   })
 
   return (
-    // [论文助手定制] 画布宽度：max-w-5xl（1024px）居中，避免超宽屏上整卡拉满、
-    // 阅读区两侧太空；窄屏自动占满（w-full）。
-    <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
+    // [论文助手定制] 画布宽度：max-w-7xl（1280px）居中，宽屏下给文稿更充足的编辑空间；
+    // 窄屏自动占满（w-full）。
+    <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
       {/* [论文助手定制] 标题栏响应式：窄屏时允许换行（flex-wrap），标题截断不挤压右侧操作区，
           操作区整体右对齐（ml-auto），窄屏自动折到下一行，避免控件横向溢出。 */}
       <div class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2">
@@ -738,7 +797,7 @@ export function StepProductPanel(props: {
           {/* [论文助手定制] 文稿文件切换（画布文件唯一入口）：默认当前板块文稿文件（提纲.md 等），
               可切换到文件空间里其它 .md/.txt 文本文件查看/编辑（docs/ 独立文档可编辑，其余只读）。
               不再有独立的「产物」下拉，避免两个选框重复。 */}
-          <Show when={props.manuscript && textFiles.data && textFiles.data.length > 0}>
+          <Show when={!props.documentOverride && props.manuscript && textFiles.data && textFiles.data.length > 0}>
             <select
               ref={fileSelectRef}
               class="h-7 w-36 min-w-0 max-w-full shrink-0 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none sm:w-44"
@@ -808,19 +867,26 @@ export function StepProductPanel(props: {
           </div>
         }
       >
-        <div class="min-h-0 flex-1 overflow-y-auto">
-          {/* [论文助手定制] 渲染即编辑：完成态且当前路径可编辑（本板块默认文稿 或 docs/ 独立文档）、
+        <div
+          class="min-h-0 flex-1"
+          classList={{
+            "overflow-hidden": !!props.documentOverride,
+            "overflow-y-auto": !props.documentOverride,
+          }}
+        >
+          <Show when={props.documentOverride}>{props.documentOverride}</Show>
+          <Show when={!props.documentOverride}>
+          {/* [论文助手定制] 渲染即编辑：当前路径是可编辑文本文件（任意 .md/.txt）且已读到内容、
               且该板块未用自定义渲染（render）时，直接渲染 Milkdown 编辑器（无编辑/查看切换，
-              选中文字即出 AI 操作条）；否则走原有 Markdown / 自定义渲染逻辑（原逻辑整体保留，
-              根目录其它 .md/.txt 只读渲染）。 */}
+              选中文字即出 AI 操作条）；否则走原有 Markdown / 自定义渲染逻辑。 */}
           <Show
-            when={props.status === "done" && manuscriptText() && editablePath() && !props.render}
+            when={!editingBlockedByGeneration() && currentText() !== undefined && editablePath() && !props.render}
             fallback={
               <Show
-                when={Boolean(manuscriptText())}
+                when={currentText() !== undefined}
                 fallback={
                   <Show
-                    when={props.status === "generating"}
+                    when={props.status === "generating" || currentFileLoading()}
                     fallback={
                       <div class="flex h-full flex-col items-center justify-center gap-2 px-4 py-8 text-center md:px-6 md:py-10">
                         <Icon name="pencil-line" size="large" class="text-v2-text-text-faint" />
@@ -831,7 +897,7 @@ export function StepProductPanel(props: {
                     <div class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
                       <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
                       <div class="text-12-regular text-v2-text-text-faint">
-                        模型正在输出…
+                        {currentFileLoading() ? "加载文稿…" : "模型正在输出…"}
                       </div>
                     </div>
                   </Show>
@@ -839,14 +905,14 @@ export function StepProductPanel(props: {
               >
                 {/* [论文助手定制] 只要文稿有文本即可查看/渲染：不再依赖 status 的「未开始/待生成」判断，
                     所有文稿都可以直接在画布上查看；done 态进入 Milkdown 编辑器（渲染即编辑）。 */}
-                <div class="mx-auto w-full max-w-4xl px-4 py-4 md:px-5 md:py-5">
+                <div class="mx-auto w-full max-w-6xl px-4 py-4 md:px-5 md:py-5">
                   <Show when={props.render} fallback={
                     <>
                       {/* [论文助手定制] 边生成边显示：result（上次完成的全文）+ progress（本次正在生成的文本）拼接渲染；
                           生成中 streaming=true（Markdown 增量渲染，只解析新增块）+ 稳定 cacheKey（复用已渲染块），
                           避免每帧全量重解析卡顿；完成态再解析 asset:// 插图为本机 data URL。 */}
                       <Markdown
-                        text={resolvedText() ?? manuscriptText()}
+                        text={resolvedText() ?? currentText() ?? ""}
                         cacheKey={stableCacheKey()}
                         streaming={props.status === "generating"}
                         class="thesis-markdown-preview"
@@ -854,13 +920,13 @@ export function StepProductPanel(props: {
                       />
                     </>
                   }>
-                    {props.render!(manuscriptText())}
+                    {props.render!(currentText() ?? "")}
                   </Show>
                 </div>
               </Show>
             }
           >
-            <div class="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-3 md:px-5 md:py-4">
+            <div class="mx-auto flex h-full w-full max-w-6xl flex-col px-4 py-3 md:px-5 md:py-4">
               {/* [论文助手定制] Milkdown 编辑器：WYSIWYG「渲染即编辑」，无外框、内容铺满。
                   作为悬浮工具栏的定位容器（relative），选区坐标换算后以 absolute 定位弹出。 */}
               {/* [论文助手定制] 编辑器滚动容器：只纵向滚动（overflow-y-auto），
@@ -875,25 +941,48 @@ export function StepProductPanel(props: {
                   <textarea
                     aria-label="Markdown 源码"
                     class="min-h-0 w-full flex-1 resize-none rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-3 py-3 font-mono text-[13px] leading-6 text-v2-text-text-base placeholder:text-v2-text-text-faint focus:outline-none"
-                    value={draft() || manuscriptText()}
+                    value={currentText() ?? ""}
                     onInput={(event) => handleEditorChange(event.currentTarget.value)}
                     spellcheck={false}
                   />
                 }
               >
                 <div ref={editorBoxRef} class="thesis-editor-root relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-                  <ThesisEditor
-                  initialMd={draft() || manuscriptText()}
-                  onMdChange={handleEditorChange}
-                  onSelectionChange={handleSelection}
-                  onReady={() => setHistoryVersion((v) => v + 1)}
-                  onReplaced={(rec) => {
-                    setLastReplace({ text: rec.text })
-                    clearTimeout(replaceTimer)
-                    replaceTimer = setTimeout(() => setLastReplace(null), 5000)
-                  }}
-                  apiRef={editorApiRef}
-                />
+                  <Show
+                    keyed
+                    when={currentPath() ?? undefined}
+                    fallback={
+                      <div class="flex h-full items-center justify-center gap-2 text-12-regular text-v2-text-text-faint">
+                        <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
+                        加载中…
+                      </div>
+                    }
+                  >
+                    {(path) => (
+                      <Show
+                        when={currentText() !== undefined}
+                        fallback={
+                          <div class="flex h-full items-center justify-center gap-2 text-12-regular text-v2-text-text-faint">
+                            <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
+                            加载中…
+                          </div>
+                        }
+                      >
+                        <ThesisEditor
+                          initialMd={currentText() ?? ""}
+                          onMdChange={handleEditorChange}
+                          onSelectionChange={handleSelection}
+                          onReady={() => setHistoryVersion((v) => v + 1)}
+                          onReplaced={(rec) => {
+                            setLastReplace({ text: rec.text })
+                            clearTimeout(replaceTimer)
+                            replaceTimer = setTimeout(() => setLastReplace(null), 5000)
+                          }}
+                          apiRef={editorApiRef}
+                        />
+                      </Show>
+                    )}
+                  </Show>
                 {/* [论文助手定制] 悬浮 AI 工具栏：选中文本后在选区附近弹出（豆包范式，位于选区下方，
                     空间不足时翻转到上方）。改写/润色展开「具体要求」输入框，扩写/缩短一键直发；
                     建议生成中 / 出错同样在本浮层反馈，不占用底部操作区。 */}
@@ -1067,6 +1156,7 @@ export function StepProductPanel(props: {
                 </div>
               </div>
             </div>
+          </Show>
           </Show>
         </div>
         <Show when={props.footer}>

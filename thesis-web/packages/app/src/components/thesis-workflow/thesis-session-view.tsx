@@ -16,12 +16,13 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
+import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { Message } from "@opencode-ai/session-ui/message-part"
 import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
-import type { Prompt, TextPart } from "@/context/prompt"
+import type { Prompt } from "@/context/prompt"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import type { PromptInputV2PersistedState } from "@opencode-ai/session-ui/v2/prompt-input"
 import { useServerSync } from "@/context/server-sync"
@@ -37,7 +38,6 @@ import { showToast } from "@/utils/toast"
 import { normalizeSessionMessages } from "@/utils/session-message"
 import { MANUSCRIPT_FILENAMES, useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
-import { buildRequirementPrompt, summarizeRequirement } from "./thesis-config-forms"
 import { useThesisFigureActions } from "./thesis-figure-actions"
 import { ThesisFigurePanel } from "./thesis-figure-panel"
 import { parseFigures } from "./thesis-assets"
@@ -50,6 +50,7 @@ const STEP_LABELS: Record<StepKey, string> = {
   formatting: "论文排版",
   review: "论文评审",
 }
+type CanvasApplyMode = "replace" | "append" | "scratch"
 
 // [论文助手定制] 按扩展名推断文件 MIME：图片/PDF/常见文本给准确类型，其余兜底 octet-stream，
 // 供原生文件引用的 file part 使用（发送后消息卡片能正确渲染、服务端能正确识别文件类型）。
@@ -293,17 +294,11 @@ export function ThesisSessionView(props: {
     if (!id) return null
     return STEP_KEYS.find((step) => state().steps[step].sessionID === id) ?? null
   }
-  // [论文助手定制] 配置注入/配置方块归属板块：优先取「当前显示会话所属板块」，
-  // 还没有专属会话（首次配置、尚未发送）时回退到当前模块（outline/writing）——
-  // 否则「添加到输入框」后、第一次发送前 sessionStep() 为 null，方块不显示、发送也不注入配置。
-  const attachStep = createMemo((): "outline" | "writing" | undefined => {
-    const step = sessionStep()
-    if (step === "outline" || step === "writing") return step
-    // 显示的是其它板块（formatting/review）的会话时不注入配置。
-    if (step !== null) return undefined
-    return props.step === "outline" || props.step === "writing" ? props.step : undefined
+  const isLocalSession = createMemo(() => {
+    const id = sessionID()
+    return !!id && state().localSessionIDs.includes(id)
   })
-  // [论文助手定制] 配置图标/配置方块仅 outline/writing 显示：收窄 step 类型避免 undefined 索引。
+  // [论文助手定制] 配置图标仅 outline/writing 显示：收窄 step 类型避免 undefined 索引。
   const configStep = createMemo(() => (props.step === "outline" || props.step === "writing" ? props.step : undefined))
   const route = useSessionKey()
 
@@ -345,59 +340,10 @@ export function ThesisSessionView(props: {
       autoScroll.resume()
       // [论文助手定制] 配置面板弱化（第二轮）：发送即生成——发送时自动关闭配置浮窗（outline/writing）。
       if (props.step === "outline" || props.step === "writing") props.onSetConfigOpen?.(false)
-      // [论文助手定制] 发送后自动移除配置方块：本次配置已随消息注入（promptTransform 先于 onSubmit 执行），
-      // 发送完清掉 configAttached，输入框方块消失，后续消息不再重复注入；下次需要再点「添加到输入框」。
-      const step = attachStep()
-      if (step && state().steps[step].input.configAttached) updateInput(step, { configAttached: false })
     },
-    // [论文助手定制] 配置面板弱化（第二轮）：仅当配置方块已「添加到输入框」（configAttached）
-    // 时，发送前才把当前板块的「配置要求」段追加到文本末尾（outline/writing 专属；
-    // formatting/review/独立会话原样返回）。方块未添加时不注入——避免用户没配置也静默带上默认配置。
-    // 历史记录仍存用户原始输入，不含注入段。
-    promptTransform: (prompt: Prompt) => {
-      const step = attachStep()
-      if (!step) return prompt
-      if (!state().steps[step].input.configAttached) return prompt
-      const index = prompt.findLastIndex((part) => part.type === "text")
-      if (index < 0) return prompt
-      const targetPart = prompt[index]
-      if (targetPart.type !== "text") return prompt
-      const extra = buildRequirementPrompt(
-        step,
-        targetPart.content,
-        state().steps[step].input,
-        step === "writing" ? state().steps.outline.result : undefined,
-      )
-      if (!extra) return prompt
-      const next = prompt.map((part) => ({ ...part }))
-      const target = next[index] as TextPart
-      target.content = `${target.content}\n\n${extra}`
-      let offset = 0
-      const withOffsets: Prompt = next.map((part) => {
-        if (part.type === "image") return part
-        const mapped = { ...part, start: offset, end: offset + part.content.length }
-        offset = mapped.end
-        return mapped
-      })
-      return withOffsets
-    },
-    // [论文助手定制] 配置方块（config chip）：configAttached 且当前为 outline/writing 时，
-    // 把配置摘要渲染成输入框方块（与 skill 方块同形态，悬停显示完整配置清单）；
-    // 点方块 × 移除 = 取消附加，之后的发送不再注入配置段。
-    extraChips: () => {
-      const step = attachStep()
-      if (!step) return []
-      if (!state().steps[step].input.configAttached) return []
-      const summary = summarizeRequirement(step, state().steps[step].input)
-      return [
-        {
-          id: `config:${step}`,
-          label: summary.label,
-          tooltip: summary.detail,
-          onRemove: () => updateInput(step, { configAttached: false }),
-        },
-      ]
-    },
+    // [论文助手定制] 配置不再注入会话文本：配置唯一交付方式为落盘 config/论文主题.md（见 thesis-config-forms），
+    // 由「提纲助手」等 Skill 直接读取；故 promptTransform 透传，不追加任何配置段。
+    promptTransform: (prompt: Prompt) => prompt,
   })
 
   // [论文助手定制] 插入选中文件：以 opencode 原生文件引用方式加入输入框（file part），
@@ -489,25 +435,17 @@ export function ThesisSessionView(props: {
   // 以前这里有一个「最后一条 assistant 回复完成就自动存为文稿」的 effect，导致
   // 自由提问、选区改写的回复都会被当成整篇文稿覆盖画布；现已删除，改为按通道显式路由。
 
-  // [论文助手定制] 采纳回复：板块专属会话存为当前步骤的文稿；独立会话另存为独立文档（docs/<标题>.md）。
-  const saveAsResult = async (messageId: string) => {
-    const step = sessionStep()
-    const text = assistantText(messageId)
-    if (!text) {
-      showToast({ variant: "error", icon: "circle-x", title: "这条回复还没有文本内容" })
-      return
-    }
-    // [论文助手定制] 按归属分流：板块专属会话 → 存为当前步骤文稿（覆盖画布 <step>.md）；
-    // 独立会话 → 弹标题输入框，另存为独立文档 docs/<标题>.md（复用 thesisWriteFile 落盘）。
-    if (step) {
-      const artifact = ensureArtifactForStep(step)
-      upsertArtifact({ ...artifact, title: STEP_LABELS[step], fileName: MANUSCRIPT_FILENAMES[step], kind: "step", step, sessionID: sessionID(), updatedAt: Date.now() })
-      await manuscript.save(step, text)
-      setStepResult(step, text)
-      setCurrentArtifact(artifact.id)
-      showToast({ variant: "success", icon: "circle-check", title: "已应用到画布" })
-      return
-    }
+  const currentStepText = (step: StepKey) => state().steps[step].result?.trim() ?? ""
+  const defaultApplyMode = (step: StepKey | null): CanvasApplyMode => {
+    if (!step) return "scratch"
+    return currentStepText(step) ? "append" : "replace"
+  }
+  const defaultApplyLabel = (step: StepKey | null) => {
+    if (!step) return "另存为文档"
+    return defaultApplyMode(step) === "append" ? "追加到画布" : "替换画布"
+  }
+
+  const saveScratchDocument = (text: string) => {
     dialog.show(() => (
       <SaveAsDocDialog
         onSave={(title) => {
@@ -524,11 +462,43 @@ export function ThesisSessionView(props: {
             }
             upsertArtifact(nextArtifact)
             setCurrentArtifact(nextArtifact.id)
-            showToast({ variant: "success", icon: "circle-check", title: `已应用到画布「${title}」` })
+            showToast({ variant: "success", icon: "circle-check", title: `已另存到画布「${title}」` })
           })()
         }}
       />
     ))
+  }
+
+  // [论文助手定制] 采纳回复：板块专属会话支持替换 / 追加 / 另存，独立会话默认另存为独立文档。
+  // 单一「覆盖当前文稿」太容易把自由对话误当正文写入；这里把写作动作显式化。
+  const applyMessageToCanvas = async (messageId: string, mode: CanvasApplyMode = defaultApplyMode(sessionStep())) => {
+    const step = sessionStep()
+    const text = assistantText(messageId)
+    if (!text) {
+      showToast({ variant: "error", icon: "circle-x", title: "这条回复还没有文本内容" })
+      return
+    }
+    if (!step || mode === "scratch") {
+      saveScratchDocument(text)
+      return
+    }
+
+    const nextText = mode === "append" && currentStepText(step)
+      ? `${currentStepText(step)}\n\n${text}`
+      : text
+    if (mode === "replace" || mode === "append") {
+      const artifact = ensureArtifactForStep(step)
+      upsertArtifact({ ...artifact, title: STEP_LABELS[step], fileName: MANUSCRIPT_FILENAMES[step], kind: "step", step, sessionID: sessionID(), updatedAt: Date.now() })
+      await manuscript.save(step, nextText)
+      setStepResult(step, nextText)
+      setCurrentArtifact(artifact.id)
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: mode === "append" ? "已追加到画布" : "已替换画布",
+      })
+      return
+    }
   }
 
   return (
@@ -537,7 +507,11 @@ export function ThesisSessionView(props: {
         {/* [论文助手定制] 头部显示会话归属：板块专属会话显示板块名，会话记录点选的普通会话显示「独立会话」。 */}
         <span class="min-w-0 truncate text-12-regular text-v2-text-text-faint">
           {props.fixedSessionID
-            ? "全屏会话 · 可继续对话修改"
+            ? isLocalSession()
+              ? "局部会话 · 选区改写记录"
+              : "全屏会话 · 可继续对话修改"
+            : isLocalSession()
+              ? "局部会话 · 选区改写记录"
             : sessionStep()
               ? `${STEP_LABELS[sessionStep()!]} · 专属会话，可继续对话修改`
               : "会话记录 · 独立会话，可继续对话"}
@@ -579,21 +553,52 @@ export function ThesisSessionView(props: {
                   !!assistant && (!isLastAssistant || !!assistant.finish || !!assistant.time.completed)
                 return (
                   <div class="px-4 py-2 md:px-5">
-                    {/* [论文助手定制] 助手消息完成且无错误时提供「保存」按钮：
-                        板块专属会话 = 存为当前文稿；独立会话 = 存为独立文档（不再报「无法存为文稿」）。 */}
+                    {/* [论文助手定制] 助手消息完成且无错误时提供「采纳」动作：
+                        板块专属会话 = 追加 / 替换 / 另存；独立会话 = 另存为独立文档。 */}
                     <Show when={assistant && !assistant.error}>
                       <div class="flex items-center justify-end pb-1">
-                        <button
-                          type="button"
-                          data-action="save-message-as-result"
-                          class="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-11-medium text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
-                          classList={{ "cursor-default opacity-40": !done }}
-                          disabled={!done}
-                          onClick={() => void saveAsResult(assistant!.id)}
-                        >
-                          <Icon name="circle-check" size="small" />
-                          {done ? (sessionStep() ? "应用到画布" : "应用到画布") : "生成中…"}
-                        </button>
+                        <div class="flex overflow-hidden rounded-md border border-v2-border-border-muted bg-v2-background-bg-layer-01">
+                          <button
+                            type="button"
+                            data-action="save-message-as-result"
+                            class="flex cursor-pointer items-center gap-1 px-2 py-1 text-11-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base disabled:cursor-default disabled:opacity-40"
+                            disabled={!done}
+                            onClick={() => void applyMessageToCanvas(assistant!.id)}
+                          >
+                            <Icon name="circle-check" size="small" />
+                            {done ? defaultApplyLabel(sessionStep()) : "生成中…"}
+                          </button>
+                          <MenuV2 modal={false} placement="bottom-end" gutter={4}>
+                            <MenuV2.Trigger
+                              as="button"
+                              type="button"
+                              aria-label="更多应用方式"
+                              disabled={!done}
+                              class="flex h-6 w-6 cursor-pointer items-center justify-center border-l border-v2-border-border-muted text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base disabled:cursor-default disabled:opacity-40"
+                            >
+                              <IconV2 name="chevron-down" size="small" />
+                            </MenuV2.Trigger>
+                            <MenuV2.Portal>
+                              <MenuV2.Content class="w-[184px]">
+                                <Show when={sessionStep()}>
+                                  <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant!.id, "append")}>
+                                    <Icon name="plus-small" size="small" />
+                                    追加到当前画布
+                                  </MenuV2.Item>
+                                  <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant!.id, "replace")}>
+                                    <Icon name="circle-check" size="small" />
+                                    替换当前画布
+                                  </MenuV2.Item>
+                                  <MenuV2.Separator />
+                                </Show>
+                                <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant!.id, "scratch")}>
+                                  <Icon name="open-file" size="small" />
+                                  另存为新文档
+                                </MenuV2.Item>
+                              </MenuV2.Content>
+                            </MenuV2.Portal>
+                          </MenuV2>
+                        </div>
                       </div>
                     </Show>
                     <Message message={message} parts={sync().data.part[message.id] ?? []} useV2Actions />
@@ -614,22 +619,15 @@ export function ThesisSessionView(props: {
           borderUnderlay
           controlsSlot={
             <>
-              {/* [论文助手定制] 配置面板弱化（第二轮）：「配置」图标（仅 outline/writing 显示）——
-                  点击切换配置浮窗（step 文件的 effect 监听 configOpen 弹 OutlineConfigForm/WritingConfigForm）。
-                  已「添加到输入框」时图标高亮（variant ghost-muted → ghost-base），提示配置方块生效中。 */}
+              {/* [论文助手定制]「配置」图标（仅 outline/writing 显示）：点击切换配置浮窗
+                  （step 文件的 effect 监听 configOpen 弹 OutlineConfigForm/WritingConfigForm）。
+                  配置不再以「方块」形式附加到消息，而是写入文件空间 config/论文主题.md 由 Skill 读取。 */}
               <Show when={configStep() !== undefined}>
-                <TooltipV2
-                  placement="top"
-                  value={
-                    state().steps[configStep()!].input.configAttached
-                      ? "配置（已添加到输入框）"
-                      : "配置"
-                  }
-                >
+                <TooltipV2 placement="top" value="配置">
                   <IconButtonV2
                     type="button"
                     icon={<IconV2 name="settings-gear" />}
-                    variant={state().steps[configStep()!].input.configAttached ? "ghost" : "ghost-muted"}
+                    variant="ghost"
                     size="large"
                     aria-label="配置"
                     onClick={() => props.onSetConfigOpen?.(!props.configOpen)}

@@ -6,7 +6,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { TextField } from "@opencode-ai/ui/text-field"
 // [论文助手定制] 真实调用 Skill：file part 的文件名解析工具。
 import { getFilename } from "@opencode-ai/core/util/path"
-import { createEffect, createResource, createSignal, For, Show } from "solid-js"
+import { createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useThesisGenerator } from "./thesis-generator"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
@@ -17,6 +17,7 @@ import { useThesisDocxExport, useThesisPdfExport, useThesisProject } from "./the
 import { showToast } from "@/utils/toast"
 // [论文助手定制] 真实调用 Skill：源稿文件名（全文稿.md）与 file part 的文件名解析工具。
 import { MANUSCRIPT_FILENAMES } from "./thesis-manuscript-file"
+import { base64ToBytes, downloadBytes, errorMessage } from "./thesis-manuscript-preview"
 
 const PAPER_TYPES = ["综述论文", "课程论文", "毕业论文", "期刊投稿稿"]
 const REFERENCE_STYLES = ["GB/T 7714-2015", "APA 7th", "MLA 9th", "Vancouver", "IEEE"]
@@ -110,6 +111,12 @@ const TEMPLATE_MIMES: Record<"md" | "docx" | "pdf", string> = {
 const FORMATTING_CONFIG_PATH = ".thesis/config/formatting.md"
 const MANUAL_PAPER_PATH = ".thesis/manual-paper.md"
 
+type FormattingArtifact = {
+  format: "docx" | "pdf"
+  filename: string
+  path?: string
+}
+
 // [论文助手定制] 文件来源模式（paperSource=file）下附件 MIME 按扩展名推断，供模型正确读取。
 const mimeForSource = (path: string): string => {
   if (/\.(md|markdown)$/i.test(path)) return "text/markdown"
@@ -119,6 +126,161 @@ const mimeForSource = (path: string): string => {
   if (/\.tex$/i.test(path)) return "application/x-tex"
   if (/\.pdf$/i.test(path)) return "application/pdf"
   return "text/plain"
+}
+
+const artifactReadPath = (artifact: FormattingArtifact) => {
+  const path = artifact.path?.trim()
+  if (path && !path.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(path)) return path
+  return artifact.filename
+}
+
+function FormattingArtifactPreview(props: {
+  directory: string
+  status: "idle" | "generating" | "done"
+  artifact?: FormattingArtifact
+  onExportDocx: () => void
+  onExportPdf: () => void
+}) {
+  const sdk = useSDK()
+  let lastPdfUrl: string | undefined
+  const docxPreview = () => {
+    const item = preview()
+    return item?.kind === "docx" ? item : undefined
+  }
+  const pdfPreview = () => {
+    const item = preview()
+    return item?.kind === "pdf" ? item : undefined
+  }
+  const [preview] = createResource(
+    () => (props.status === "done" && props.artifact ? [props.directory, props.artifact.format, artifactReadPath(props.artifact), props.artifact.filename] as const : undefined),
+    async ([directory, format, path, filename]) => {
+      if (lastPdfUrl) {
+        URL.revokeObjectURL(lastPdfUrl)
+        lastPdfUrl = undefined
+      }
+      const res = await sdk().client.file.read({ directory, path })
+      if (res.error) throw new Error(errorMessage(res.error))
+      if (!res.data || res.data.type !== "binary") throw new Error("成品文件不是可预览的二进制文件")
+      const bytes = base64ToBytes(res.data.content ?? "")
+      if (format === "pdf") {
+        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }))
+        lastPdfUrl = url
+        return { kind: "pdf" as const, url, bytes, filename }
+      }
+      const mammoth = await import("mammoth/mammoth.browser")
+      const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      const html = await mammoth.convertToHtml({ arrayBuffer })
+      return { kind: "docx" as const, html: html.value, bytes, filename }
+    },
+  )
+  onCleanup(() => {
+    if (lastPdfUrl) URL.revokeObjectURL(lastPdfUrl)
+  })
+
+  return (
+    <div class="flex h-full min-h-0 flex-col">
+      <div class="flex shrink-0 flex-wrap items-center gap-2 border-t border-v2-border-border-base bg-v2-background-bg-layer-01 px-3 py-2">
+        <Icon name={props.artifact?.format === "pdf" ? "photo" : "open-file"} size="small" class="text-v2-text-text-faint" />
+        <span class="min-w-0 flex-1 truncate text-12-medium text-v2-text-text-base">
+          {props.artifact?.filename ?? "尚未生成成品文件"}
+        </span>
+        <Show when={props.artifact?.format === "docx"}>
+          <Button type="button" size="small" variant="secondary" icon="download" onClick={props.onExportDocx}>
+            重新导出 Word
+          </Button>
+        </Show>
+        <Show when={props.artifact?.format === "pdf"}>
+          <Button type="button" size="small" variant="secondary" icon="download" onClick={props.onExportPdf}>
+            重新导出 PDF
+          </Button>
+        </Show>
+        <Show when={docxPreview()}>
+          {(result) => (
+            <Button
+              type="button"
+              size="small"
+              variant="primary"
+              icon="arrow-down-to-line"
+              onClick={() =>
+                downloadBytes(
+                  result().bytes,
+                  result().filename,
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+              }
+            >
+              打开 Word
+            </Button>
+          )}
+        </Show>
+        <Show when={pdfPreview()}>
+          {(result) => (
+            <a
+              href={result().url}
+              target="_blank"
+              rel="noreferrer"
+              class="flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md bg-v2-background-bg-base px-2 text-12-medium text-v2-text-text-base shadow-[var(--v2-elevation-raised)] transition-colors hover:text-v2-text-text-accent"
+            >
+              <Icon name="link" size="small" />
+              新标签页
+            </a>
+          )}
+        </Show>
+      </div>
+      <div class="min-h-0 flex-1 bg-v2-background-bg-layer-02">
+        <Show
+          when={props.artifact}
+          fallback={
+            <div class="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
+              <div class="text-13-medium text-v2-text-text-base">生成后将在这里显示成品预览</div>
+              <div class="flex flex-wrap justify-center gap-2">
+                <Button type="button" variant="primary" icon="download" onClick={props.onExportDocx}>
+                  导出 Word
+                </Button>
+                <Button type="button" variant="secondary" icon="download" onClick={props.onExportPdf}>
+                  导出 PDF
+                </Button>
+              </div>
+            </div>
+          }
+        >
+          <Show
+            when={!preview.loading}
+            fallback={
+              <div class="flex h-full items-center justify-center gap-2 text-12-regular text-v2-text-text-faint">
+                <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
+                加载成品…
+              </div>
+            }
+          >
+            <Show
+              when={!preview.error}
+              fallback={<div class="p-4 text-13-regular text-icon-critical-base">预览失败：{errorMessage(preview.error)}</div>}
+            >
+              <Show when={preview()}>
+                {(result) => (
+                  <Show
+                    when={result().kind === "pdf"}
+                    fallback={
+                      <div class="h-full overflow-y-auto px-6 py-5">
+                        <div
+                          class="mx-auto min-h-full max-w-[820px] bg-white px-[72px] py-[64px] text-[12pt] leading-[1.8] text-[#1f2933] shadow-[0_12px_34px_rgba(0,0,0,0.18)]"
+                          innerHTML={result().kind === "docx" ? result().html : ""}
+                        />
+                      </div>
+                    }
+                  >
+                    <iframe title={result().filename} src={result().kind === "pdf" ? result().url : undefined} class="h-full w-full border-0 bg-white" />
+                  </Show>
+                )}
+              </Show>
+            </Show>
+          </Show>
+        </Show>
+      </div>
+    </div>
+  )
 }
 
 export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: () => void; onSetConfigOpen?: (next: boolean) => void }) {
@@ -167,6 +329,7 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
   }))
   // [论文助手定制] 导出 PDF：把排版后的最终稿渲染成 PDF 保存到项目「正文」目录。
   const { exportPdf } = useThesisPdfExport("排版稿")
+  const [artifact, setArtifact] = createSignal<FormattingArtifact | undefined>(undefined)
   const formatting = () => state().steps.formatting
   const input = () => formatting().input
   const configSummary = () => {
@@ -175,6 +338,18 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
     return summary.join(" · ")
   }
   const sourcePaper = () => state().steps.writing.result ?? ""
+
+  const exportCurrentDocx = async (content = formatting().result ?? "") => {
+    const result = await exportDocx(content)
+    if (result?.filename) setArtifact({ format: "docx", filename: result.filename, path: result.path })
+    return result
+  }
+
+  const exportCurrentPdf = async (content = formatting().result ?? "") => {
+    const result = await exportPdf(content)
+    if (result?.filename) setArtifact({ format: "pdf", filename: result.filename, path: result.path })
+    return result
+  }
 
   // [论文助手定制] 文件来源模式的文件清单：递归枚举文件空间（最多 3 层、排除隐藏项），
   // 供「从文件空间选择文件」下拉选择（含子目录，如 资料/初稿.md）。
@@ -349,7 +524,7 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
     lines.push("", "## 输出要求")
     if (values.skills.length > 0) {
       // [论文助手定制] Skill 路径：正文由 Skill 产出为文件，回复不要重复输出正文文本。
-      lines.push("请使用我选中的 Skill（已作为 @skill 附件提供）完成排版，按其指令实际产出排版文件（如 .docx/.md/.tex）；")
+      lines.push("请使用我选中的 Skill（已作为 @skill part 真实提交）完成排版，按其指令实际产出排版文件（如 .docx/.md/.tex）；")
       lines.push("正文内容不要作为回复文本重复输出（太长且无用），完成后用一两句话汇报结果与产出文件的路径。")
     } else {
       lines.push(
@@ -412,6 +587,15 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
     }
   })
 
+  let previousOutputFormat = input().outputFormat
+  createEffect(() => {
+    const next = input().outputFormat
+    if (next !== previousOutputFormat) {
+      previousOutputFormat = next
+      setArtifact(undefined)
+    }
+  })
+
   const generate = async () => {
     if (generator.generating()) return
     setStepStatus("formatting", "generating")
@@ -424,9 +608,8 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
       const attachments = await buildAttachments(configWritten)
       const { sessionID, text } = await generator.generate({
         prompt,
-        // [论文助手定制] 把本步配置面板勾选的 Skill 传给生成器，注入提示词。
-        skills: input().skills,
-        // [论文助手定制] 把选中 Skill 转成 agents（agent part，等价 @skill），生成器会真正加载执行。
+        // [论文助手定制] 把选中 Skill 转成 agents（agent part，等价 @skill），生成器会真正加载执行；
+        // 排版模块不再走“把 Skill 文本拼进 prompt”的假调用。
         agents: input().skills.length > 0 ? input().skills : undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
         // [论文助手定制] 强制真实文件链路：即使没选 Skill 也放行工具、附件转 file part。
@@ -463,12 +646,13 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
       // [论文助手定制] 按所选排版文件格式自动交付：
       // md=只保存 Markdown 排版稿；docx/pdf=保存排版稿后自动导出对应文件（导出引擎会弹成功提示）。
       if (input().outputFormat === "docx") {
-        await exportDocx(text)
+        await exportCurrentDocx(text)
         showToast({ variant: "success", icon: "circle-check", title: "排版稿已生成并导出 Word" })
       } else if (input().outputFormat === "pdf") {
-        await exportPdf(text)
+        await exportCurrentPdf(text)
         showToast({ variant: "success", icon: "circle-check", title: "排版稿已生成并导出 PDF" })
       } else {
+        setArtifact(undefined)
         showToast({ variant: "success", icon: "circle-check", title: "排版稿已生成（Markdown）" })
       }
     } catch {
@@ -796,7 +980,7 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
                 variant="secondary"
                 icon="download"
                 disabled={generator.generating() || !formatting().result}
-                onClick={() => void exportDocx(formatting().result ?? "")}
+                onClick={() => void exportCurrentDocx()}
               >
                 {docxExporting() ? "导出中…" : "按当前参数重新导出 Word"}
               </Button>
@@ -868,8 +1052,8 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
           status={formatting().status}
           progressText={live.progress().formatting}
           result={formatting().result}
-          onExportDocx={() => void exportDocx(formatting().result ?? "")}
-          onExportPdf={() => void exportPdf(formatting().result ?? "")}
+          onExportDocx={() => void exportCurrentDocx()}
+          onExportPdf={() => void exportCurrentPdf()}
           // [论文助手定制] 产物标题栏动作：保留生成/重新生成主按钮（配置入口已移至左侧表单列/窄轨齿轮）。
           titleActions={
             <Button
@@ -886,6 +1070,17 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
           manuscript={{ directory: sdk().directory, step: "formatting" }}
           configOpen={configOpen()}
           onToggleConfig={() => setConfigOpen(!configOpen())}
+          documentOverride={
+            input().outputFormat === "md" || formatting().status === "generating" ? undefined : (
+              <FormattingArtifactPreview
+                directory={sdk().directory}
+                status={formatting().status}
+                artifact={artifact()}
+                onExportDocx={() => void exportCurrentDocx()}
+                onExportPdf={() => void exportCurrentPdf()}
+              />
+            )
+          }
         />
       }
     />

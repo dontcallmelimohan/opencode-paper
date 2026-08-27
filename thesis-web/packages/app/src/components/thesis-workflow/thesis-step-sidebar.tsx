@@ -8,12 +8,13 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useQuery, useQueryClient } from "@tanstack/solid-query"
 import { DateTime } from "luxon"
-import { For, Show } from "solid-js"
+import { createMemo, createSignal, For, Show } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { useSDK } from "@/context/sdk"
 import { showToast } from "@/utils/toast"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
+import { refreshThesisSessions, thesisSessionsQueryKey, upsertThesisSessionCache } from "./thesis-session-cache"
 
 // [论文助手定制] 方案 B（去线性化）：四个模块并列展示，不再标注「第 N 步」，
 // 暗示四步独立、可任意顺序使用。
@@ -40,16 +41,20 @@ export function ThesisStepSidebar(props: {
   const navigate = useNavigate()
   const active = () => state().activeStep
   const stepStatus = (key: StepKey) => state().steps[key].status
+  const [localOpen, setLocalOpen] = createSignal(false)
 
   // [论文助手定制] 会话管理（按项目隔离）：只拉取当前论文目录下的会话，最新的在前。
   const sessions = useQuery(() => ({
-    queryKey: ["thesis", "sessions", sdk().directory],
+    queryKey: thesisSessionsQueryKey(sdk().directory),
     queryFn: async () => {
-      const res = await sdk().client.v2.session.list({ directory: sdk().directory, limit: 20 })
+      const res = await sdk().client.v2.session.list({ directory: sdk().directory, limit: 100 })
       const list = res.data?.data ?? []
       return list.sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
     },
   }))
+  const localSessionSet = createMemo(() => new Set(state().localSessionIDs))
+  const regularSessions = createMemo(() => (sessions.data ?? []).filter((session) => !localSessionSet().has(session.id)))
+  const localSessions = createMemo(() => (sessions.data ?? []).filter((session) => localSessionSet().has(session.id)))
 
   // [论文助手定制] 打开会话：不再跳转到全局会话页，而是在工作台右侧产物面板显示该会话。
   // 板块专属会话会顺带切到对应板块（配置/产物上下文跟随），普通会话只显示会话界面。
@@ -65,10 +70,9 @@ export function ThesisStepSidebar(props: {
     try {
       const created = await sdk().api.session.create({ location: { directory: sdk().directory } })
       if (!created?.id) throw new Error("创建会话失败")
-      await queryClient.invalidateQueries({ queryKey: ["thesis", "sessions", sdk().directory] })
-      const res = await sdk().client.v2.session.list({ directory: sdk().directory, limit: 20 })
-      const found = (res.data?.data ?? []).find((item) => item.id === created.id)
-      if (found) openSessionInPanel(found)
+      upsertThesisSessionCache(queryClient, sdk().directory, created)
+      refreshThesisSessions(queryClient, sdk().directory)
+      openSessionInPanel(created)
     } catch (err) {
       showToast({
         variant: "error",
@@ -200,14 +204,16 @@ export function ThesisStepSidebar(props: {
           </Button>
         </div>
         <Show
-          when={sessions.data && sessions.data.length > 0}
+          when={regularSessions().length > 0}
           fallback={
-            <div class="px-2 pb-1 pt-0.5 text-11-regular text-v2-text-text-faint">
-              暂无会话，生成或新建后会出现在这里
-            </div>
+            <Show when={localSessions().length === 0}>
+              <div class="px-2 pb-1 pt-0.5 text-11-regular text-v2-text-text-faint">
+                暂无会话，生成或新建后会出现在这里
+              </div>
+            </Show>
           }
         >
-          <For each={sessions.data}>
+          <For each={regularSessions()}>
             {(session) => {
               // [论文助手定制] 板块归属：会话 ID 与某板块的专属会话一致时，显示板块图标/名称/状态。
               const step = STEPS.find((item) => state().steps[item.key].sessionID === session.id)
@@ -241,6 +247,58 @@ export function ThesisStepSidebar(props: {
           </For>
         </Show>
       </div>
+      {/* [论文助手定制] 局部会话：选区 AI 改写的记录单独折叠，默认不占用主会话列表空间。 */}
+      <Show when={localSessions().length > 0}>
+        <div class="mt-1 flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
+          <button
+            type="button"
+            class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
+            onClick={() => setLocalOpen((open) => !open)}
+          >
+            <span class="flex min-w-0 items-center gap-1.5">
+              <Icon name="pencil-line" size="small" class="shrink-0 text-v2-text-text-faint" />
+              <span class="truncate text-11-regular text-v2-text-text-faint">局部会话</span>
+            </span>
+            <span class="flex shrink-0 items-center gap-1">
+              <span class="rounded-full bg-v2-background-bg-layer-02 px-1.5 py-0.5 text-10-medium text-v2-text-text-faint">
+                {localSessions().length}
+              </span>
+              <Icon
+                name={localOpen() ? "chevron-down" : "chevron-right"}
+                size="small"
+                class="text-v2-text-text-faint"
+              />
+            </span>
+          </button>
+          <Show when={localOpen()}>
+            <div class="flex flex-col gap-1 pl-1">
+              <For each={localSessions()}>
+                {(session) => (
+                  <button
+                    type="button"
+                    class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
+                    classList={{
+                      "bg-v2-background-bg-layer-01":
+                        state().displaySessionID === session.id || state().steps[active()].sessionID === session.id,
+                    }}
+                    onClick={() => openSessionInPanel(session)}
+                  >
+                    <Icon name="pencil-line" size="small" class="shrink-0 text-v2-text-text-faint" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-12-regular text-v2-text-text-base">
+                        {session.title || "局部会话"}
+                      </span>
+                      <span class="block text-10-regular text-v2-text-text-faint">
+                        {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
+                      </span>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+      </Show>
       {/* [论文助手定制] 底部工具：文件空间——改为跳转到独立整页（/:dir/files），空间更大，便于预览图片与长文本。 */}
       <div class="mt-auto flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
         <Button

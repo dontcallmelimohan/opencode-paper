@@ -10,6 +10,7 @@ import { createSignal } from "solid-js"
 import { useQueryClient } from "@tanstack/solid-query"
 import { createScratchArtifact, createStepArtifact, type ThesisArtifact } from "./thesis-artifact"
 import { consumeTurn as consumeTurnRegistry, getTurn as getTurnRegistry, markTurn as markTurnRegistry, type TurnRegistration } from "./thesis-channel"
+import { refreshThesisSessions, upsertThesisSessionCache } from "./thesis-session-cache"
 
 export type StepKey = "outline" | "writing" | "formatting" | "review"
 
@@ -108,9 +109,6 @@ export type OutlineInput = {
   selected: string[]
   // [论文助手定制] 知识库手写条目 id（与 selected 文件路径互补，都参与提纲生成）。
   selectedKnowledgeIds: string[]
-  // [论文助手定制] 配置方块（config chip）：是否已「添加到输入框」——为 true 时输入框显示
-  // 配置方块，发送时随 prompt 注入配置要求段；点方块 × 或浮窗重新添加可切换。持久化随 input。
-  configAttached: boolean
 }
 export type WritingInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
@@ -128,9 +126,6 @@ export type WritingInput = {
   length: string
   chapter: string
   extra: string
-  // [论文助手定制] 配置方块（config chip）：是否已「添加到输入框」——为 true 时输入框显示
-  // 配置方块，发送时随 prompt 注入配置要求段；点方块 × 或浮窗重新添加可切换。持久化随 input。
-  configAttached: boolean
 }
 export type FormattingInput = {
   // [论文助手定制] 本步生成时启用的 Skill（可多选）。
@@ -201,14 +196,18 @@ export type StepState<I> = {
   updatedAt?: number
 }
 
+export type LocalSessionIDs = string[]
+
 export type ThesisWorkflowState = {
-  version: 3
+  version: 4
   activeStep: StepKey
   currentArtifactID: string | null
   // [论文助手定制] 会话记录联动：右侧产物面板当前显示模式（document=文稿 / session=会话）。
   productView: "document" | "session"
   // [论文助手定制] 会话记录联动：当前在右侧会话界面显示的会话 ID（null=跟随当前板块专属会话）。
   displaySessionID: string | null
+  // [论文助手定制] 局部会话（选区改写）记录：这些会话不混入主会话列表，侧边栏单独折叠展示。
+  localSessionIDs: LocalSessionIDs
   artifacts: ThesisArtifact[]
   turns: Record<string, TurnRegistration>
   steps: {
@@ -238,7 +237,6 @@ const DEFAULT_INPUTS: {
     optimize: true,
     selected: [],
     selectedKnowledgeIds: [],
-    configAttached: false,
   },
   writing: {
     skills: [],
@@ -253,7 +251,6 @@ const DEFAULT_INPUTS: {
     length: "8000",
     chapter: "",
     extra: "",
-    configAttached: false,
   },
   formatting: {
     skills: [],
@@ -290,11 +287,12 @@ const DEFAULT_INPUTS: {
 }
 
 export const createDefaultWorkflowState = (): ThesisWorkflowState => ({
-  version: 3,
+  version: 4,
   activeStep: "outline",
   currentArtifactID: null,
   productView: "document",
   displaySessionID: null,
+  localSessionIDs: [],
   artifacts: [],
   turns: {},
   steps: {
@@ -320,6 +318,7 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
       activeStep?: string
       currentArtifactID?: string
       productView?: string
+      localSessionIDs?: unknown
       artifacts?: ThesisArtifact[]
       turns?: Record<string, TurnRegistration>
       steps?: {
@@ -329,7 +328,7 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
         review?: Partial<StepState<ReviewInput>>
       }
     }
-    if ((parsed?.version !== 1 && parsed?.version !== 2 && parsed?.version !== 3) || !parsed.steps) return fallback
+    if ((parsed?.version !== 1 && parsed?.version !== 2 && parsed?.version !== 3 && parsed?.version !== 4) || !parsed.steps) return fallback
     const steps = parsed.steps
     const activeStep = (["outline", "writing", "formatting", "review"] as StepKey[]).includes(parsed.activeStep as StepKey)
       ? (parsed.activeStep as StepKey)
@@ -356,12 +355,16 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
     // 非法或缺失时回退文稿视图，避免打开工作台/刷新后看不到文稿画布。
     const productView: ThesisWorkflowState["productView"] =
       parsed.productView === "document" || parsed.productView === "session" ? parsed.productView : "document"
+    const localSessionIDs = Array.isArray(parsed.localSessionIDs)
+      ? parsed.localSessionIDs.filter((item): item is string => typeof item === "string")
+      : []
     return {
-      version: 3,
+      version: 4,
       activeStep,
       currentArtifactID,
       productView,
       displaySessionID: null,
+      localSessionIDs,
       artifacts: migratedArtifacts,
       turns: parsed.turns ?? {},
       steps: {
@@ -490,12 +493,18 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       commit({ ...current, steps })
       // [论文助手定制] 会话一旦创建/绑定（首次发送、生成、新会话）立即刷新侧边栏「会话记录」，
       // 让新会话马上出现在列表里，不用等查询缓存过期或手动刷新。
-      void queryClient.invalidateQueries({ queryKey: ["thesis", "sessions", directory] })
+      upsertThesisSessionCache(queryClient, directory, { id: sessionID })
+      refreshThesisSessions(queryClient, directory)
     }
 
     // [论文助手定制] 会话记录联动：切换右侧产物面板显示模式 / 指定当前显示的会话。
     const setProductView = (view: "document" | "session") => commit({ ...state(), productView: view })
     const setDisplaySession = (sessionID: string | null) => commit({ ...state(), displaySessionID: sessionID })
+    const registerLocalSessionID = (sessionID: string) => {
+      const current = state()
+      if (current.localSessionIDs.includes(sessionID)) return
+      commit({ ...current, localSessionIDs: [sessionID, ...current.localSessionIDs] })
+    }
 
     return {
       directory,
@@ -508,6 +517,7 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       setStepSessionID,
       setProductView,
       setDisplaySession,
+      registerLocalSessionID,
       setCurrentArtifact,
       markTurn,
       consumeTurn,

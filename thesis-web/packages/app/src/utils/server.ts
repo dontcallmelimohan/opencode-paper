@@ -24,6 +24,11 @@ export function createSdkForServer({
 }: Omit<NonNullable<Parameters<typeof createOpencodeClient>[0]>, "baseUrl"> & {
   server: ServerConnection.HttpBase
 }) {
+  const fetchWithCredentials = ((input, init) =>
+    (config.fetch ?? globalThis.fetch)(input, {
+      ...init,
+      credentials: init?.credentials ?? "include",
+    })) as typeof globalThis.fetch
   const auth = (() => {
     if (!server.password) return
     return {
@@ -33,6 +38,7 @@ export function createSdkForServer({
 
   return createOpencodeClient({
     ...config,
+    fetch: fetchWithCredentials,
     headers: {
       ...(config.headers instanceof Headers ? Object.fromEntries(config.headers.entries()) : config.headers),
       ...auth,
@@ -45,9 +51,14 @@ export function createApiForServer(input: {
   server: ServerConnection.HttpBase
   fetch?: typeof globalThis.fetch
 }): OpenCodeClient {
+  const fetchWithCredentials = ((request, init) =>
+    (input.fetch ?? globalThis.fetch)(request, {
+      ...init,
+      credentials: init?.credentials ?? "include",
+    })) as typeof globalThis.fetch
   return OpenCode.make({
     baseUrl: input.server.url,
-    fetch: input.fetch,
+    fetch: fetchWithCredentials,
     headers: input.server.password
       ? {
           Authorization: `Basic ${authTokenFromCredentials({

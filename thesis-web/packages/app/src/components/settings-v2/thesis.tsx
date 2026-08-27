@@ -1,7 +1,7 @@
 import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { TextInputV2 } from "@opencode-ai/ui/v2/text-input-v2"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query"
-import { Component, Show, createEffect, createSignal } from "solid-js"
+import { Component, Show, createEffect, createMemo, createSignal } from "solid-js"
 import { useServerSDK } from "@/context/server-sdk"
 import { showToast } from "@/utils/toast"
 import { SettingsListV2 } from "./parts/list"
@@ -24,11 +24,14 @@ export const SettingsThesisV2: Component = () => {
   createEffect(() => {
     if (value() === undefined && config.data) setValue(config.data.thesisWorkspace ?? "")
   })
+  const savedValue = createMemo(() => config.data?.thesisWorkspace?.trim() ?? "")
+  const currentValue = createMemo(() => value()?.trim() ?? savedValue())
+  const dirty = createMemo(() => currentValue() !== savedValue())
 
   const save = useMutation(() => ({
     mutationFn: async () => {
       const current = config.data ?? {}
-      const next = value()?.trim() || ""
+      const next = currentValue()
       const res = await sdk().client.global.config.update({ config: { ...current, thesisWorkspace: next } })
       if (res.error) {
         // Config changes dispose running instances; the update endpoint can
@@ -40,6 +43,7 @@ export const SettingsThesisV2: Component = () => {
       return next
     },
     onSuccess: (next) => {
+      setValue(next)
       void queryClient.invalidateQueries({ queryKey: ["thesis-settings-config"] })
       showToast({
         variant: "success",
@@ -61,7 +65,10 @@ export const SettingsThesisV2: Component = () => {
         <div class="settings-v2-section">
           <h3 class="settings-v2-section-title">论文工作区</h3>
           <SettingsListV2>
-            <SettingsRowV2 title="论文工作区路径" description="新论文创建时存放的根目录，留空则使用默认 ~/thesis-workspace">
+            <SettingsRowV2
+              title="论文工作区路径"
+              description="新论文创建时存放的根目录。留空会恢复默认 ~/thesis-workspace，也支持 ~ 开头的相对路径。"
+            >
               <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                 <div class="w-full sm:w-[280px]">
                   <TextInputV2
@@ -78,11 +85,14 @@ export const SettingsThesisV2: Component = () => {
                     onInput={(event) => setValue(event.currentTarget.value)}
                   />
                 </div>
+                <ButtonV2 size="normal" variant="ghost-muted" disabled={!dirty() || save.isPending} onClick={() => setValue("")}>
+                  恢复默认
+                </ButtonV2>
                 <Show when={config.data || config.isError}>
                   <ButtonV2
                     size="normal"
                     variant="contrast"
-                    disabled={save.isPending}
+                    disabled={save.isPending || !dirty()}
                     onClick={() => save.mutate()}
                   >
                     {save.isPending ? "保存中…" : "保存"}

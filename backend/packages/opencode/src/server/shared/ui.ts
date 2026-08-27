@@ -2,14 +2,14 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Effect, Stream } from "effect"
 import { HttpBody, HttpClient, HttpClientRequest, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
+import { gzipSync } from "node:zlib"
 import { ProxyUtil } from "../proxy-util"
 
 let embeddedUIPromise: Promise<Record<string, string> | null> | undefined
 
-// [论文助手定制] 后端 4096 直接访问时，把 UI 代理到本地 vite 前端（当前实际运行端口 4173）
-// 原值为 http://localhost:3000，与 vite.config.ts 的默认端口一致；但本地开发时 vite 以 --port 4173 启动，
-// 若代理目标端口没有服务，直接访问 http://127.0.0.1:4096 会整体 500。
-export const UI_UPSTREAM = new URL("http://localhost:4173")
+// [论文助手定制] 后端直接访问时，把 UI 代理到本地 Vite 前端。
+// 默认使用本项目 Vite 端口 3000；需要临时换端口时可设 OPENCODE_UI_UPSTREAM=http://localhost:<port>。
+export const UI_UPSTREAM = new URL(process.env.OPENCODE_UI_UPSTREAM ?? "http://localhost:3000")
 
 
 export const csp = (hash = "") =>
@@ -49,25 +49,42 @@ export function upstreamURL(path: string) {
 export function embeddedUI(disableEmbeddedWebUi: boolean) {
   if (disableEmbeddedWebUi) return Promise.resolve(null)
   return (embeddedUIPromise ??=
-    // @ts-expect-error - generated file at build time
-    import("opencode-web-ui.gen.ts").then((module) => module.default as Record<string, string>).catch(() => null))
+    // @ts-expect-error - generated file is written into this package root at deploy/build time
+    import("../../../opencode-web-ui.gen.ts").then((module) => module.default as Record<string, string>).catch(() => null))
 }
 
 function notFound() {
   return HttpServerResponse.jsonUnsafe({ error: "Not Found" }, { status: 404 })
 }
 
-function embeddedUIResponse(file: string, body: Uint8Array) {
+function shouldCompress(mime: string) {
+  return (
+    mime.startsWith("text/") ||
+    mime.includes("javascript") ||
+    mime.includes("json") ||
+    mime.includes("xml") ||
+    mime === "image/svg+xml"
+  )
+}
+
+function embeddedUIResponse(file: string, body: Uint8Array, acceptEncoding?: string) {
   const mime = FSUtil.mimeType(file)
   const headers = new Headers({ "content-type": mime })
   if (mime.startsWith("text/html")) {
     headers.set("content-security-policy", cspForHtml(new TextDecoder().decode(body)))
   }
-  return HttpServerResponse.raw(body, { headers })
+  const wantsGzip = acceptEncoding?.toLowerCase().includes("gzip") ?? false
+  if (wantsGzip && body.byteLength >= 1024 && shouldCompress(mime)) {
+    headers.set("content-encoding", "gzip")
+    headers.set("vary", "Accept-Encoding")
+    return HttpServerResponse.uint8Array(gzipSync(body), { headers })
+  }
+  return HttpServerResponse.uint8Array(body, { headers })
 }
 
 export function serveEmbeddedUIEffect(
   requestPath: string,
+  requestHeaders: Record<string, string>,
   fs: FSUtil.Interface,
   embeddedWebUI: Record<string, string>,
 ) {
@@ -75,7 +92,7 @@ export function serveEmbeddedUIEffect(
   if (!file) return Effect.succeed(notFound())
 
   return fs.readFile(file).pipe(
-    Effect.map((body) => embeddedUIResponse(file, body)),
+    Effect.map((body) => embeddedUIResponse(file, body, requestHeaders["accept-encoding"])),
     Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(notFound())),
   )
 }
@@ -89,7 +106,7 @@ export function serveUIEffect(
     const url = new URL(request.url, "http://localhost")
     const path = url.pathname
 
-    if (embeddedWebUI) return yield* serveEmbeddedUIEffect(path, services.fs, embeddedWebUI)
+    if (embeddedWebUI) return yield* serveEmbeddedUIEffect(path, request.headers, services.fs, embeddedWebUI)
 
     const response = yield* services.client.execute(
       HttpClientRequest.make(request.method)(upstreamURL(url.pathname + url.search), {

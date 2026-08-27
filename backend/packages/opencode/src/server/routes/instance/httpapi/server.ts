@@ -115,6 +115,7 @@ import { corsVaryFix } from "./middleware/cors-vary"
 import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
+import { authRoute } from "./app-auth-routes"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -122,6 +123,7 @@ const cors = (corsOptions?: CorsOptions) =>
   HttpRouter.middleware(
     HttpMiddleware.cors({
       allowedOrigins: (origin) => isAllowedCorsOrigin(origin, corsOptions),
+      credentials: true,
       maxAge: 86_400,
     }),
     { global: true },
@@ -279,6 +281,7 @@ export function createRoutes(
     ptyConnectApiRoutes,
     instanceRoutes,
     serverRoutes,
+    authRoute,
     docRoute,
     uiRoute,
   ).pipe(

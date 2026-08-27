@@ -665,7 +665,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       yield* fs.writeWithDirs(target, buffer).pipe(
         Effect.mapError((error) => thesisError(`写入 Word 文档失败: ${String(error)}`)),
       )
-      return { filename: path.basename(target), path: target }
+      return { filename: path.basename(target), path: path.relative(proj.worktree, target) }
     })
 
     // [论文助手定制] 文稿落盘：把某步骤的正文写入根目录的 .md 文件（提纲/全文稿/排版稿/评审报告）。
@@ -712,7 +712,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       yield* fs.writeWithDirs(target, buffer).pipe(
         Effect.mapError((error) => thesisError(`写入 PDF 失败: ${String(error)}`)),
       )
-      return { filename: path.basename(target), path: target }
+      return { filename: path.basename(target), path: path.relative(proj.worktree, target) }
     })
 
     const getLsp = Effect.fn("InstanceHttpApi.lsp")(function* () {

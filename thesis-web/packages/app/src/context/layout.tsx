@@ -98,7 +98,7 @@ export type ReviewPanelSource = "context-button" | "other"
 export type LayoutRoute =
   | { type: "home" }
   | { type: "draft"; draftID: string; server?: ServerConnection.Key }
-  | { type: "dir-new-sesssion"; dir: string; dirBase64: string; server?: ServerConnection.Key }
+  | { type: "dir-new-session"; dir: string; dirBase64: string; server?: ServerConnection.Key }
   | { type: "session"; sessionId: string; server?: ServerConnection.Key }
 
 const sessionPath = (key: string) => {
@@ -169,7 +169,7 @@ export const currentRoute = (pathname: string, search: string): LayoutRoute => {
 
   const id = parts[2]
   if (id) return { type: "session", sessionId: id }
-  return { type: "dir-new-sesssion", dir, dirBase64 }
+  return { type: "dir-new-session", dir, dirBase64 }
 }
 
 export const { use: useLayout, provider: LayoutProvider } = createSimpleContext({

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { describe, expect } from "bun:test"
+import { gunzipSync } from "node:zlib"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { ConfigProvider, Effect, Layer, Option } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -316,13 +317,43 @@ describe("HttpApi UI fallback", () => {
               : Effect.die(`unexpected embedded UI path: ${path}`)
           },
         },
+        {},
         { "assets/app.js": "/$bunfs/root/assets/app.js" },
       ).pipe(Effect.map(HttpServerResponse.toWeb))
 
       expect(response.status).toBe(200)
       expect(readPath).toBe("/$bunfs/root/assets/app.js")
       expect(response.headers.get("content-type")).toContain("text/javascript")
+      expect(response.headers.get("content-length")).toBe("23")
       expect(yield* responseText(response)).toBe("console.log('embedded')")
+    }),
+  )
+
+  it.live("compresses embedded UI assets when gzip is accepted", () =>
+    Effect.gen(function* () {
+      const payload = `console.log(${JSON.stringify("x".repeat(4096))})`
+
+      const fs = yield* FSUtil.Service
+      const response = yield* serveEmbeddedUIEffect(
+        "/assets/app.js",
+        { "accept-encoding": "gzip" },
+        {
+          ...fs,
+          existsSafe: () => Effect.die("embedded UI should not rely on filesystem access checks"),
+          readFile: (path) => {
+            return path === "/$bunfs/root/assets/app.js"
+              ? Effect.succeed(new TextEncoder().encode(payload))
+              : Effect.die(`unexpected embedded UI path: ${path}`)
+          },
+        },
+        { "assets/app.js": "/$bunfs/root/assets/app.js" },
+      ).pipe(Effect.map(HttpServerResponse.toWeb))
+
+      const compressed = new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()))
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-encoding")).toBe("gzip")
+      expect(response.headers.get("vary")).toBe("Accept-Encoding")
+      expect(new TextDecoder().decode(gunzipSync(compressed))).toBe(payload)
     }),
   )
 
@@ -345,6 +376,7 @@ describe("HttpApi UI fallback", () => {
               : Effect.die(`unexpected embedded UI path: ${path}`)
           },
         },
+        {},
         { "index.html": "/$bunfs/root/index.html" },
       ).pipe(Effect.map(HttpServerResponse.toWeb))
 

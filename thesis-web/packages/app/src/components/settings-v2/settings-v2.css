@@ -387,7 +387,10 @@
 .settings-v2-models-group-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
   height: 28px;
+  gap: 12px;
 }
 
 .settings-v2-models-group-trigger {
@@ -431,6 +434,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.settings-v2-models-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .settings-v2-models .settings-v2-section-title {

@@ -10,13 +10,12 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useTheme } from "@opencode-ai/ui/theme/context"
-import { useMutation, useQueryClient } from "@tanstack/solid-query"
+import { createQuery, useMutation, useQueryClient } from "@tanstack/solid-query"
 import { useNavigate } from "@solidjs/router"
 import JSZip from "jszip"
 import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useDirectoryPicker } from "@/components/directory-picker"
-import { useLanguage } from "@/context/language"
 import { LocalProvider, useLocal } from "@/context/local"
 import { ServerConnection, useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
@@ -28,6 +27,7 @@ import { pathKey } from "@/utils/path-key"
 import { showToast } from "@/utils/toast"
 
 export const AGENT_COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4"]
+const skillsQueryKey = (directory: string) => ["skills", directory] as const
 
 const SKILL_NAME_RE = /^[\p{L}\p{N}_-]+$/u
 const sanitizeName = (value: string) =>
@@ -170,6 +170,7 @@ export function InstallSkillDialog() {
 
       const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
       await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
+      await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
       const agents = await queryClient.fetchQuery(agentsQuery())
       sync().set("agent", agents)
       return name
@@ -196,6 +197,7 @@ export function InstallSkillDialog() {
 
       const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
       await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
+      await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
       const agents = await queryClient.fetchQuery(agentsQuery())
       sync().set("agent", agents)
       return agent.name
@@ -441,6 +443,7 @@ function SkillDeleteDialog(props: { name: string }) {
       dialog.close()
       const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
       await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
+      await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
       const agents = await queryClient.fetchQuery(agentsQuery())
       sync().set("agent", agents)
       showToast({ variant: "success", icon: "circle-check", title: `已删除 Skill「${props.name}」` })
@@ -530,6 +533,7 @@ function SkillEditDialog(props: { name: string }) {
       dialog.close()
       const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
       await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
+      await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
       const agents = await queryClient.fetchQuery(agentsQuery())
       sync().set("agent", agents)
       // [论文助手定制] 改名的 skill 若正被选为当前 agent，同步更新选中项，避免“当前”徽标丢失。
@@ -585,13 +589,31 @@ function SkillEditDialog(props: { name: string }) {
 }
 
 function SkillsContent() {
-  const language = useLanguage()
   const local = useLocal()
   const dialog = useDialog()
   const theme = useTheme()
   const navigate = useNavigate()
+  const sdk = useSDK()
   const agents = createMemo(() => local.agent.list())
   const active = createMemo(() => local.agent.current()?.name)
+  const skillsQuery = createQuery(() => ({
+    queryKey: skillsQueryKey(sdk().directory),
+    queryFn: async () => {
+      const res = await sdk().client.app.skills({ directory: sdk().directory })
+      if (res.error) throw new Error(formatApiError(res.error) ?? "加载 Skill 失败")
+      return res.data ?? []
+    },
+  }))
+  const skills = createMemo(() => skillsQuery.data ?? [])
+  const getAgent = (name: string) => agents().find((agent) => agent.name === name)
+  const canActivate = (name: string) => !!getAgent(name)
+  const canEdit = (name: string) => getAgent(name)?.native === false
+  const activateSkill = (name: string) => {
+    const agent = getAgent(name)
+    if (!agent) return
+    local.agent.set(name)
+    showToast({ variant: "success", icon: "circle-check", title: `已启用 Skill「${name}」` })
+  }
 
   return (
     <div class="mx-auto flex h-full w-full max-w-4xl flex-col gap-5 overflow-y-auto px-4 py-6 lg:px-8">
@@ -630,69 +652,103 @@ function SkillsContent() {
         </div>
       </div>
       <div class="text-13-regular text-v2-text-text-weak">
-        {language.t("agent.sidebar.title")} · 管理所有 Skill 驱动的写作 Agent，点击卡片即可设为当前使用的 Agent（全局生效）。
+        管理已发现的 Skill。安装、编辑、删除会同步到文件空间与后端，支持直接查看 Skill 指令内容。
       </div>
       <Show
-        when={agents().length > 0}
+        when={!skillsQuery.isPending && skills().length > 0}
         fallback={
           <div class="flex flex-col items-center gap-3 py-20 text-center">
-            <Icon name="dot-grid" size="large" class="text-v2-text-text-weak" />
-            <div class="text-14-medium text-v2-text-text-strong">还没有 Skill</div>
-            <div class="text-13-regular text-v2-text-text-weak">点击右上角「添加 Skill」上传或安装一个</div>
+            <Show when={skillsQuery.isPending} fallback={<>
+              <Icon name="dot-grid" size="large" class="text-v2-text-text-weak" />
+              <div class="text-14-medium text-v2-text-text-strong">还没有 Skill</div>
+              <div class="text-13-regular text-v2-text-text-weak">点击右上角「添加 Skill」上传或安装一个</div>
+            </>}>
+              <div class="flex items-center gap-2 text-13-regular text-v2-text-text-weak">
+                <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
+                正在加载 Skill…
+              </div>
+            </Show>
           </div>
         }
       >
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <For each={agents()}>
-            {(agent, index) => {
-              const isActive = () => active() === agent.name
+          <For each={skills()}>
+            {(skill, index) => {
+              const agent = () => getAgent(skill.name)
+              const isActive = () => active() === skill.name
               return (
                 <div
                   classList={{
                     "flex cursor-pointer flex-col items-start gap-1.5 rounded-[10px] border px-4 py-3 text-left transition-colors": true,
-                    "border-v2-accent-accent-strong bg-v2-accent-accent-soft": isActive(),
-                    "border-v2-border-border-base bg-v2-background-bg-layer-01 hover:bg-v2-background-bg-layer-02": !isActive(),
+                    "border-v2-border-border-base bg-v2-background-bg-layer-01 hover:bg-v2-background-bg-layer-02": true,
                   }}
-                  onClick={() => local.agent.set(agent.name)}
+                  onClick={() => dialog.show(() => <SkillDetailDialog name={skill.name} />)}
                 >
                   <span class="flex w-full items-center gap-2">
                     <span
                       class="size-2 shrink-0 rounded-full"
-                      style={{ background: agent.color || AGENT_COLORS[index() % AGENT_COLORS.length] }}
+                      style={{ background: AGENT_COLORS[index() % AGENT_COLORS.length] }}
                     />
-                    <span class="min-w-0 flex-1 truncate text-14-medium text-v2-text-text-strong">{agent.name}</span>
+                    <span class="min-w-0 flex-1 truncate text-14-medium text-v2-text-text-strong">{skill.name}</span>
                     <Show when={isActive()}>
                       <span class="shrink-0 rounded-md bg-v2-accent-accent-strong px-1.5 py-0.5 text-11-medium text-white">
                         当前
                       </span>
                     </Show>
+                    <Show when={!isActive() && canActivate(skill.name)}>
+                      <span class="shrink-0 rounded-md bg-v2-state-bg-info px-1.5 py-0.5 text-11-medium text-v2-text-text-accent">
+                        可启用
+                      </span>
+                    </Show>
+                    <Show when={!canActivate(skill.name)}>
+                      <span class="shrink-0 rounded-md bg-v2-background-bg-layer-02 px-1.5 py-0.5 text-11-medium text-v2-text-text-faint">
+                        仅技能
+                      </span>
+                    </Show>
                   </span>
                   <span class="line-clamp-2 text-12-regular text-v2-text-text-faint">
-                    {agent.description ?? "Skill 驱动的 Agent"}
+                    {skill.description ?? "未填写描述"}
                   </span>
-                  {/* [论文助手定制] 操作区：查看 / 编辑 / 删除（编辑与删除仅自定义 skill，阻止冒泡避免误切换当前 agent）。 */}
-                  <span class="flex w-full items-center justify-end gap-1">
+                  <span class="line-clamp-1 text-11-regular text-v2-text-text-faint">
+                    {skill.location}
+                  </span>
+                  {/* [论文助手定制] 操作区：查看 / 启用 / 编辑 / 删除（编辑与删除仅自定义 skill）。 */}
+                  <span class="flex w-full items-center justify-end gap-1 pt-1">
                     <IconButton
                       type="button"
                       icon="open-file"
                       size="small"
                       variant="ghost"
-                      aria-label={`查看 ${agent.name}`}
-                      onClick={(event) => {
+                      aria-label={`查看 ${skill.name}`}
+                      onClick={(event: MouseEvent) => {
                         event.stopPropagation()
-                        dialog.show(() => <SkillDetailDialog name={agent.name} />)
+                        dialog.show(() => <SkillDetailDialog name={skill.name} />)
                       }}
                     />
-                    <Show when={agent.native === false}>
+                    <Show when={canActivate(skill.name) && !isActive()}>
+                      <Button
+                        type="button"
+                        size="small"
+                        variant="secondary"
+                        icon="check"
+                        onClick={(event: MouseEvent) => {
+                          event.stopPropagation()
+                          activateSkill(skill.name)
+                        }}
+                      >
+                        启用
+                      </Button>
+                    </Show>
+                    <Show when={canEdit(skill.name)}>
                       <IconButton
                         type="button"
                         icon="edit"
                         size="small"
                         variant="ghost"
-                        aria-label={`编辑 ${agent.name}`}
-                        onClick={(event) => {
+                        aria-label={`编辑 ${skill.name}`}
+                        onClick={(event: MouseEvent) => {
                           event.stopPropagation()
-                          dialog.show(() => <SkillEditDialog name={agent.name} />)
+                          dialog.show(() => <SkillEditDialog name={skill.name} />)
                         }}
                       />
                       <IconButton
@@ -700,10 +756,10 @@ function SkillsContent() {
                         icon="circle-x"
                         size="small"
                         variant="ghost"
-                        aria-label={`删除 ${agent.name}`}
-                        onClick={(event) => {
+                        aria-label={`删除 ${skill.name}`}
+                        onClick={(event: MouseEvent) => {
                           event.stopPropagation()
-                          dialog.show(() => <SkillDeleteDialog name={agent.name} />)
+                          dialog.show(() => <SkillDeleteDialog name={skill.name} />)
                         }}
                       />
                     </Show>

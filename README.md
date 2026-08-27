@@ -95,12 +95,27 @@ bun run dev
 
   后端代理逻辑不变，依然访问 3000；区别只是 3000 从「开发服务器」变成了「构建产物静态托管」，启动更快、可长期挂着。
 
+### 一键部署
+
+仓库根目录提供了 `scripts/deploy-thesis-web.sh`：
+
+```bash
+./scripts/deploy-thesis-web.sh
+```
+
+脚本会在本机先完成 `thesis-web/packages/app` 的 `vite build`，生成 `backend/packages/opencode/opencode-web-ui.gen.ts`，再把代码和产物同步到服务器，最后只在远端执行 `bun install` 和后端启动。
+
+部署完成后可以直接访问 `http://8.130.129.149/`。
+
 ## 配置说明
 
 | 配置项 | 说明 | 默认值 |
 |---|---|---|
 | `VITE_OPENCODE_SERVER_HOST` / `VITE_OPENCODE_SERVER_PORT` | 前端连接的后端地址（启动前端前设置） | `localhost` / `4096` |
-| `OPENCODE_SERVER_PASSWORD` / `OPENCODE_SERVER_USERNAME` | 后端 Basic 认证（当前已在代码中注释禁用，访问无需登录） | 不设 / `opencode` |
+| 应用登录注册 | 访问页面后先注册账号，再登录使用；账号和会话存到 `~/.local/share/opencode/thesis-auth.json` | 首次访问注册 |
+| `OPENCODE_AUTH_OPEN_REGISTRATION` | 设置为 `true` 时允许首个账号之后继续注册新账号；公网部署不建议开启 | `false` |
+| `OPENCODE_AUTH_SECURE_COOKIES` | 设置为 `true` 时登录 Cookie 增加 `Secure`，HTTPS 部署建议开启 | `false` |
+| `OPENCODE_SERVER_PASSWORD` / `OPENCODE_SERVER_USERNAME` | 后端 Basic 认证仍可作为兼容入口；新登录系统不依赖它 | 不设 / `opencode` |
 | 论文工作区路径 | 论文项目的根目录，可在应用「设置」里修改（对应配置 `thesisWorkspace`） | `~/thesis-workspace` |
 | Skill 全局目录 | 上传的 skill 存这里，所有论文项目通用 | `~/.config/opencode/skills/<name>/SKILL.md` |
 | Agent 全局目录 | 上传 skill 时同步生成的 agent | `~/.config/opencode/agent/<name>.md` |
@@ -108,11 +123,12 @@ bun run dev
 
 后端地址解析逻辑在 `thesis-web/packages/app/src/entry.tsx` 的 `getCurrentUrl()`。
 
-> **后端认证**：Basic 认证（用户名/密码）当前已在代码中注释禁用，任何请求都直接放行、无需登录。
-> 禁用点：`backend/packages/opencode/src/server/routes/instance/httpapi/middleware/authorization.ts`
-> 与 `backend/packages/server/src/middleware/authorization.ts`（均带 `[论文助手定制]` 注释）。
-> 后续有需要时取消注释即可恢复：设置 `OPENCODE_SERVER_PASSWORD` 后后端会要求 Basic 登录，
-> 前端在「设置 → 服务器」里填同样的用户名/密码即可，所有请求会自动带上认证头。
+> **登录注册**：项目现在内置了简单账号系统。首次访问会显示登录页，可切换到注册；注册成功后自动登录。
+> 密码使用 Bun 的 Argon2id 哈希保存，登录会话使用 HttpOnly Cookie，后端 API 和页面路由都会校验登录状态。
+> 用户数据文件位于 `~/.local/share/opencode/thesis-auth.json`，权限写为 `0600`。
+> 为避免公网部署时被陌生人注册，默认只允许创建首个账号；如确实需要多人自行注册，可设置 `OPENCODE_AUTH_OPEN_REGISTRATION=true`。
+> HTTPS 部署时建议设置 `OPENCODE_AUTH_SECURE_COOKIES=true`；本地 HTTP 调试时不要开启。
+> 原来的 `OPENCODE_SERVER_PASSWORD` Basic 认证仍保留为兼容入口，但普通 Web 使用走新的登录注册流程。
 
 ## Windows 运行说明
 

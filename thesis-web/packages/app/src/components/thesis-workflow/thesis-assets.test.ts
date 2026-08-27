@@ -31,7 +31,7 @@ describe("parseFigures", () => {
 describe("refToPath", () => {
   test("maps figures and materials prefixes to workspace dirs", () => {
     expect(refToPath("figures/a.png")).toBe("figures/a.png")
-    expect(refToPath("materials/装置图.png")).toBe("/装置图.png")
+    expect(refToPath("materials/装置图.png")).toBe("装置图.png")
   })
 
   test("falls back to figures for unknown prefix", () => {

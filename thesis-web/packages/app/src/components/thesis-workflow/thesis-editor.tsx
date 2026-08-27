@@ -73,6 +73,34 @@ const collectTextRanges = (doc: ProseMirrorNode, from: number, to: number) => {
   })
   return ranges
 }
+
+// [论文助手定制] AI 局部编辑的单行结果应作为行内文本替换，不能先解析成 Markdown 段落节点。
+// 否则哪怕模型只返回一句话，parser 也会生成 paragraph，插入到原段落内部时就把句子顶成新行/新段。
+const BLOCK_MARKDOWN_RE = /^\s{0,3}(#{1,6}\s|[-*+]\s+|\d+\.\s+|>\s|```|~~~|\|)|^\s*<\/?(p|div|h[1-6]|ul|ol|li|table|blockquote)\b/im
+export const normalizeInlineAiReplacement = (markdown: string) =>
+  markdown
+    .trim()
+    .split(/\s*\n\s*/)
+    .filter(Boolean)
+    .join(" ")
+    .replace(/[ \t]{2,}/g, " ")
+
+export const shouldKeepAiReplacementInline = (selectedText: string | undefined, markdown: string) => {
+  if (selectedText?.includes("\n")) return false
+  const text = markdown.trim()
+  if (!text) return false
+  if (/\n\s*\n/.test(text)) return false
+  if (BLOCK_MARKDOWN_RE.test(text)) return false
+  return true
+}
+
+const canReplaceAsInlineText = (view: EditorView, from: number, to: number, markdown: string, selectedText?: string) => {
+  if (!shouldKeepAiReplacementInline(selectedText, markdown)) return false
+  const $from = view.state.doc.resolve(from)
+  const $to = view.state.doc.resolve(to)
+  return $from.sameParent($to) && $from.parent.inlineContent
+}
+
 const aiHighlightPlugin = new Plugin({
   key: aiHighlightKey,
   state: {
@@ -150,6 +178,26 @@ export function ThesisEditor(props: ThesisEditorProps) {
     // 校验捕获区间在当前文档里仍然指向同一段文本：等待期间用户手动改动过文档（少见）时
     // 位置可能错位，此时放弃编辑器替换，外层回退为按文本匹配的替换。
     if (range && view.state.doc.textBetween(from, to, "\n").trim() !== range.text.trim()) return false
+    if (canReplaceAsInlineText(view, from, to, markdown, range?.text)) {
+      const text = normalizeInlineAiReplacement(markdown)
+      const tr = view.state.tr.insertText(text, from, to)
+      const endPos = Math.min(from + text.length, tr.doc.content.size)
+      tr.setSelection(TextSelection.near(tr.doc.resolve(endPos)))
+      suppressClearUntil = Date.now() + 800
+      view.dispatch(tr)
+      if (endPos > from) setHighlightRange(view, from, endPos)
+      const rect = view.coordsAtPos(from)
+      props.onReplaced?.({
+        from,
+        to,
+        text,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      })
+      return true
+    }
     const node = editor.action((ctx) => ctx.get(parserCtx)(markdown))
     const content = node.type.name === "doc" ? node.content : node
     const tr = view.state.tr.replaceWith(from, to, content)
@@ -311,6 +359,9 @@ export function ThesisEditor(props: ThesisEditorProps) {
     document.addEventListener("selectionchange", onDocSelection)
     void editor.create().then(() => {
       if (props.apiRef) props.apiRef.current = api
+      props.onReady?.()
+    }).catch(() => {
+      if (props.apiRef) props.apiRef.current = undefined
     })
   })
   onCleanup(() => {

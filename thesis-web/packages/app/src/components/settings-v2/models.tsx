@@ -1,5 +1,7 @@
+import { Tag } from "@opencode-ai/ui/v2/badge-v2"
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
+import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
@@ -9,8 +11,8 @@ import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
 import { useModels } from "@/context/models"
 import { useServerSDK } from "@/context/server-sdk"
-import { popularProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
+import { getProviderVisibilityState, setProviderVisibility, sortModelGroupsByProvider } from "../model-management"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 import "./settings-v2.css"
@@ -34,20 +36,7 @@ export const SettingsModelsV2: Component = () => {
     filterKeys: ["provider.name", "name", "id"],
     sortBy: (a, b) => a.name.localeCompare(b.name),
     groupBy: (x) => x.provider.id,
-    sortGroupsBy: (a, b) => {
-      const aIndex = popularProviders.indexOf(a.category)
-      const bIndex = popularProviders.indexOf(b.category)
-      const aPopular = aIndex >= 0
-      const bPopular = bIndex >= 0
-
-      if (aPopular && !bPopular) return -1
-      if (!aPopular && bPopular) return 1
-      if (aPopular && bPopular) return aIndex - bIndex
-
-      const aName = a.items[0].provider.name
-      const bName = b.items[0].provider.name
-      return aName.localeCompare(bName)
-    },
+    sortGroupsBy: sortModelGroupsByProvider,
   })
 
   return (
@@ -75,6 +64,7 @@ export const SettingsModelsV2: Component = () => {
               class="settings-v2-tab-search-clear"
               icon={<IconV2 name="close" size="large" class="text-v2-icon-icon-muted" />}
               onClick={() => list.clear()}
+              aria-label={language.t("common.clear")}
             />
           </Show>
         </div>
@@ -105,6 +95,10 @@ export const SettingsModelsV2: Component = () => {
               {(group) => {
                 const searching = () => list.filter().length > 0
                 const expanded = () => searching() || !store.collapsed[group.category]
+                const visibility = () =>
+                  getProviderVisibilityState(group.items, (item) =>
+                    models.visible({ modelID: item.id, providerID: item.provider.id }),
+                  )
 
                 return (
                   <div
@@ -150,6 +144,16 @@ export const SettingsModelsV2: Component = () => {
                           <span class="settings-v2-section-title">{group.items[0].provider.name}</span>
                         </span>
                       </button>
+                      <div class="settings-v2-models-group-actions">
+                        <Tag class="shrink-0">{`${visibility().visibleCount}/${visibility().total}`}</Tag>
+                        <CheckboxV2
+                          label={group.items[0].provider.name}
+                          hideLabel
+                          checked={visibility().allVisible}
+                          indeterminate={visibility().indeterminate}
+                          onChange={(checked) => setProviderVisibility(group.items, models.setVisibility, checked)}
+                        />
+                      </div>
                     </h3>
                     <Show when={expanded()}>
                       <SettingsListV2>

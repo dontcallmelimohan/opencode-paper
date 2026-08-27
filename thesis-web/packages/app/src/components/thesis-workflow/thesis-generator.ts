@@ -6,6 +6,7 @@
 import type { AgentPartInput, FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { getFilename } from "@opencode-ai/core/util/path"
 import { createSignal } from "solid-js"
+import { useQueryClient } from "@tanstack/solid-query"
 import { useLocal } from "@/context/local"
 import { encodeFilePath } from "@/context/file/path"
 import { useSDK } from "@/context/sdk"
@@ -13,6 +14,7 @@ import { useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { showToast } from "@/utils/toast"
 import { useThesisWorkflow } from "./thesis-workflow-store"
+import { refreshThesisSessions, upsertThesisSessionCache } from "./thesis-session-cache"
 
 const GENERATE_TIMEOUT_MS = 600_000
 
@@ -167,6 +169,7 @@ export function useThesisGenerator() {
   const local = useLocal()
   const sync = useSync()
   const workflow = useThesisWorkflow()
+  const queryClient = useQueryClient()
   const [generating, setGenerating] = createSignal(false)
 
   // [论文助手定制] 核心生成函数：返回 { sessionID, text }。
@@ -203,6 +206,8 @@ export function useThesisGenerator() {
       if (!sessionID) {
         const created = await sdk().api.session.create({ location: { directory: sdk().directory } })
         sessionID = created.id
+        upsertThesisSessionCache(queryClient, sdk().directory, created)
+        refreshThesisSessions(queryClient, sdk().directory)
       }
       // [论文助手定制] 会话 ID 一确定就通知工作台（哪怕后续生成失败，会话视图也能打开看对话记录）。
       options.onSessionCreated?.(sessionID)

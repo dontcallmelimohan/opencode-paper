@@ -67,22 +67,22 @@ function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
   const create = useMutation(() => ({
     mutationFn: async () => {
       const value = title().trim()
-      if (!value) throw new Error("请输入论文标题")
+      if (!value) throw new Error("请输入工作空间名称")
       const res = await sdk().client.instance.thesisCreate({ title: value })
-      if (res.error) throw new Error(thesisErrorMessage(res.error, "创建论文失败"))
+      if (res.error) throw new Error(thesisErrorMessage(res.error, "创建工作空间失败"))
       return res.data!
     },
     onSuccess: (project) => {
       dialog.close()
       void queryClient.invalidateQueries({ queryKey: THESIS_QUERY_KEY })
       props.onCreated(project)
-      showToast({ variant: "success", icon: "circle-check", title: `已创建论文「${thesisName(project)}」` })
+      showToast({ variant: "success", icon: "circle-check", title: `已创建工作空间「${thesisName(project)}」` })
     },
     onError: (err) => setError(err instanceof Error ? err.message : String(err)),
   }))
 
   return (
-    <Dialog title="新建论文" description="为论文创建独立工作空间，之后可上传参考资料并开始写作。">
+    <Dialog title="新建工作空间" description="创建一个独立工作空间，之后可上传参考资料并进入论文工作台。">
       <form
         class="flex flex-col gap-4 px-2.5 pb-4"
         onSubmit={(event) => {
@@ -94,8 +94,8 @@ function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
       >
         <TextField
           type="text"
-          label="论文标题"
-          placeholder="请输入论文标题"
+          label="工作空间名称"
+          placeholder="请输入工作空间名称"
           value={title()}
           autofocus
           validationState={error() ? "invalid" : "valid"}
@@ -108,7 +108,7 @@ function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
             取消
           </Button>
           <Button type="submit" variant="primary" disabled={create.isPending}>
-            {create.isPending ? "创建中…" : "创建并开始写作"}
+            {create.isPending ? "创建中…" : "创建并进入论文工作台"}
           </Button>
         </div>
       </form>
@@ -729,7 +729,7 @@ export function ThesisHome() {
             icon="plus"
             onClick={() => dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)}
           >
-            新建论文
+            新建工作空间
           </Button>
         </div>
       </div>
@@ -738,8 +738,8 @@ export function ThesisHome() {
         fallback={
           <div class="flex flex-col items-center gap-3 py-20 text-center">
             <Icon name="folder-add-left" size="large" class="text-v2-text-text-weak" />
-            <div class="text-14-medium text-v2-text-text-strong">还没有论文</div>
-            <div class="text-13-regular text-v2-text-text-weak">点击右上角「新建论文」开始你的第一篇论文</div>
+            <div class="text-14-medium text-v2-text-text-strong">还没有工作空间</div>
+            <div class="text-13-regular text-v2-text-text-weak">点击右上角「新建工作空间」开始你的第一个工作空间</div>
           </div>
         }
       >
@@ -776,7 +776,7 @@ export function ThesisHome() {
                   文件空间
                 </Button>
                 <Button size="small" variant="primary" onClick={() => startWriting(thesis.worktree)}>
-                  开始写作
+                  进入工作台
                 </Button>
                 {/* [论文助手定制] 删除论文：确认后删除工作区与全部记录（不可恢复）。 */}
                 <TooltipV2 placement="bottom" value="删除论文">

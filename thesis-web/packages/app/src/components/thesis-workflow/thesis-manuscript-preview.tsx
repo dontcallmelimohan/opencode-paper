@@ -235,22 +235,28 @@ export function ThesisFileManager(props: { directory: string }) {
     },
   )
 
-  // [论文助手定制] 未手动选择时默认预览当前目录第一个文件。
-  const activePath = () => selected() ?? (entries() ?? []).find((node) => node.type === "file")?.name
+  // [论文助手定制] 未手动选择时默认预览当前目录第一个文件；如果手动选择的文件已不在当前目录，
+  // 回退到当前目录第一个文件，避免目录切换后继续预览旧目录里的同名文件。
+  const activePath = () => {
+    const list = entries() ?? []
+    const choice = selected()
+    if (choice && list.some((node) => node.type === "file" && node.name === choice)) return choice
+    return list.find((node) => node.type === "file")?.name
+  }
 
   // [论文助手定制] 预览刷新计数：编辑保存后 +1 强制重新读取文件。
   const [tick, setTick] = createSignal(0)
 
   // [论文助手定制] 读取并转换所选文件；PDF 的 Blob URL 在切换/关闭时回收。
   let lastPdfUrl: string | undefined
-  const [preview] = createResource(() => [activePath(), tick()] as const, async ([path]) => {
+  const [preview] = createResource(() => [props.directory, currentDir(), activePath(), tick()] as const, async ([directory, dir, path]) => {
     if (lastPdfUrl) {
       URL.revokeObjectURL(lastPdfUrl)
       lastPdfUrl = undefined
     }
     if (!path) return
-    const fullPath = joinPath(currentDir(), path)
-    const res = await sdk().client.file.read({ directory: props.directory, path: fullPath })
+    const fullPath = joinPath(dir, path)
+    const res = await sdk().client.file.read({ directory, path: fullPath })
     if (res.error) throw new Error(errorMessage(res.error))
     const data = res.data
     if (!data) throw new Error("读取文件失败")
@@ -339,10 +345,12 @@ export function ThesisFileManager(props: { directory: string }) {
   createEffect(() => {
     const version = ++resolveVersion
     const result = preview()
+    const directory = props.directory
+    const baseDir = currentDir()
     const text = result?.kind === "markdown" ? result.text : undefined
     setResolvedMarkdown(text)
     if (!text) return
-    void resolveMarkdownImages(sdk(), props.directory, currentDir(), text).then((next) => {
+    void resolveMarkdownImages(sdk(), directory, baseDir, text).then((next) => {
       if (version === resolveVersion && next !== text) setResolvedMarkdown(next)
     })
   })

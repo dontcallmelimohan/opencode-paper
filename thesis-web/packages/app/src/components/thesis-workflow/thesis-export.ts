@@ -100,6 +100,7 @@ export function useThesisDocxExport(label: string, getOptions?: () => InstanceTh
       })
       if (res.error) throw new Error(errorMessage(res.error))
       showToast({ variant: "success", icon: "circle-check", title: `已导出 Word（${label}）`, description: res.data?.path })
+      return res.data
     } catch (err) {
       showToast({ variant: "error", icon: "circle-x", title: "导出失败", description: errorMessage(err) })
     } finally {
@@ -139,6 +140,7 @@ export function useThesisPdfExport(label: string) {
       })
       if (res.error) throw new Error(errorMessage(res.error))
       showToast({ variant: "success", icon: "circle-check", title: `已导出 PDF（${label}）`, description: res.data?.path })
+      return res.data
     } catch (err) {
       showToast({ variant: "error", icon: "circle-x", title: "导出失败", description: errorMessage(err) })
     } finally {

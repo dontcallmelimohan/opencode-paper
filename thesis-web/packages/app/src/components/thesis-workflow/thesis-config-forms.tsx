@@ -1,7 +1,8 @@
 // [论文助手定制] 配置面板浮窗化：outline / writing 的配置从左侧列改为会话输入框底栏图标
 // 弹出的居中 Dialog 浮窗。浮窗只含「勾选论文要求」的表单，不含 Skill / 知识库 / 插图区块；
 // 文件与 skill 走会话输入框原生能力（@文件、skill 菜单），插图（writing）走底栏「插图」图标。
-// 配置随会话发送通过 promptTransform 注入提示词（见 thesis-session-view 的 buildRequirementPrompt 用法）。
+// 配置不再随会话文本注入提示词：改为落盘到文件空间的固定文件，由「提纲助手」等 Skill 直接读取。
+// 落盘路径见 THESIS_TOPIC_FILE_PATH（config/论文主题.md）。
 import { Button } from "@opencode-ai/ui/button"
 import { Checkbox } from "@opencode-ai/ui/checkbox"
 import { Dialog } from "@opencode-ai/ui/dialog"
@@ -11,6 +12,10 @@ import { useThesisWorkflow, type OutlineInput, type WritingInput } from "./thesi
 import { InputSourceSelect } from "./thesis-workflow-ui"
 import { useSDK } from "@/context/sdk"
 import { useThesisManuscriptFile } from "./thesis-manuscript-file"
+
+// [论文助手定制] 配置信息的唯一交付物：写入文件空间的固定文件，由 Skill 读取（不再注入会话文本）。
+// 放在 config/ 子目录，与根目录文稿（提纲.md 等）、docs/ 独立文档隔离，不污染文档下拉。
+export const THESIS_TOPIC_FILE_PATH = "config/论文主题.md"
 
 // [论文助手定制] 方向侧重选项（写入提示词）。
 const DIRECTIONS = [
@@ -133,23 +138,22 @@ export function OutlineConfigForm(props?: { onClose?: () => void }) {
         </section>
         <div class="flex items-center justify-end gap-2">
           <span class="text-11-regular text-v2-text-text-faint">
-            {input().configAttached ? "配置方块已在输入框中，点击可更新" : "添加后输入框将显示配置方块，随消息发送给模型"}
+            点击后配置写入文件空间 {THESIS_TOPIC_FILE_PATH}，由技能读取；再次点击可更新
           </span>
           <Button
             type="button"
             variant="primary"
             onClick={() => {
-              updateInput("outline", { configAttached: true })
-              // [论文助手定制] 论文主题文件化：把配置里的综述需求/论文设定写入项目根目录
-              // 「论文主题.md」，让习惯读工作目录找主题的 Agent（或其子任务）也能拿到主题，
-              // 不依赖会话文本；再次「添加到输入框」会按最新配置重写。
-              void manuscript.saveFile("论文主题.md", buildTopicFileContent("outline", input()))
+              // [论文助手定制] 配置信息的唯一交付方式：把配置里的综述需求/论文设定写入文件空间固定文件
+              // config/论文主题.md，让「提纲助手」等 Skill 直接读工作目录拿到主题，不依赖会话文本；
+              // 再次点击会按最新配置重写同一文件。
+              void manuscript.saveFile(THESIS_TOPIC_FILE_PATH, buildTopicFileContent("outline", input()))
               // 关闭统一交给 step 层 onClose → setConfigOpen(false) → effect 调 dialog.close()，
               // 这里不直接 dialog.close()，避免 dialog 的 100ms closing/lock 窗口吞掉关闭导致状态卡死。
               props?.onClose?.()
             }}
           >
-            添加到输入框
+            同步到文件空间
           </Button>
         </div>
       </div>
@@ -257,17 +261,16 @@ export function WritingConfigForm(props?: { onClose?: () => void }) {
         </section>
         <div class="flex items-center justify-end gap-2">
           <span class="text-11-regular text-v2-text-text-faint">
-            {input().configAttached ? "配置方块已在输入框中，点击可更新" : "添加后输入框将显示配置方块，随消息发送给模型"}
+            点击后配置写入文件空间 {THESIS_TOPIC_FILE_PATH}，由技能读取；再次点击可更新
           </span>
           <Button
             type="button"
             variant="primary"
             onClick={() => {
-              updateInput("writing", { configAttached: true })
-              // [论文助手定制] 论文主题文件化：写入项目根目录「论文主题.md」（含参考提纲与写作设定），
-              // 供读工作目录找主题的 Agent 直接读取；再次「添加到输入框」按最新配置重写。
+              // [论文助手定制] 配置信息唯一交付方式：写入文件空间固定文件 config/论文主题.md
+              // （含参考提纲与写作设定），供「提纲助手」等 Skill 直接读取；再次点击按最新配置重写。
               void manuscript.saveFile(
-                "论文主题.md",
+                THESIS_TOPIC_FILE_PATH,
                 buildTopicFileContent("writing", input(), state().steps.outline.result),
               )
               // 关闭统一交给 step 层 onClose → setConfigOpen(false) → effect 调 dialog.close()，
@@ -275,115 +278,12 @@ export function WritingConfigForm(props?: { onClose?: () => void }) {
               props?.onClose?.()
             }}
           >
-            添加到输入框
+            同步到文件空间
           </Button>
         </div>
       </div>
     </Dialog>
   )
-}
-
-// [论文助手定制] 把 2.1 / 2.2 的配置内容结构化成一段「## 本次对话的配置要求」段落，
-// 由 thesis-session-view 的 promptTransform 追加到会话发送文本之后（不含 Skill/材料/插图注入）。
-// userText 为空时返回空串（发送文本为空时不上抛配置段）。
-export function buildRequirementPrompt(
-  step: "outline" | "writing",
-  userText: string,
-  input: OutlineInput | WritingInput,
-  outlineResult?: string,
-): string {
-  if (!userText.trim()) return ""
-  const lines: string[] = ["## 本次对话的配置要求"]
-  if (step === "outline") {
-    const values = input as OutlineInput
-    lines.push(`- 综述需求：${values.needs.trim() || "（以你输入的正文为准）"}`)
-    lines.push(`- 论文类型：${values.paperType}`)
-    lines.push(`- 论文语言：${values.language}`)
-    lines.push(`- 图表要求：${values.hasFigures}`)
-    lines.push(`- 目标篇幅：约 ${values.targetWords} 字`)
-    const chosen = values.directions.map((key) => {
-      const item = DIRECTIONS.find((direction) => direction.key === key)
-      return item ? `${item.label}（${item.hint}）` : key
-    })
-    lines.push(`- 方向侧重：${chosen.length > 0 ? chosen.join("；") : "无特别侧重"}`)
-    const options: string[] = []
-    if (values.aiSuggest) options.push("为每个章节给出 AI 建议（写作要点与提示）")
-    if (values.optimize) options.push("在最后给出提纲优化提醒")
-    if (options.length > 0) lines.push(`- 生成选项：${options.join("；")}`)
-    lines.push("")
-    lines.push(
-      `请按上述要求组织这份综述大纲：每个章节包含标题、写作要点、相关论文线索与写作建议，结构清晰，可直接用于后续辅助写作。` +
-        (values.hasFigures === "有图表" ? "请在合适的章节规划图表 / 表格，并标注图表用途。" : "") +
-        `直接输出正文本身。`,
-    )
-  } else {
-    const values = input as WritingInput
-    // [论文助手定制] writing 的提纲段：auto → 提纲模块结果；manual → 手动粘贴；
-    // none → 不注入提纲段；file 历史存量值按 auto 兜底。
-    const source = values.outlineSource === "file" ? "auto" : values.outlineSource
-    let outlineText: string | undefined
-    if (source === "manual") outlineText = values.manualOutline.trim() || undefined
-    else if (source === "auto") outlineText = outlineResult?.trim() || undefined
-    if (outlineText) {
-      lines.push("")
-      lines.push("## 论文提纲")
-      lines.push(outlineText)
-    }
-    lines.push("")
-    lines.push("## 写作设定")
-    lines.push(`- 目标期刊 / 投稿方向：${values.journal.trim() || "未指定"}`)
-    lines.push(`- 写作风格：${values.style}`)
-    lines.push(`- 侧重点：${values.focus}`)
-    lines.push(`- 参考文献格式：${values.referenceStyle}`)
-    lines.push(`- 目标长度：${values.length.trim() || "未指定"} 字`)
-    lines.push(`- 本次撰写章节：${values.chapter.trim() || "按提纲完整撰写"}`)
-    if (values.extra.trim()) lines.push(`- 额外要求：${values.extra.trim()}`)
-    lines.push("")
-    lines.push(
-      "请基于以上提纲与写作设定撰写论文初稿（Markdown 格式），只输出论文正文本身，语言像目标期刊的论文；" +
-        "不要新建或引用不存在的图片，也不要在开头或结尾添加任何说明、总结、字数统计或对话性文字。",
-    )
-  }
-  return lines.join("\n")
-}
-
-// [论文助手定制] 生成输入框配置方块的展示文本：
-// label = 方块上显示的紧凑摘要；detail = 悬浮 tooltip 显示的完整配置清单（不含需求/提纲正文）。
-// 由 thesis-session-view 在 configAttached 时读取渲染，配置变化时响应式更新。
-export function summarizeRequirement(
-  step: "outline" | "writing",
-  input: OutlineInput | WritingInput,
-): { label: string; detail: string } {
-  if (step === "outline") {
-    const values = input as OutlineInput
-    const labelParts = ["提纲配置", values.paperType, values.language, `约${values.targetWords}字`]
-    if (values.hasFigures === "有图表") labelParts.push("有图表")
-    const directionLabels = values.directions
-      .map((key) => DIRECTIONS.find((direction) => direction.key === key)?.label)
-      .filter(Boolean)
-    const detail = [
-      `论文类型：${values.paperType}`,
-      `论文语言：${values.language}`,
-      `图表要求：${values.hasFigures}`,
-      `目标篇幅：约 ${values.targetWords} 字`,
-      `方向侧重：${directionLabels.length > 0 ? directionLabels.join("、") : "无特别侧重"}`,
-      `生成选项：${[values.aiSuggest ? "AI 建议" : "", values.optimize ? "提纲优化提醒" : ""].filter(Boolean).join("、") || "无"}`,
-    ]
-    return { label: labelParts.join(" · "), detail: detail.join("\n") }
-  }
-  const values = input as WritingInput
-  const sourceLabels: Record<string, string> = { auto: "自动使用提纲结果", manual: "手动粘贴提纲", none: "不用提纲" }
-  const detail = [
-    `参考提纲：${sourceLabels[values.outlineSource === "file" ? "auto" : values.outlineSource] ?? values.outlineSource}`,
-    `目标期刊 / 投稿方向：${values.journal.trim() || "未指定"}`,
-    `写作风格：${values.style}`,
-    `侧重点：${values.focus}`,
-    `参考文献格式：${values.referenceStyle}`,
-    `目标长度：${values.length.trim() || "未指定"} 字`,
-    `本次撰写章节：${values.chapter.trim() || "按提纲完整撰写"}`,
-  ]
-  if (values.extra.trim()) detail.push(`额外要求：${values.extra.trim()}`)
-  return { label: `写作配置 · ${values.style} · ${values.focus}`, detail: detail.join("\n") }
 }
 
 // [论文助手定制] 生成项目根目录「论文主题.md」的内容：把用户在配置里填的主题/需求落成文件，

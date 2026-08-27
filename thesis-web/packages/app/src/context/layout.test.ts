@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
+import { base64Encode } from "@opencode-ai/core/util/encode"
+import { currentRoute } from "./layout"
 import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout-helpers"
 
 describe("layout session-key helpers", () => {
@@ -65,5 +67,18 @@ describe("pruneSessionKeys", () => {
     })
 
     expect(drop).toEqual([])
+  })
+})
+
+describe("currentRoute", () => {
+  test("recognizes directory-scoped new session routes", () => {
+    const dir = "/Users/limohan/Documents/paper"
+    const slug = base64Encode(dir)
+
+    expect(currentRoute(`/${slug}/session`, "")).toEqual({
+      type: "dir-new-session",
+      dir,
+      dirBase64: slug,
+    })
   })
 })
