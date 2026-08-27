@@ -1,11 +1,12 @@
 import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { SessionInput } from "@opencode-ai/schema/session-input"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
+import { Source as PromptSource } from "@opencode-ai/schema/prompt"
 import { Session } from "@opencode-ai/schema/session"
 import { Project } from "@opencode-ai/schema/project"
 import { AbsolutePath, NonNegativeInt, PositiveInt, RelativePath, statics } from "@opencode-ai/schema/schema"
 import { Workspace } from "@opencode-ai/schema/workspace"
-import { Context, Effect, Encoding, Result, Schema, Struct } from "effect"
+import { Context, Effect, Encoding, Result, Schema, SchemaGetter, Struct } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import {
   ConflictError,
@@ -21,6 +22,71 @@ import { Model } from "@opencode-ai/schema/model"
 import { Location } from "@opencode-ai/schema/location"
 import { Revert } from "@opencode-ai/schema/revert"
 import { SessionEvent } from "@opencode-ai/schema/session-event"
+
+// The vendored web client (1.17.x) posts the pre-`prompt` wrapper shape with
+// `text`/`files`/`agents` at the top level. Accept both payloads and normalize
+// to the current protocol so the hybrid web app works against either server
+// generation without upgrading the client.
+const LegacyPromptFile = Schema.Struct({
+  uri: Schema.String,
+  name: Schema.String.pipe(Schema.optional),
+  description: Schema.String.pipe(Schema.optional),
+  mention: PromptSource.pipe(Schema.optional),
+})
+
+const LegacyPromptAgent = Schema.Struct({
+  name: Schema.String,
+  mention: PromptSource.pipe(Schema.optional),
+})
+
+const CurrentSessionPromptPayload = Schema.Struct({
+  id: SessionMessage.ID.pipe(Schema.optional),
+  prompt: PromptInput.Prompt,
+  delivery: SessionInput.Delivery.pipe(Schema.optional),
+  resume: Schema.Boolean.pipe(Schema.optional),
+})
+
+const LegacySessionPromptPayload = Schema.Struct({
+  id: SessionMessage.ID.pipe(Schema.optional),
+  text: Schema.String,
+  files: Schema.Array(LegacyPromptFile).pipe(Schema.optional),
+  agents: Schema.Array(LegacyPromptAgent).pipe(Schema.optional),
+  delivery: SessionInput.Delivery.pipe(Schema.optional),
+  resume: Schema.Boolean.pipe(Schema.optional),
+})
+
+const SessionPromptPayloadInput = Schema.Union([CurrentSessionPromptPayload, LegacySessionPromptPayload])
+
+const normalizeSessionPromptPayload = (
+  input: Schema.Schema.Type<typeof SessionPromptPayloadInput>,
+): Schema.Schema.Type<typeof CurrentSessionPromptPayload> =>
+  "prompt" in input
+    ? input
+    : {
+        id: input.id,
+        delivery: input.delivery,
+        resume: input.resume,
+        prompt: {
+          text: input.text,
+          files: input.files?.map((file) => ({
+            uri: file.uri,
+            ...(file.name === undefined ? {} : { name: file.name }),
+            ...(file.description === undefined ? {} : { description: file.description }),
+            ...(file.mention === undefined ? {} : { source: file.mention }),
+          })),
+          agents: input.agents?.map((agent) => ({
+            name: agent.name,
+            ...(agent.mention === undefined ? {} : { source: agent.mention }),
+          })),
+        },
+      }
+
+const SessionPromptPayload = SessionPromptPayloadInput.pipe(
+  Schema.decodeTo(CurrentSessionPromptPayload, {
+    decode: SchemaGetter.transform(normalizeSessionPromptPayload),
+    encode: SchemaGetter.passthrough({ strict: false }),
+  }),
+)
 
 const SessionsQueryFields = {
   workspace: Workspace.ID.pipe(Schema.optional),
@@ -204,12 +270,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
     .add(
       HttpApiEndpoint.post("session.prompt", "/api/session/:sessionID/prompt", {
         params: { sessionID: Session.ID },
-        payload: Schema.Struct({
-          id: SessionMessage.ID.pipe(Schema.optional),
-          prompt: PromptInput.Prompt,
-          delivery: SessionInput.Delivery.pipe(Schema.optional),
-          resume: Schema.Boolean.pipe(Schema.optional),
-        }),
+        payload: SessionPromptPayload,
         success: Schema.Struct({ data: SessionInput.Admitted }),
         error: [ConflictError, SessionNotFoundError],
       })

@@ -5,6 +5,7 @@ import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "e
 import { ProjectNotFoundError } from "../errors"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
+import { LocationQuery } from "@opencode-ai/protocol/groups/location"
 import { WorkspaceRoutingMiddleware, WorkspaceRoutingQuery } from "../middleware/workspace-routing"
 import { described } from "./metadata"
 
@@ -90,4 +91,65 @@ export const ProjectApi = HttpApi.make("project")
       version: "0.0.1",
       description: "Experimental HttpApi surface for selected instance routes.",
     }),
+  )
+
+// ---------------------------------------------------------------------------
+// v2 surface (/api/project/*)
+//
+// The web app's `@opencode-ai/client` (vendored client) calls these paths. The
+// legacy v1 surface above uses `/project/*`, but the separated frontend always
+// talks to the v2 project endpoints, so both must be served.
+// ---------------------------------------------------------------------------
+
+const rootV2 = "/api/project"
+
+export const ProjectCurrent = Schema.Struct({
+  id: ProjectV2.ID,
+  directory: Schema.String,
+}).annotate({ identifier: "ProjectCurrent" })
+
+export const ProjectV2Api = HttpApi.make("project-v2")
+  .add(
+    HttpApiGroup.make("project")
+      .add(
+        HttpApiEndpoint.get("list", rootV2, {
+          success: described(Schema.Array(Project.Info), "List of projects"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.list",
+            summary: "List all projects",
+            description: "Get a list of projects that have been opened with OpenCode.",
+          }),
+        ),
+        HttpApiEndpoint.get("current", `${rootV2}/current`, {
+          query: LocationQuery,
+          success: described(ProjectCurrent, "Current project information"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.current",
+            summary: "Get current project",
+            description: "Retrieve the currently active project that OpenCode is working with.",
+          }),
+        ),
+        HttpApiEndpoint.get("directories", `${rootV2}/:projectID/directories`, {
+          params: { projectID: ProjectV2.ID },
+          query: LocationQuery,
+          success: described(ProjectV2.Directories, "Project directories"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "project.directories",
+            summary: "List project directories",
+            description: "List known local absolute directories for a project.",
+          }),
+        ),
+      )
+      .annotateMerge(
+        OpenApi.annotations({
+          title: "project-v2",
+          description: "Project routes served under /api/project for the separated web client.",
+        }),
+      )
+      .middleware(InstanceContextMiddleware)
+      .middleware(WorkspaceRoutingMiddleware)
+      .middleware(Authorization),
   )

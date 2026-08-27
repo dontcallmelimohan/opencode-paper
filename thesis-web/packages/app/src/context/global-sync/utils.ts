@@ -14,26 +14,30 @@ export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 export function normalizeAgentList(input: AgentListOutput["data"] | Agent[]): Agent[] {
   if (input.every((agent) => !("request" in agent))) return input as Agent[]
-  return (input as AgentListOutput["data"]).map((agent) => ({
-    name: agent.id,
-    description: agent.description,
-    mode: agent.mode,
-    hidden: agent.hidden,
-    temperature:
-      typeof agent.request.settings.temperature === "number" ? agent.request.settings.temperature : undefined,
-    topP: typeof agent.request.settings.topP === "number" ? agent.request.settings.topP : undefined,
-    color: agent.color,
-    permission: agent.permissions.map((rule) => ({
-      permission: rule.action,
-      pattern: rule.resource,
-      action: rule.effect,
-    })),
-    model: agent.model && { providerID: agent.model.providerID, modelID: agent.model.id },
-    variant: agent.model?.variant,
-    prompt: agent.system,
-    options: agent.request.settings,
-    steps: agent.steps,
-  }))
+  return (input as AgentListOutput["data"]).map((agent) => {
+    // 后端返回的 agent 不一定带 request.settings（例如自定义 agent 未配置 temperature/topP 时），
+    // 直接读取会抛 "Cannot read properties of undefined (reading 'temperature')"，导致工作空间加载失败。
+    const settings = agent.request?.settings
+    return {
+      name: agent.id,
+      description: agent.description,
+      mode: agent.mode,
+      hidden: agent.hidden,
+      temperature: typeof settings?.temperature === "number" ? settings.temperature : undefined,
+      topP: typeof settings?.topP === "number" ? settings.topP : undefined,
+      color: agent.color,
+      permission: agent.permissions.map((rule) => ({
+        permission: rule.action,
+        pattern: rule.resource,
+        action: rule.effect,
+      })),
+      model: agent.model && { providerID: agent.model.providerID, modelID: agent.model.id },
+      variant: agent.model?.variant,
+      prompt: agent.system,
+      options: settings ?? {},
+      steps: agent.steps,
+    }
+  })
 }
 
 export function normalizePermissionRequest(input: PermissionV2Request | PermissionRequest): PermissionRequest {

@@ -20,6 +20,19 @@ export const ModelGroup = HttpApiGroup.make("server.model")
           description: "Retrieve available models ordered by release date.",
         }),
       ),
+    HttpApiEndpoint.get("model.default", "/api/model/default", {
+      query: LocationQuery,
+      success: Location.response(Schema.NullOr(Model.Info)),
+      error: ServiceUnavailableError,
+    })
+      .annotateMerge(locationQueryOpenApi)
+      .annotateMerge(
+        OpenApi.annotations({
+          identifier: "v2.model.default",
+          summary: "Get default model",
+          description: "Retrieve the default model for the requested location, if any.",
+        }),
+      ),
   )
   .annotateMerge(
     OpenApi.annotations({

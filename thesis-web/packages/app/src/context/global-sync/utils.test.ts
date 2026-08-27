@@ -41,6 +41,40 @@ describe("normalizeAgentList", () => {
       },
     ])
   })
+
+  test("handles agents whose request has no settings", () => {
+    const result = normalizeAgentList([
+      {
+        id: "custom",
+        name: "Custom",
+        mode: "primary",
+        hidden: false,
+        color: "primary",
+        model: { id: "deepseek-v4-pro", providerID: "deepseek" },
+        request: { headers: {}, body: {} },
+        system: "Custom agent",
+        permissions: [{ action: "read", resource: "*", effect: "allow" }],
+      },
+    ] as AgentListOutput["data"])
+
+    expect(result).toEqual([
+      {
+        name: "custom",
+        description: undefined,
+        mode: "primary",
+        hidden: false,
+        temperature: undefined,
+        topP: undefined,
+        color: "primary",
+        permission: [{ permission: "read", pattern: "*", action: "allow" }],
+        model: { providerID: "deepseek", modelID: "deepseek-v4-pro" },
+        variant: undefined,
+        prompt: "Custom agent",
+        options: {},
+        steps: undefined,
+      },
+    ])
+  })
 })
 
 describe("normalizePermissionRequest", () => {

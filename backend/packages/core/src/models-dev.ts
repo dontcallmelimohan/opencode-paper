@@ -226,9 +226,18 @@ const layer = Layer.effect(
           yield* Flock.effect(lockKey)
           return yield* fetchAndWrite()
         }),
-      )
-      return JSON.parse(text) as Record<string, Provider>
-    }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie)
+      ).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
+      if (text !== undefined) return JSON.parse(text) as Record<string, Provider>
+      // Network fetch failed and there is no on-disk cache: degrade to an empty
+      // catalog instead of failing the request, so model/provider endpoints keep
+      // working (configured providers remain) even when models.opencode.ai is
+      // unreachable.
+      return {}
+    }).pipe(
+      Effect.withSpan("ModelsDev.populate"),
+      Effect.tapCause((cause) => Effect.logError("Failed to load models.dev catalog", { cause })),
+      Effect.catchCause(() => Effect.succeed({})),
+    )
 
     const [cachedGet, invalidate] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity)
 

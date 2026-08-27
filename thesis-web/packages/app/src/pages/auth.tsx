@@ -13,6 +13,8 @@ type AuthState = {
   user: { id: string; username: string } | null
 }
 
+const DEMO_CREDENTIALS = { username: "测试用户", password: "12345678" }
+
 function authUrl(base: string, path: string) {
   return new URL(path, base).toString()
 }
@@ -142,6 +144,9 @@ function AuthForm(props: {
         >
           {isLogin() ? "还没有账号？去注册" : "已有账号？去登录"}
         </button>
+        <p class="mt-8 border-t border-border-subtle pt-4 text-center text-12-regular text-text-muted">
+          测试账号：{DEMO_CREDENTIALS.username}　密码：{DEMO_CREDENTIALS.password}
+        </p>
       </section>
     </main>
   )
