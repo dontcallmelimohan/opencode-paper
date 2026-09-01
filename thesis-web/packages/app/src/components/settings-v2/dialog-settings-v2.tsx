@@ -6,8 +6,7 @@ import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { SettingsGeneralV2 } from "./general"
 import { SettingsKeybinds } from "../settings-keybinds"
-import { SettingsProvidersV2 } from "./providers"
-import { SettingsModelsV2 } from "./models"
+import { SettingsModelApisV2 } from "./model-apis"
 import "./settings-v2.css"
 import { SettingsServersV2 } from "./servers"
 import { SettingsThesisV2 } from "./thesis"
@@ -37,10 +36,6 @@ export const DialogSettings: Component<{
     if (route.type === "session") return serverSync().session.get(route.sessionId)?.directory
     return undefined
   })
-
-  const showProviders = () => {
-    void dialog.show(() => <DialogSettings sessionID={props.sessionID} defaultValue="providers" />)
-  }
 
   return (
     <Dialog size="x-large" variant="settings" class="settings-v2-dialog">
@@ -76,13 +71,9 @@ export const DialogSettings: Component<{
                       <Icon name="server" />
                       {language.t("status.popover.tab.servers")}
                     </TabsV2.Trigger>
-                    <TabsV2.Trigger value="providers">
-                      <Icon name="providers" />
-                      {language.t("settings.providers.title")}
-                    </TabsV2.Trigger>
                     <TabsV2.Trigger value="models">
                       <Icon name="models" />
-                      {language.t("settings.models.title")}
+                      模型 API
                     </TabsV2.Trigger>
                   </div>
                 </div>
@@ -113,11 +104,8 @@ export const DialogSettings: Component<{
         <TabsV2.Content value="servers" class="settings-v2-panel">
           <SettingsServersV2 />
         </TabsV2.Content>
-        <TabsV2.Content value="providers" class="settings-v2-panel">
-          <SettingsProvidersV2 directory={directory} onBack={showProviders} />
-        </TabsV2.Content>
         <TabsV2.Content value="models" class="settings-v2-panel">
-          <SettingsModelsV2 />
+          <SettingsModelApisV2 />
         </TabsV2.Content>
         <TabsV2.Content value="thesis" class="settings-v2-panel">
           <SettingsThesisV2 />

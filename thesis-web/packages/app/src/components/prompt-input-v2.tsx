@@ -6,7 +6,7 @@ import { Icon } from "@opencode-ai/ui/v2/icon"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import type { ReferenceInfo } from "@opencode-ai/sdk/v2/client"
-import { createEffect, createMemo, on, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, on, Show, type Accessor, type JSX } from "solid-js"
 import { ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import type { PromptInputProps } from "@/components/prompt-input/contracts"
@@ -28,6 +28,7 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { showToast } from "@/utils/toast"
 import { PromptInputV2, type PromptInputV2Suggestion } from "@opencode-ai/session-ui/v2/prompt-input"
 import type { PromptInputV2ExtraChip } from "@opencode-ai/session-ui/v2/prompt-input"
+import { isThesisRoleAgent } from "@/components/thesis-workflow/thesis-agents"
 import {
   createPromptInputV2Controller,
   createPromptInputV2State,
@@ -47,6 +48,9 @@ export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "sub
   // [论文助手定制] 附加方块（config chip）：渲染在输入框附件区的额外方框（如配置要求方块），
   // 由调用方控制显隐与移除；随 controller 暴露，PromptInputV2 读取渲染。
   extraChips?: () => PromptInputV2ExtraChip[]
+  // [论文助手定制] 固定 agent（论文工作台板块会话）：设置后发送时强制用该 agent，
+  // 忽略全局 agent 选择；未设置时用当前全局 agent。
+  fixedAgent?: Accessor<string | undefined>
 }
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
@@ -233,6 +237,8 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     onSessionCreated: props.onSessionCreated,
     // [论文助手定制] 透传发送前 prompt 转换钩子（论文工作台配置浮窗打包进提示词）。
     promptTransform: props.promptTransform,
+    // [论文助手定制] 透传固定 agent：板块会话强制绑定板块 agent。
+    agentOverride: props.fixedAgent,
   })
 
   const referenceDescription = (reference: ReferenceInfo) =>
@@ -352,7 +358,7 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     skills: {
       options: () =>
         props.controls.agents.available
-          .filter((agent) => !agent.hidden && agent.native === false)
+          .filter((agent) => !agent.hidden && agent.native === false && !isThesisRoleAgent(agent.name))
           .map((agent) => ({ id: agent.name, label: agent.name })),
     },
     // [论文助手定制] 附加方块（config chip）：透传给输入框 UI，由论文工作台控制显隐与移除。
@@ -407,10 +413,14 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     view: {
       placeholder: designPlaceholder,
       get agent() {
-        // [论文助手定制] 会话框去掉「单个 skill 选择」：agent 下拉只列内置 agent（native），
-        // 自定义 Skill（native === false）只通过 sparkles 多选菜单选择，避免单/多两套入口并存。
+        // [论文助手定制] agent 下拉列「角色」：内置 agent（build/plan）+ 平台固定角色
+        // （四个板块 agent + 通用助手）；自定义 Skill（native === false 且非固定角色）
+        // 只通过 sparkles 多选菜单选择，避免单/多两套入口并存。
         const options = props.controls.agents.available.filter(
-          (agent) => !agent.hidden && agent.mode !== "subagent" && agent.native !== false,
+          (agent) =>
+            !agent.hidden &&
+            agent.mode !== "subagent" &&
+            (agent.native !== false || isThesisRoleAgent(agent.name)),
         )
         return props.controls.agents.visible && options.length > 0
           ? {

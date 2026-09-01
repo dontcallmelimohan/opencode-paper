@@ -113,8 +113,8 @@ function ProviderTip() {
     element: () => ref() ?? null,
   })
   const openProviders = () => {
-    void import("@/components/dialog-connect-provider").then(({ DialogConnectProvider }) => {
-      void dialog.show(() => <DialogConnectProvider directory={() => sdk().directory} />)
+    void import("@/components/settings-v2/dialog-settings-v2").then(({ DialogSettings }) => {
+      void dialog.show(() => <DialogSettings defaultValue="models" />)
     })
   }
 

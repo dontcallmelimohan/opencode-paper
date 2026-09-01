@@ -13,6 +13,7 @@ import { useSDK } from "./sdk"
 import { useSync } from "./sync"
 import { useServerSDK } from "./server-sdk"
 import { ScopedKey, type ServerScope } from "@/utils/server-scope"
+import { isThesisRoleAgent, THESIS_NEUTRAL_AGENT } from "@/components/thesis-workflow/thesis-agents"
 
 export type ModelKey = { providerID: string; modelID: string; variant?: string }
 
@@ -81,6 +82,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       }),
     )
 
+    // [论文助手定制] 中立助手优先：没有显式保存过 agent 的新会话默认用「通用助手」，
+    // 而不是 coding 向的 build；四个板块会话由板块视图强制覆盖，不受影响。
+    const preferredDefaultAgent = () =>
+      list().find((item) => item.name === THESIS_NEUTRAL_AGENT) ?? list()[0]
+
     const [store, setStore] = createStore<{
       current?: string
       draft?: State
@@ -92,7 +98,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         variant?: string | null
       }
     }>({
-      current: list()[0]?.name,
+      current: preferredDefaultAgent()?.name,
       draft: undefined,
       last: undefined,
     })
@@ -121,7 +127,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         return
       }
       if (items.some((item) => item.name === store.current)) return
-      setStore("current", items[0]?.name)
+      setStore("current", preferredDefaultAgent()?.name)
     })
 
     const scope = createMemo<State | undefined>(() => {
@@ -216,9 +222,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         })
       },
       move(direction: 1 | -1) {
-        // [论文助手定制] 会话框去掉「单个 skill 选择」：agent 循环（Mod+.）只在内置 agent
-        // （native）之间切换，自定义 Skill（native === false）只通过 sparkles 多选使用。
-        const items = list().filter((item) => item.native !== false)
+        // [论文助手定制] agent 循环（Mod+.）在「角色」之间切换：内置 agent（native）
+        // + 平台固定角色（四个板块 agent + 通用助手）；自定义 Skill 只通过 sparkles 多选使用。
+        const items = list().filter((item) => item.native !== false || isThesisRoleAgent(item.name))
         if (items.length === 0) {
           setStore("current", undefined)
           return

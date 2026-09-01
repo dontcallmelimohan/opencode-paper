@@ -38,7 +38,14 @@ echo "==> Syncing repository to ${REMOTE}:${REMOTE_ROOT}"
   --exclude 'node_modules/' \
   --exclude '*/node_modules/' \
   --exclude '.DS_Store' \
+  --exclude '*.map' \
   "$ROOT/" "$REMOTE:$REMOTE_ROOT/"
+
+# [论文助手定制] dist 是纯构建产物：单独用 --delete 清掉远端累积的历史产物
+# （旧 hash js/css/map），避免 rsync 只增不删导致服务器 dist 膨胀到几百 MB。
+echo "==> Pruning stale dist assets on remote"
+"${rsync_cmd[@]}" -a --delete --exclude '*.map' \
+  "$APP_DIR/dist/" "$REMOTE:$REMOTE_ROOT/thesis-web/packages/app/dist/"
 
 echo "==> Restarting remote backend"
 "${ssh_cmd[@]}" -o StrictHostKeyChecking=accept-new "$REMOTE" <<'SSH'

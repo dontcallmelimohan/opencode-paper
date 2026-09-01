@@ -1,0 +1,13 @@
+/* [论文助手定制] docx「直接阅读」预览：强制浅色纸张背景（wrapper 浅灰、页面纯白），
+   避免深色主题下预览区/页面背景发黑，保证与 Word 阅读观感一致。 */
+.docx-inline-root .docx-wrapper {
+  background: #e5e7eb !important;
+}
+
+.docx-inline-root .docx-wrapper > section.docx {
+  background: #ffffff !important;
+}
+
+.docx-inline-root .docx {
+  color: #1f2933 !important;
+}

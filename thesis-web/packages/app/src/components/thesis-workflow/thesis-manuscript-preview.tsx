@@ -23,6 +23,7 @@ import { useSDK } from "@/context/sdk"
 import { showToast } from "@/utils/toast"
 import { dataUrlOf, IMAGE_EXTENSIONS, mimeOf, resolveMarkdownImages } from "./thesis-assets"
 import { useThesisProject } from "./thesis-export"
+import "./thesis-docx-preview.css"
 
 // [论文助手定制] base64 → Uint8Array（浏览器环境没有 Node Buffer，用 atob 解码）。
 export const base64ToBytes = (base64: string) => {
@@ -101,6 +102,58 @@ function DocxLocalView(props: { bytes: Uint8Array; filename: string }) {
           downloadBytes(props.bytes, props.filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         }
       />
+    </div>
+  )
+}
+
+// [论文助手定制] docx 直接内嵌渲染：用 docx-preview 在浏览器端按 Word 版式渲染
+// （分页、字体、表格、页眉页脚等都在页面上呈现），无需转 PDF、不依赖服务器额外工具。
+// 渲染失败时显示提示，仍可通过工具栏「本地查看」下载。
+export function DocxInlineView(props: { bytes: Uint8Array; filename: string }) {
+  let containerRef: HTMLDivElement | undefined
+  const [failed, setFailed] = createSignal(false)
+  createEffect(() => {
+    const container = containerRef
+    if (!container) return
+    let cancelled = false
+    setFailed(false)
+    container.replaceChildren()
+    const arrayBuffer = props.bytes.buffer.slice(props.bytes.byteOffset, props.bytes.byteOffset + props.bytes.byteLength)
+    void (async () => {
+      try {
+        const { renderAsync } = await import("docx-preview")
+        if (cancelled) return
+        await renderAsync(arrayBuffer, container, undefined, {
+          inWrapper: true,
+          breakPages: true,
+          ignoreWidth: false,
+          ignoreHeight: false,
+          ignoreFonts: false,
+          renderHeaders: true,
+          renderFooters: true,
+          renderFootnotes: true,
+          renderEndnotes: true,
+          className: "docx",
+        })
+      } catch {
+        if (!cancelled) setFailed(true)
+      }
+    })()
+    onCleanup(() => {
+      cancelled = true
+    })
+  })
+  return (
+    <div class="relative docx-inline-root">
+      <div ref={containerRef} />
+      <Show when={failed()}>
+        <div class="flex flex-col items-center justify-center gap-2 p-6 text-center">
+          <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
+          <div class="max-w-sm text-12-regular text-v2-text-text-faint">
+            docx 渲染失败，可通过右上角「本地查看」下载后查看
+          </div>
+        </div>
+      </Show>
     </div>
   )
 }
@@ -745,8 +798,27 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
         </div>
       )
     case "docx":
-      // [论文助手定制] docx：默认本地查看（自动下载一次），不内嵌渲染，保证版式与本地 Word 一致。
-      return <DocxLocalView bytes={result.bytes} filename={result.filename} />
+      // [论文助手定制] docx：面板内直接渲染（docx-preview，Word 版式），同时保留「本地查看」下载。
+      return (
+        <div class="flex h-full flex-col">
+          <PreviewToolbar filename={result.filename}>
+            <LocalViewButton
+              onClick={() =>
+                downloadBytes(
+                  result.bytes,
+                  result.filename,
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+              }
+            />
+          </PreviewToolbar>
+          <div class="min-h-0 flex-1 overflow-y-auto bg-v2-background-bg-layer-02 p-4">
+            <div class="mx-auto max-w-[820px]">
+              <DocxInlineView bytes={result.bytes} filename={result.filename} />
+            </div>
+          </div>
+        </div>
+      )
     case "pdf":
       // [论文助手定制] PDF 不做内嵌预览（浏览器内置查看器体验不可控），
       // 只提供「本地查看（下载）」与「在新标签页打开」两种方式。

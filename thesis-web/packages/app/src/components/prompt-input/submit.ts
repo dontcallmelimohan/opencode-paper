@@ -236,6 +236,9 @@ type PromptSubmitInput = {
   // [论文助手定制] 发送前 prompt 转换钩子：论文工作台把配置浮窗的勾选要求打包进发送文本
   // （追加到最后一个 text part）。历史记录仍存用户原始输入，不把注入段写进历史。
   promptTransform?: (prompt: Prompt) => Prompt
+  // [论文助手定制] 固定 agent 覆盖（论文工作台板块会话）：设置了则在发送时强制使用该 agent，
+  // 忽略输入框当前的全局 agent 选择；未设置（undefined）时维持原逻辑用当前全局 agent。
+  agentOverride?: Accessor<string | undefined>
 }
 
 export function createPromptSubmit(input: PromptSubmitInput) {
@@ -357,6 +360,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
       return
     }
+    // [论文助手定制] 板块固定 agent：优先用覆盖值，否则用当前全局 agent。
+    const resolvedAgentName = input.agentOverride?.() ?? currentAgent.name
 
     // [论文助手定制] 历史记录存用户原始输入（不含 promptTransform 注入的配置要求段）。
     input.addToHistory(submission.prompt, mode)
@@ -418,7 +423,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     if (!session && (isNewSession || embedded)) {
       const created = await sdk()
         .api.session.create({
-          agent: currentAgent.name,
+          agent: resolvedAgentName,
           model: { id: currentModel.id, providerID: currentModel.provider.id, variant },
           location: { directory: sessionDirectory },
         })
@@ -444,7 +449,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           }
           if (shouldAutoAccept) permissionState.enableAutoAccept(session.id, sessionDirectory)
           local.session.promote(sessionDirectory, session.id, {
-            agent: currentAgent.name,
+            agent: resolvedAgentName,
             model: { providerID: currentModel.provider.id, modelID: currentModel.id },
             variant: variant ?? null,
           })
@@ -468,7 +473,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
     }
-    const agent = currentAgent.name
+    const agent = resolvedAgentName
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,

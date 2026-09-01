@@ -203,7 +203,7 @@ export type ThesisWorkflowState = {
   activeStep: StepKey
   currentArtifactID: string | null
   // [论文助手定制] 会话记录联动：右侧产物面板当前显示模式（document=文稿 / session=会话）。
-  productView: "document" | "session"
+  productView: "document" | "session" | "split"
   // [论文助手定制] 会话记录联动：当前在右侧会话界面显示的会话 ID（null=跟随当前板块专属会话）。
   displaySessionID: string | null
   // [论文助手定制] 局部会话（选区改写）记录：这些会话不混入主会话列表，侧边栏单独折叠展示。
@@ -290,7 +290,8 @@ export const createDefaultWorkflowState = (): ThesisWorkflowState => ({
   version: 4,
   activeStep: "outline",
   currentArtifactID: null,
-  productView: "document",
+  // [论文助手定制] 默认并列视图：左侧文稿画布 + 右侧会话（生成时不用来回切换）。
+  productView: "split",
   displaySessionID: null,
   localSessionIDs: [],
   artifacts: [],
@@ -318,6 +319,7 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
       activeStep?: string
       currentArtifactID?: string
       productView?: string
+      displaySessionID?: string | null
       localSessionIDs?: unknown
       artifacts?: ThesisArtifact[]
       turns?: Record<string, TurnRegistration>
@@ -329,14 +331,18 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
       }
     }
     if ((parsed?.version !== 1 && parsed?.version !== 2 && parsed?.version !== 3 && parsed?.version !== 4) || !parsed.steps) return fallback
+    const version = parsed.version
     const steps = parsed.steps
     const activeStep = (["outline", "writing", "formatting", "review"] as StepKey[]).includes(parsed.activeStep as StepKey)
       ? (parsed.activeStep as StepKey)
       : "outline"
     const clean = (result?: string) => (result ? stripDocMeta(stripAiFooter(result)) : result)
-    const legacySession = parsed.version === 1 ? parsed.sessionID : undefined
+    const legacySession = version === 1 ? parsed.sessionID : undefined
+    // [论文助手定制] 方案 B（v2 起）每步独立会话：恢复时保留各步骤已持久化的 sessionID，
+    // 否则刷新/重进工作台后会话 ID 会丢，「会话」面板显示「还没有会话」且继续对话会新建会话而非复用。
+    // 用 >= 2 而不是逐个版本列举，避免后续升版本时漏掉（v4 升版时就曾漏掉导致此 bug）。
     const keepSession = (step: "outline" | "writing" | "formatting" | "review") =>
-      parsed.version === 2 || parsed.version === 3 ? steps[step]?.sessionID : undefined
+      version >= 2 ? steps[step]?.sessionID : undefined
     const migratedArtifacts = Array.isArray(parsed.artifacts) && parsed.artifacts.length > 0
       ? parsed.artifacts
       : (Object.entries(steps) as [StepKey, Partial<StepState<any>>][])
@@ -351,10 +357,15 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
             }),
           )
     const currentArtifactID = typeof parsed.currentArtifactID === "string" ? parsed.currentArtifactID : null
+    // [论文助手定制] 恢复上次点开的会话：与 productView 一起还原「上次打开的会话」，
+    // 刷新/重进工作台后会话面板不再回退到全新空会话；非法值或缺失时回退 null（跟随板块专属会话）。
+    const displaySessionID = typeof parsed.displaySessionID === "string" ? parsed.displaySessionID : null
     // [论文助手定制] 恢复上次的「文稿/会话」视图（画布编辑为主界面）：合法值才采用，
     // 非法或缺失时回退文稿视图，避免打开工作台/刷新后看不到文稿画布。
     const productView: ThesisWorkflowState["productView"] =
-      parsed.productView === "document" || parsed.productView === "session" ? parsed.productView : "document"
+      parsed.productView === "document" || parsed.productView === "session" || parsed.productView === "split"
+        ? parsed.productView
+        : "split"
     const localSessionIDs = Array.isArray(parsed.localSessionIDs)
       ? parsed.localSessionIDs.filter((item): item is string => typeof item === "string")
       : []
@@ -363,7 +374,7 @@ const readWorkflow = (directory: string): ThesisWorkflowState => {
       activeStep,
       currentArtifactID,
       productView,
-      displaySessionID: null,
+      displaySessionID,
       localSessionIDs,
       artifacts: migratedArtifacts,
       turns: parsed.turns ?? {},
@@ -443,6 +454,18 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       return artifact
     }
 
+    // [论文助手定制] 会话输入框 @ 引用注册：会话视图挂载时把自己的 insertFile 注册进来；
+    // 配置浮窗「同步到文件空间」据此把 config/论文主题.md 追加为输入框引用，让 Skill 必须看到配置文件。
+    let sessionInsertFile: ((path: string, name: string) => void) | undefined
+
+    const registerSessionInsertFile = (fn: ((path: string, name: string) => void) | undefined) => {
+      sessionInsertFile = fn
+    }
+
+    const insertFileIntoSession = (path: string, name: string) => {
+      sessionInsertFile?.(path, name)
+    }
+
     const setCurrentArtifact = (artifactID: string | null) => {
       const current = state()
       commit({ ...current, currentArtifactID: artifactID })
@@ -451,7 +474,8 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
     // [论文助手定制] 切换板块：清掉会话记录点选的会话并默认回到文稿（画布）视图，
     // 避免上一个板块的「查看会话」串到新板块（openSessionInPanel 会随后重新设置显示会话）。
     const setActiveStep = (step: StepKey) =>
-      commit({ ...state(), activeStep: step, displaySessionID: null, productView: "document" })
+      // [论文助手定制] 切到新板块默认并列视图（文稿 + 会话同屏），避免停在会话界面看不到文稿画布。
+      commit({ ...state(), activeStep: step, displaySessionID: null, productView: "split" })
 
     const updateInput = <K extends StepKey>(step: K, patch: Partial<ThesisWorkflowState["steps"][K]["input"]>) => {
       const current = state()
@@ -498,7 +522,7 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
     }
 
     // [论文助手定制] 会话记录联动：切换右侧产物面板显示模式 / 指定当前显示的会话。
-    const setProductView = (view: "document" | "session") => commit({ ...state(), productView: view })
+    const setProductView = (view: "document" | "session" | "split") => commit({ ...state(), productView: view })
     const setDisplaySession = (sessionID: string | null) => commit({ ...state(), displaySessionID: sessionID })
     const registerLocalSessionID = (sessionID: string) => {
       const current = state()
@@ -522,6 +546,8 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
       markTurn,
       consumeTurn,
       getTurn,
+      registerSessionInsertFile,
+      insertFileIntoSession,
       upsertArtifact,
       ensureArtifactForStep,
       ensureScratchArtifact,

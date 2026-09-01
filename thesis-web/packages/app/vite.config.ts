@@ -28,6 +28,8 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
-    sourcemap: true,
+    // [论文助手定制] 生产构建关闭 sourcemap：dist 减少约 50MB（map 占打包产物 60%），
+    // 浏览器访问不会下载 map，纯拖慢部署与占磁盘；本地 dev 仍有源码映射。
+    sourcemap: false,
   },
 })

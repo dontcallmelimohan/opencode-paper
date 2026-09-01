@@ -71,12 +71,15 @@ import { SessionPage, SessionRouteErrorBoundary, TargetSessionRouteContent } fro
 import { NewHome } from "@/pages/home"
 import { LegacyHome } from "@/pages/home/legacy-home"
 import { AuthGate } from "@/pages/auth"
-import { ThesisSkillsPage } from "@/pages/skills"
 import { ThesisFilesPage } from "@/components/thesis-workflow/thesis-manuscript-preview"
 
 const NewSession = lazy(() => import("@/pages/new-session"))
 // [论文助手定制] 论文工作台：四步标准化流程页面（提纲→写作→排版→评审）。
 const ThesisWorkbench = lazy(() => import("@/pages/thesis-workbench"))
+// [论文助手定制] Skill 管理页面（/skills）：整页懒加载，避免把 jszip 等仅该页使用的依赖塞进首屏主包。
+const ThesisSkillsPage = lazy(() =>
+  import("@/pages/skills").then((module) => ({ default: module.ThesisSkillsPage })),
+)
 
 // [论文助手定制] 论文工作台独立顶层路由：
 // 提供与 DirectoryLayout 相同的 SDK / 数据同步上下文，直接渲染在新布局主区域。
@@ -585,7 +588,7 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean; start
       </Show>
       <Show when={loading()}>
         <div class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background-base">
-          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+          <Splash class="w-16 h-16 opacity-50 animate-pulse" />
         </div>
       </Show>
     </>
@@ -606,7 +609,7 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
   return (
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6">
       <div class="flex flex-col items-center max-w-md text-center">
-        <Splash class="w-12 h-15 mb-4" />
+        <Splash class="w-12 h-12 mb-4" />
         <p class="text-14-regular text-text-base">
           {unreachable()[0]}
           <span class="text-text-strong font-medium">{name()}</span>
@@ -714,7 +717,14 @@ function Routes(props: { serverScoped?: JSX.Element }) {
   return (
     <>
       {/* [论文助手定制] Skill 管理独立页面（主页右上角按钮作为入口跳转到这里） */}
-      <Route path="/skills" component={ThesisSkillsPage} />
+      <Route
+        path="/skills"
+        component={() => (
+          <Suspense fallback={<div class="size-full" />}>
+            <ThesisSkillsPage />
+          </Suspense>
+        )}
+      />
       <Route
         component={(routeProps) => (
           <LegacyServerLayout serverScoped={props.serverScoped}>{routeProps.children}</LegacyServerLayout>

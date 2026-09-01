@@ -726,147 +726,35 @@ export function StepProductPanel(props: {
     })
   })
 
-  return (
-    // [论文助手定制] 画布宽度：max-w-7xl（1280px）居中，宽屏下给文稿更充足的编辑空间；
-    // 窄屏自动占满（w-full）。
-    <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
-      {/* [论文助手定制] 标题栏响应式：窄屏时允许换行（flex-wrap），标题截断不挤压右侧操作区，
-          操作区整体右对齐（ml-auto），窄屏自动折到下一行，避免控件横向溢出。 */}
-      <div class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2">
-        <span class="min-w-0 max-w-full truncate text-13-medium text-v2-text-text-base">{props.title}</span>
-        <span>
-          <Show
-            when={props.status === "done"}
-            fallback={
-              <Show when={props.status === "generating"}>
-                <span class="rounded-full bg-v2-state-bg-info px-2 py-0.5 text-10-medium text-v2-text-text-accent">生成中…</span>
-              </Show>
-            }
-          >
-            <span class="flex items-center gap-1 rounded-full bg-v2-state-bg-info px-2 py-0.5 text-10-medium text-v2-text-text-accent">
-              <Icon name="circle-check" size="small" /> 已完成
-            </span>
-          </Show>
-        </span>
-        {/* [论文助手定制] 右侧操作区：动作插槽 + 导出 + 文件下拉 + 文稿/会话切换。
-            窄屏整组换行右对齐；文件下拉宽度自适应（w-36，md 及以上恢复 w-44）。 */}
-        <div class="ml-auto flex min-w-0 flex-wrap items-center gap-2">
-          {/* [论文助手定制] 标题栏动作插槽：与状态徽章同一行右侧区，保持 shrink-0。
-              各 step 传「生成/重新生成」主按钮 +「配置」按钮（配置面板浮窗化的高频入口）。 */}
-          <Show when={props.titleActions}>
-            <div class="flex shrink-0 items-center gap-2">{props.titleActions}</div>
-          </Show>
-          {/* [论文助手定制] 统一「导出」下拉：Markdown（下载）/ Word / PDF（走各板块导出回调）。 */}
-          <Show when={(props.onExportDocx || props.onExportPdf) && props.result && props.status === "done"}>
-            <DropdownMenu
-              gutter={4}
-              placement="bottom-end"
-              open={exportMenuOpen()}
-              onOpenChange={(open) => setExportMenuOpen(open)}
-            >
-              <DropdownMenu.Trigger
-                as={Button}
-                type="button"
-                variant="secondary"
-                size="small"
-                icon="download"
-                aria-label="导出"
-              >
-                导出
-                <Icon name="chevron-down" size="small" />
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content style={{ "min-width": "140px" }}>
-                  <DropdownMenu.Item onSelect={() => exportMarkdown()}>
-                    <DropdownMenu.ItemLabel>Markdown（.md）</DropdownMenu.ItemLabel>
-                  </DropdownMenu.Item>
-                  <Show when={props.onExportDocx}>
-                    <DropdownMenu.Item onSelect={() => props.onExportDocx?.()}>
-                      <DropdownMenu.ItemLabel>Word（.docx）</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                  </Show>
-                  <Show when={props.onExportPdf}>
-                    <DropdownMenu.Item onSelect={() => props.onExportPdf?.()}>
-                      <DropdownMenu.ItemLabel>PDF</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                  </Show>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu>
-          </Show>
-          {/* [论文助手定制] 文稿文件切换（画布文件唯一入口）：默认当前板块文稿文件（提纲.md 等），
-              可切换到文件空间里其它 .md/.txt 文本文件查看/编辑（docs/ 独立文档可编辑，其余只读）。
-              不再有独立的「产物」下拉，避免两个选框重复。 */}
-          <Show when={!props.documentOverride && props.manuscript && textFiles.data && textFiles.data.length > 0}>
-            <select
-              ref={fileSelectRef}
-              class="h-7 w-36 min-w-0 max-w-full shrink-0 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none sm:w-44"
-              value={viewPath() ?? currentPath() ?? ""}
-              onChange={(event) => {
-                setViewPath(event.currentTarget.value || null)
-                if (state().currentArtifactID) setCurrentArtifact(null)
-              }}
-            >
-              <For each={textFiles.data ?? []}>
-                {(node) => (
-                  <option value={node.path}>
-                    {node.independent ? `[独立] ${node.name}` : node.name}
-                  </option>
-                )}
-              </For>
-            </select>
-          </Show>
-          {/* [论文助手定制] 渲染即编辑：不再有「编辑」按钮——完成态默认就是 Milkdown 编辑器，
-              选中文字直接出 AI 操作条；文件切换（查看文件空间其它文本）时切换为只读渲染。 */}
-          {/* [论文助手定制] 文稿 / 会话切换按钮；没有会话前「会话」不可点。 */}
-          <div class="flex shrink-0 items-center gap-0.5 rounded-md bg-v2-background-bg-layer-01 p-0.5">
-            <button
-              type="button"
-              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
-              classList={{
-                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "document",
-                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "document",
-              }}
-              onClick={() => {
-                setProductView("document")
-                setDisplaySession(null)
-              }}
-            >
-              文稿
-            </button>
-            <button
-              type="button"
-              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
-              classList={{
-                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "session",
-                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "session",
-              }}
-              onClick={() => {
-                setProductView("session")
-                setDisplaySession(null)
-              }}
-            >
-              会话
-            </button>
-          </div>
-        </div>
-        {/* [论文助手定制] 配置入口已移到侧边栏顶部，不再在产物标题栏重复出现；
-            这样配置始终与左侧面板的层级一致，且收起状态不再留下额外占位。 */}
-      </div>
-      <Show
-        when={view() !== "session"}
-        fallback={
-          <div class="min-h-0 flex-1 overflow-hidden">
-            <ThesisSessionView
-              // [论文助手定制] 配置面板弱化（第二轮）：向会话视图透传板块标识 + 配置浮窗开合状态 +
-              // 开合回调，供输入框底栏「配置/插图」图标、发送自动关闭与首次自动弹出使用。
-              step={props.manuscript?.step}
-              configOpen={props.configOpen}
-              onSetConfigOpen={props.onSetConfigOpen}
-            />
-          </div>
-        }
-      >
+  // [论文助手定制] 并列视图：右侧会话面板宽度（可拖拽，320~640px，localStorage 记忆）。
+  const [splitWidth, setSplitWidth] = createSignal(Number(localStorage.getItem("thesis-workbench.splitWidth")) || 420)
+  const startSplitResize = (event: PointerEvent) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = splitWidth()
+    const onMove = (ev: PointerEvent) => setSplitWidth(Math.min(640, Math.max(320, startWidth + (startX - ev.clientX))))
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      localStorage.setItem("thesis-workbench.splitWidth", String(splitWidth()))
+    }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+  }
+
+  // [论文助手定制] 会话面板（全宽会话 / 并列右侧复用）：透传板块标识 + 配置浮窗开合状态与回调。
+  const SessionPane = () => (
+    <div class="min-h-0 flex-1 overflow-hidden">
+      <ThesisSessionView
+        step={props.manuscript?.step}
+        configOpen={props.configOpen}
+        onSetConfigOpen={props.onSetConfigOpen}
+      />
+    </div>
+  )
+
+  // [论文助手定制] 文稿画布（全宽 / 并列左侧复用）：文件下拉选中内容、Milkdown 编辑器、docx/pdf 内联预览。
+  const DocumentPane = () => (
         <div
           class="min-h-0 flex-1"
           classList={{
@@ -1159,9 +1047,183 @@ export function StepProductPanel(props: {
           </Show>
           </Show>
         </div>
-        <Show when={props.footer}>
-          <div class="flex shrink-0 items-center justify-end gap-2 border-t border-v2-border-border-base px-3 py-2">{props.footer}</div>
-        </Show>
+
+  )
+
+  return (
+    // [论文助手定制] 画布宽度：max-w-7xl（1280px）居中，宽屏下给文稿更充足的编辑空间；
+    // 窄屏自动占满（w-full）。
+    <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
+      {/* [论文助手定制] 标题栏响应式：窄屏时允许换行（flex-wrap），标题截断不挤压右侧操作区，
+          操作区整体右对齐（ml-auto），窄屏自动折到下一行，避免控件横向溢出。 */}
+      <div class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2">
+        <span class="min-w-0 max-w-full truncate text-13-medium text-v2-text-text-base">{props.title}</span>
+        <span>
+          <Show
+            when={props.status === "done"}
+            fallback={
+              <Show when={props.status === "generating"}>
+                <span class="rounded-full bg-v2-state-bg-info px-2 py-0.5 text-10-medium text-v2-text-text-accent">生成中…</span>
+              </Show>
+            }
+          >
+            <span class="flex items-center gap-1 rounded-full bg-v2-state-bg-info px-2 py-0.5 text-10-medium text-v2-text-text-accent">
+              <Icon name="circle-check" size="small" /> 已完成
+            </span>
+          </Show>
+        </span>
+        {/* [论文助手定制] 右侧操作区：动作插槽 + 导出 + 文件下拉 + 文稿/会话切换。
+            窄屏整组换行右对齐；文件下拉宽度自适应（w-36，md 及以上恢复 w-44）。 */}
+        <div class="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+          {/* [论文助手定制] 标题栏动作插槽：与状态徽章同一行右侧区，保持 shrink-0。
+              各 step 传「生成/重新生成」主按钮 +「配置」按钮（配置面板浮窗化的高频入口）。 */}
+          <Show when={props.titleActions}>
+            <div class="flex shrink-0 items-center gap-2">{props.titleActions}</div>
+          </Show>
+          {/* [论文助手定制] 统一「导出」下拉：Markdown（下载）/ Word / PDF（走各板块导出回调）。 */}
+          <Show when={(props.onExportDocx || props.onExportPdf) && props.result && props.status === "done"}>
+            <DropdownMenu
+              gutter={4}
+              placement="bottom-end"
+              open={exportMenuOpen()}
+              onOpenChange={(open) => setExportMenuOpen(open)}
+            >
+              <DropdownMenu.Trigger
+                as={Button}
+                type="button"
+                variant="secondary"
+                size="small"
+                icon="download"
+                aria-label="导出"
+              >
+                导出
+                <Icon name="chevron-down" size="small" />
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content style={{ "min-width": "140px" }}>
+                  <DropdownMenu.Item onSelect={() => exportMarkdown()}>
+                    <DropdownMenu.ItemLabel>Markdown（.md）</DropdownMenu.ItemLabel>
+                  </DropdownMenu.Item>
+                  <Show when={props.onExportDocx}>
+                    <DropdownMenu.Item onSelect={() => props.onExportDocx?.()}>
+                      <DropdownMenu.ItemLabel>Word（.docx）</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                  </Show>
+                  <Show when={props.onExportPdf}>
+                    <DropdownMenu.Item onSelect={() => props.onExportPdf?.()}>
+                      <DropdownMenu.ItemLabel>PDF</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                  </Show>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu>
+          </Show>
+          {/* [论文助手定制] 文稿文件切换（画布文件唯一入口）：默认当前板块文稿文件（提纲.md 等），
+              可切换到文件空间里其它 .md/.txt 文本文件查看/编辑（docs/ 独立文档可编辑，其余只读）。
+              不再有独立的「产物」下拉，避免两个选框重复。 */}
+          <Show when={!props.documentOverride && props.manuscript && textFiles.data && textFiles.data.length > 0}>
+            <select
+              ref={fileSelectRef}
+              class="h-7 w-36 min-w-0 max-w-full shrink-0 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none sm:w-44"
+              value={viewPath() ?? currentPath() ?? ""}
+              onChange={(event) => {
+                setViewPath(event.currentTarget.value || null)
+                if (state().currentArtifactID) setCurrentArtifact(null)
+              }}
+            >
+              <For each={textFiles.data ?? []}>
+                {(node) => (
+                  <option value={node.path}>
+                    {node.independent ? `[独立] ${node.name}` : node.name}
+                  </option>
+                )}
+              </For>
+            </select>
+          </Show>
+          {/* [论文助手定制] 渲染即编辑：不再有「编辑」按钮——完成态默认就是 Milkdown 编辑器，
+              选中文字直接出 AI 操作条；文件切换（查看文件空间其它文本）时切换为只读渲染。 */}
+          {/* [论文助手定制] 视图切换：文稿（单栏画布）/ 并列（左文稿右会话）/ 会话（单栏聊天）。 */}
+          <div class="flex shrink-0 items-center gap-0.5 rounded-md bg-v2-background-bg-layer-01 p-0.5">
+            <button
+              type="button"
+              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
+              classList={{
+                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "document",
+                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "document",
+              }}
+              onClick={() => {
+                setProductView("document")
+                setDisplaySession(null)
+              }}
+            >
+              文稿
+            </button>
+            <button
+              type="button"
+              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
+              classList={{
+                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "split",
+                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "split",
+              }}
+              onClick={() => {
+                setProductView("split")
+                setDisplaySession(null)
+              }}
+            >
+              并列
+            </button>
+            <button
+              type="button"
+              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
+              classList={{
+                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "session",
+                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "session",
+              }}
+              onClick={() => {
+                setProductView("session")
+                setDisplaySession(null)
+              }}
+            >
+              会话
+            </button>
+          </div>
+        </div>
+        {/* [论文助手定制] 配置入口已移到侧边栏顶部，不再在产物标题栏重复出现；
+            这样配置始终与左侧面板的层级一致，且收起状态不再留下额外占位。 */}
+      </div>
+      <Show
+        when={view() === "split"}
+        fallback={
+          <Show
+            when={view() !== "session"}
+            fallback={<SessionPane />}
+          >
+            <DocumentPane />
+            <Show when={props.footer}>
+              <div class="flex shrink-0 items-center justify-end gap-2 border-t border-v2-border-border-base px-3 py-2">{props.footer}</div>
+            </Show>
+          </Show>
+        }
+      >
+        <div class="flex min-h-0 flex-1">
+          <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <DocumentPane />
+            </div>
+            <Show when={props.footer}>
+              <div class="flex shrink-0 items-center justify-end gap-2 border-t border-v2-border-border-base px-3 py-2">{props.footer}</div>
+            </Show>
+          </div>
+          {/* [论文助手定制] 并列分割条：拖拽调整右侧会话面板宽度（320~640px，localStorage 记忆）。 */}
+          <div
+            class="w-1.5 shrink-0 cursor-col-resize bg-v2-background-bg-base transition-colors hover:bg-v2-border-border-focus"
+            onPointerDown={startSplitResize}
+            title="拖拽调整会话宽度"
+          />
+          <div class="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-v2-border-border-base" style={{ width: `${splitWidth()}px` }}>
+            <SessionPane />
+          </div>
+        </div>
       </Show>
     </div>
   )

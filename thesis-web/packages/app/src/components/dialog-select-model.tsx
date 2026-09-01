@@ -57,6 +57,8 @@ const ModelList: Component<{
   const models = createMemo(() =>
     model
       .list()
+      // [论文助手定制] 只显示通过「模型 API 配置」添加的模型（source === "config"）。
+      .filter((m) => m.provider.source === "config")
       .filter((m) => model.visible({ modelID: m.id, providerID: m.provider.id }))
       .filter((m) => (props.provider ? m.provider.id === props.provider : true)),
   )
@@ -130,8 +132,6 @@ export function ModelSelectorPopover(props: {
     dismiss: null,
   })
   const dialog = useDialog()
-  const local = useLocal()
-  const directory = () => decode64(local.slug())
 
   const close = (dismiss: Dismiss) => {
     setStore("dismiss", dismiss)
@@ -140,15 +140,8 @@ export function ModelSelectorPopover(props: {
 
   const handleManage = () => {
     close("manage")
-    void import("./dialog-manage-models").then((x) => {
-      dialog.show(() => <x.DialogManageModelsV2 />)
-    })
-  }
-
-  const handleConnectProvider = () => {
-    close("provider")
-    void import("./dialog-connect-provider").then((x) => {
-      void dialog.show(() => <x.DialogConnectProvider directory={directory} />)
+    void import("./settings-v2/dialog-settings-v2").then((x) => {
+      dialog.show(() => <x.DialogSettings defaultValue="models" />)
     })
   }
   const language = useLanguage()
@@ -193,23 +186,13 @@ export function ModelSelectorPopover(props: {
             class="p-1"
             action={
               <div class="flex items-center gap-1">
-                <Tooltip placement="top" value={language.t("command.provider.connect")}>
-                  <IconButton
-                    icon="plus-small"
-                    variant="ghost"
-                    iconSize="normal"
-                    class="size-6"
-                    aria-label={language.t("command.provider.connect")}
-                    onClick={handleConnectProvider}
-                  />
-                </Tooltip>
-                <Tooltip placement="top" value={language.t("dialog.model.manage")}>
+                <Tooltip placement="top" value="管理模型 API 配置">
                   <IconButton
                     icon="sliders"
                     variant="ghost"
                     iconSize="normal"
                     class="size-6"
-                    aria-label={language.t("dialog.model.manage")}
+                    aria-label="管理模型 API 配置"
                     onClick={handleManage}
                   />
                 </Tooltip>
@@ -243,8 +226,8 @@ export function ModelSelectorPopoverV2(props: {
       current={controller.current}
       select={controller.select}
       onManage={() => {
-        void import("./dialog-manage-models").then((module) => {
-          void dialog.show(() => <module.DialogManageModelsV2 />)
+        void import("./settings-v2/dialog-settings-v2").then((module) => {
+          void dialog.show(() => <module.DialogSettings defaultValue="models" />)
         })
       }}
       onClose={() => props.onClose?.()}
@@ -261,6 +244,8 @@ function createModelSelectorController(input: {
   const allModels = createMemo(() =>
     model
       .list()
+      // [论文助手定制] 只显示通过「模型 API 配置」添加的模型（source === "config"）。
+      .filter((item) => item.provider.source === "config")
       .filter((item) => model.visible({ modelID: item.id, providerID: item.provider.id }))
       .filter((item) => (input.provider() ? item.provider.id === input.provider() : true)),
   )
@@ -524,18 +509,10 @@ function ModelSelectorPopoverV2View(props: {
 export const DialogSelectModel: Component<{ provider?: string; model?: ModelState }> = (props) => {
   const dialog = useDialog()
   const language = useLanguage()
-  const local = useLocal()
-  const directory = () => decode64(local.slug())
 
-  const provider = () => {
-    void import("./dialog-connect-provider").then((x) => {
-      void dialog.show(() => <x.DialogConnectProvider directory={directory} />)
-    })
-  }
-
-  const manage = () => {
-    void import("./dialog-manage-models").then((x) => {
-      dialog.show(() => <x.DialogManageModelsV2 />)
+  const openSettings = () => {
+    void import("./settings-v2/dialog-settings-v2").then((x) => {
+      dialog.show(() => <x.DialogSettings defaultValue="models" />)
     })
   }
 
@@ -543,13 +520,13 @@ export const DialogSelectModel: Component<{ provider?: string; model?: ModelStat
     <Dialog
       title={language.t("dialog.model.select.title")}
       action={
-        <Button class="h-7 -my-1 text-14-medium" icon="plus-small" tabIndex={-1} onClick={provider}>
-          {language.t("command.provider.connect")}
+        <Button class="h-7 -my-1 text-14-medium" icon="plus-small" tabIndex={-1} onClick={openSettings}>
+          添加 API 配置
         </Button>
       }
     >
       <ModelList provider={props.provider} model={props.model} onSelect={() => dialog.close()} />
-      <Button variant="ghost" class="ml-3 mt-5 mb-6 text-text-base self-start" onClick={manage}>
+      <Button variant="ghost" class="ml-3 mt-5 mb-6 text-text-base self-start" onClick={openSettings}>
         {language.t("dialog.model.manage")}
       </Button>
     </Dialog>

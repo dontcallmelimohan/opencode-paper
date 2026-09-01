@@ -60,11 +60,12 @@ function ThesisWorkbenchInner() {
 
   // [论文助手定制] 侧边栏收起状态（localStorage 记住）。
   const [collapsed, setCollapsed] = createSignal(localStorage.getItem("thesis-workbench.sidebarCollapsed") === "1")
+  // [论文助手定制] 四个板块配置全部浮窗化：默认收起，点击会话输入框底栏「配置」图标打开。
   const [stepConfigOpen, setStepConfigOpen] = createSignal<Record<StepKey, boolean>>({
     outline: false,
     writing: false,
-    formatting: true,
-    review: true,
+    formatting: false,
+    review: false,
   })
   const toggleStepConfig = (step: StepKey) => {
     setStepConfigOpen((current) => ({

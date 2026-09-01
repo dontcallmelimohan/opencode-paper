@@ -2,15 +2,12 @@ import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { List, type ListRef } from "@opencode-ai/ui/list"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { type Component, Show } from "solid-js"
+import { createMemo, type Component, Show } from "solid-js"
 import { useLocal } from "@/context/local"
-import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
-import { decode64 } from "@/utils/base64"
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 
@@ -18,20 +15,21 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
   const local = useLocal()
   const model = props.model ?? local.model
   const dialog = useDialog()
-  const directory = () => decode64(local.slug())
-  const providers = useProviders(directory)
   const language = useLanguage()
 
-  const openProviders = (provider?: string) => {
-    void import("./dialog-connect-provider").then((x) => {
-      const controller = x.useProviderConnectController()
-      controller.select(provider)
-      void dialog.show(() => <x.DialogConnectProvider controller={controller} directory={directory} />)
+  // [论文助手定制] 只显示通过「模型 API 配置」添加的模型。
+  const configModels = createMemo(() =>
+    model
+      .list()
+      .filter((item) => item.provider.source === "config")
+      .sort((a, b) => a.provider.name.localeCompare(b.provider.name) || a.name.localeCompare(b.name)),
+  )
+
+  const openSettings = () => {
+    void import("./settings-v2/dialog-settings-v2").then((x) => {
+      dialog.show(() => <x.DialogSettings defaultValue="models" />)
     })
   }
-
-  const connect = (provider: string) => openProviders(provider)
-  const all = () => openProviders()
 
   let listRef: ListRef | undefined
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -48,7 +46,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
         <List
           class="px-3 [&_[data-slot=list-scroll]]:overflow-visible"
           ref={(ref) => (listRef = ref)}
-          items={model.list}
+          items={configModels}
           current={model.current()}
           key={(x) => `${x.provider.id}:${x.id}`}
           itemWrapper={(item, node) => (
@@ -77,7 +75,6 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
           {(i) => (
             <div class="w-full flex items-center gap-x-2.5">
               <span>{i.name}</span>
-              <Tag>{language.t("model.tag.free")}</Tag>
               <Show when={i.latest}>
                 <Tag>{language.t("model.tag.latest")}</Tag>
               </Show>
@@ -86,60 +83,9 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
         </List>
       </div>
       <div class="px-1.5 pb-1.5">
-        <div class="w-full rounded-sm border border-border-weak-base bg-surface-raised-base">
-          <div class="w-full flex flex-col items-start gap-4 px-1.5 pt-4 pb-4">
-            <div class="px-2 text-14-medium text-text-base">{language.t("dialog.model.unpaid.addMore.title")}</div>
-            <div class="w-full">
-              <List
-                class="w-full px-3"
-                key={(p) => p.id}
-                items={providers.popular}
-                activeIcon="plus-small"
-                sortBy={(a, b) => {
-                  if (popularProviders.includes(a.id) && popularProviders.includes(b.id))
-                    return popularProviders.indexOf(a.id) - popularProviders.indexOf(b.id)
-                  return a.name.localeCompare(b.name)
-                }}
-                onSelect={(x) => {
-                  if (!x) return
-                  connect(x.id)
-                }}
-              >
-                {(i) => (
-                  <div class="w-full flex items-center gap-x-3">
-                    <ProviderIcon data-slot="list-item-extra-icon" id={i.id} />
-                    <span>{i.name}</span>
-                    <Show when={i.id === "opencode"}>
-                      <div class="text-14-regular text-text-weak">{language.t("dialog.provider.opencode.tagline")}</div>
-                    </Show>
-                    <Show when={i.id === "opencode"}>
-                      <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-                    </Show>
-                    <Show when={i.id === "opencode-go"}>
-                      <>
-                        <div class="text-14-regular text-text-weak">
-                          {language.t("dialog.provider.opencodeGo.tagline")}
-                        </div>
-                        <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
-                      </>
-                    </Show>
-                    <Show when={i.id === "anthropic"}>
-                      <div class="text-14-regular text-text-weak">{language.t("dialog.provider.anthropic.note")}</div>
-                    </Show>
-                  </div>
-                )}
-              </List>
-              <Button
-                variant="ghost"
-                class="w-full justify-start px-[11px] py-3.5 gap-4.5 text-14-medium"
-                icon="dot-grid"
-                onClick={all}
-              >
-                {language.t("dialog.provider.viewAll")}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <Button variant="ghost" class="w-full justify-start px-[11px] py-3.5 gap-4.5 text-14-medium" icon="plus-small" onClick={openSettings}>
+          添加 API 配置
+        </Button>
       </div>
     </Dialog>
   )

@@ -1,131 +1,27 @@
 // [论文助手定制] 「论文排版」模块（论文工作台，方案 B 去线性化）：
-// 独立模块，排版源稿来源可在表单里显式选择：自动用辅助写作的全文稿 / 手动粘贴 / 无源稿。
+// 独立模块，排版源稿来源可在配置浮窗里显式选择：自动用辅助写作的全文稿 / 手动粘贴 / 无源稿。
 // 按目标期刊/学校模板、参考文献格式、标题层级等要求生成排版后的最终稿。
+// [论文助手定制] 配置面板浮窗化（与提纲/辅助写作一致）：左侧配置列取消，改为会话视图输入框底栏
+// 「配置」图标 → 居中浮窗（FormattingConfigForm）；Skill 不在配置面板选，直接在会话输入框用 @ 选择；
+// 生成 = 会话发送（模板、源稿、配置由「同步到文件空间」一并 @ 进输入框），回复留在会话里
+// 手动「应用到画布」才写入 排版稿.md；产物区域改为全宽 StepProductPanel，
+// docx/pdf 成品预览与重新导出保留（导出走配置里的排版参数 / 模板）。
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
-import { TextField } from "@opencode-ai/ui/text-field"
-// [论文助手定制] 真实调用 Skill：file part 的文件名解析工具。
-import { getFilename } from "@opencode-ai/core/util/path"
-import { createEffect, createResource, createSignal, For, Show, onCleanup } from "solid-js"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { createEffect, createResource, createSignal, Show, onCleanup } from "solid-js"
 import { useSDK } from "@/context/sdk"
-import { useThesisGenerator } from "./thesis-generator"
-import { useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow } from "./thesis-workflow-store"
 import { useThesisLive } from "./thesis-live-store"
-import { InputSourceSelect, StepFormPanel, StepLayout, StepProductPanel, ThesisSkillPicker } from "./thesis-workflow-ui"
-import { useThesisDocxExport, useThesisPdfExport, useThesisProject } from "./thesis-export"
-import { showToast } from "@/utils/toast"
-// [论文助手定制] 真实调用 Skill：源稿文件名（全文稿.md）与 file part 的文件名解析工具。
-import { MANUSCRIPT_FILENAMES } from "./thesis-manuscript-file"
+import { StepProductPanel } from "./thesis-workflow-ui"
+import { FormattingConfigForm } from "./thesis-config-forms"
+import { useThesisDocxExport, useThesisPdfExport } from "./thesis-export"
 import { base64ToBytes, downloadBytes, errorMessage } from "./thesis-manuscript-preview"
-
-const PAPER_TYPES = ["综述论文", "课程论文", "毕业论文", "期刊投稿稿"]
-const REFERENCE_STYLES = ["GB/T 7714-2015", "APA 7th", "MLA 9th", "Vancouver", "IEEE"]
-const HEADING_STYLES = ["三级标题", "二级标题", "四号标题层级", "英文小标题"]
-const TYPOGRAPHIES = ["中文学术默认", "中文核心期刊风格", "英文 SCI 风格", "毕业论文模板"]
-// [论文助手定制] docx 排版参数选项（导出 Word 时生效，控制后端 docx 引擎的视觉规范）。
-const FONT_FAMILIES = ["宋体", "黑体", "楷体", "仿宋"]
-const FONT_SIZES = [
-  { label: "五号（10.5pt）", value: "10.5" },
-  { label: "小四（12pt）", value: "12" },
-  { label: "四号（14pt）", value: "14" },
-]
-const LINE_SPACINGS = [
-  { label: "单倍", value: "1" },
-  { label: "1.5 倍", value: "1.5" },
-  { label: "双倍", value: "2" },
-]
-const PAGE_MARGINS = [
-  { label: "标准", value: "standard" },
-  { label: "窄边距", value: "narrow" },
-  { label: "毕业论文规范", value: "thesis" },
-]
-// [论文助手定制] 扩充 docx 排版参数选项：标题字体 / 首行缩进字符数 / 段后间距。
-const HEADING_FONTS = ["黑体", "宋体", "楷体", "仿宋", "微软雅黑"]
-const FIRST_LINE_INDENTS = [
-  { label: "不缩进", value: "0" },
-  { label: "1 字符", value: "1" },
-  { label: "2 字符（默认）", value: "2" },
-  { label: "4 字符", value: "4" },
-]
-const PARAGRAPH_SPACINGS = [
-  { label: "紧凑（0pt）", value: "0" },
-  { label: "默认（6pt）", value: "6" },
-  { label: "宽松（12pt）", value: "12" },
-  { label: "很宽（24pt）", value: "24" },
-]
-
-// [论文助手定制] 排版输出格式选项：先选排版文件格式（md / docx / pdf），
-// 决定生成排版稿后的交付方式——md=写入「正文/排版稿.md」，docx/pdf=生成后自动导出对应文件。
-const OUTPUT_FORMATS: { label: string; value: "md" | "docx" | "pdf" }[] = [
-  { label: "Markdown（.md）", value: "md" },
-  { label: "Word（.docx）", value: "docx" },
-  { label: "PDF", value: "pdf" },
-]
-
-// [论文助手定制] 「有无模板」选项：无模板=手动配置排版参数；
-// 有模板=上传对应格式的模板文件（md/.docx/.dotx/.tex，类型随「排版文件格式」联动），
-// 有模板时 docx 排版参数隐藏且不生效（见 buildPrompt 与 docx 导出分支）。
-const TEMPLATE_MODES: { label: string; value: "none" | "upload" }[] = [
-  { label: "无模板", value: "none" },
-  { label: "有模板", value: "upload" },
-]
-
-// [论文助手定制] 模板文件类型随排版输出格式联动：
-// - md：Markdown 模板（.md/.markdown），模型按其章节结构排版，输出 md；
-// - docx：Word 模板（.docx/.dotx，dotx 同为 OOXML zip），正文插入模板（保留页眉/页脚/页面设置）；
-// - pdf：LaTeX 模板（.tex/.latex），模型按其结构与命令排版，PDF 由内置引擎生成。
-const TEMPLATE_FORMATS: Record<
-  "md" | "docx" | "pdf",
-  { label: string; accept: string; ext: RegExp; hint: string }
-> = {
-  md: {
-    label: "Markdown（.md）",
-    accept: ".md,.markdown",
-    ext: /\.(md|markdown)$/i,
-    hint: "上传 Markdown 模板，模型按其章节结构排版正文。",
-  },
-  docx: {
-    label: "Word（.docx/.dotx）",
-    accept: ".docx,.dotx,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ext: /\.(docx|dotx)$/i,
-    hint: "正文将插入模板（保留模板页眉/页脚/页面设置），模板模式下无需配置下方排版参数。",
-  },
-  pdf: {
-    label: "LaTeX（.tex）",
-    accept: ".tex,.latex",
-    ext: /\.(tex|latex)$/i,
-    hint: "上传 LaTeX 模板，模型按其结构与命令排版正文（PDF 由内置引擎生成）。",
-  },
-}
-
-// [论文助手定制] 真实调用 Skill：模板文件转 file part 时用的 MIME（随排版格式对应）。
-const TEMPLATE_MIMES: Record<"md" | "docx" | "pdf", string> = {
-  md: "text/markdown",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  pdf: "application/x-tex",
-}
-
-// [论文助手定制] 排版配置/手动全文写入项目内隐藏目录（.thesis/，文件空间不显示），
-// 生成时作为 file part（@形式）附件给模型：配置可编辑、可复用，模型工具调用中也能反复读取。
-const FORMATTING_CONFIG_PATH = ".thesis/config/formatting.md"
-const MANUAL_PAPER_PATH = ".thesis/manual-paper.md"
 
 type FormattingArtifact = {
   format: "docx" | "pdf"
   filename: string
   path?: string
-}
-
-// [论文助手定制] 文件来源模式（paperSource=file）下附件 MIME 按扩展名推断，供模型正确读取。
-const mimeForSource = (path: string): string => {
-  if (/\.(md|markdown)$/i.test(path)) return "text/markdown"
-  if (/\.txt$/i.test(path)) return "text/plain"
-  if (/\.(docx|dotx)$/i.test(path)) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  if (/\.doc$/i.test(path)) return "application/msword"
-  if (/\.tex$/i.test(path)) return "application/x-tex"
-  if (/\.pdf$/i.test(path)) return "application/pdf"
-  return "text/plain"
 }
 
 const artifactReadPath = (artifact: FormattingArtifact) => {
@@ -285,59 +181,51 @@ function FormattingArtifactPreview(props: {
 
 export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: () => void; onSetConfigOpen?: (next: boolean) => void }) {
   const sdk = useSDK()
-  const [localConfigOpen, setLocalConfigOpen] = createSignal(true)
+  const dialog = useDialog()
+  const [localConfigOpen, setLocalConfigOpen] = createSignal(false)
   const configOpen = () => props?.configOpen ?? localConfigOpen()
   const setConfigOpen = (next: boolean) => {
     if (props?.onSetConfigOpen) props.onSetConfigOpen(next)
     else setLocalConfigOpen(next)
   }
-  const { state, updateInput, setStepStatus, setStepResult, setStepSessionID } =
-    useThesisWorkflow()
+  const { state, setStepResult } = useThesisWorkflow()
   // [论文助手定制] 流式 progress 走轻量 live store（独立细粒度信号，不触发主 store 整树重算）。
   const live = useThesisLive()
-  const generator = useThesisGenerator()
-  // [论文助手定制] 上传模板：解析当前论文项目拿 projectID（复用文件空间的上传接口 thesisUpload）。
-  const resolveProject = useThesisProject()
-  // [论文助手定制] 文稿文件化：排版稿写入项目「正文/排版稿.md」。
-  const manuscript = useThesisManuscriptFile(sdk().directory)
   // [论文助手定制] 导出 Word：把排版后的最终稿转成 .docx 保存到项目「正文」目录。
-  // 把 Step 3 面板的排版参数（字体/字号/行距/页边距/标题编号/封面）随导出传给后端 docx 引擎。
-  const { exportDocx, exporting: docxExporting } = useThesisDocxExport("排版稿", () => ({
-    paperType: input().paperType,
-    fontFamily: input().fontFamily,
-    fontSize: Number(input().fontSize),
-    lineSpacing: Number(input().lineSpacing),
-    pageMargin: input().pageMargin as "standard" | "narrow" | "thesis",
-    titleNumbering: input().titleNumbering,
-    // [论文助手定制] 扩充参数随导出一起传给后端 docx 引擎（页眉/标题字体/缩进/段间距/页码）。
-    headerText: input().headerText.trim() || undefined,
-    headingFont: input().headingFont,
-    firstLineIndent: Number(input().firstLineIndent),
-    paragraphSpacing: Number(input().paragraphSpacing),
-    pageNumber: input().pageNumber,
-    cover:
-      input().coverTitle.trim() || input().coverAuthor.trim() || input().coverAffiliation.trim() || input().coverDate.trim()
-        ? {
-            title: input().coverTitle.trim() || undefined,
-            author: input().coverAuthor.trim() || undefined,
-            affiliation: input().coverAffiliation.trim() || undefined,
-            date: input().coverDate.trim() || undefined,
-          }
-        : undefined,
-    // [论文助手定制] 上传模板：有模板时把模板相对路径传给后端，走「套用模板」分支（视觉参数不生效）。
-    templatePath: input().templatePath.trim() || undefined,
-  }))
+  // 排版参数（字体/字号/行距/页边距/标题编号/封面）随导出传给后端 docx 引擎。
+  const { exportDocx } = useThesisDocxExport("排版稿", () => {
+    const input = state().steps.formatting.input
+    return {
+      paperType: input.paperType,
+      fontFamily: input.fontFamily,
+      fontSize: Number(input.fontSize),
+      lineSpacing: Number(input.lineSpacing),
+      pageMargin: input.pageMargin as "standard" | "narrow" | "thesis",
+      titleNumbering: input.titleNumbering,
+      // [论文助手定制] 扩充参数随导出一起传给后端 docx 引擎（页眉/标题字体/缩进/段间距/页码）。
+      headerText: input.headerText.trim() || undefined,
+      headingFont: input.headingFont,
+      firstLineIndent: Number(input.firstLineIndent),
+      paragraphSpacing: Number(input.paragraphSpacing),
+      pageNumber: input.pageNumber,
+      cover:
+        input.coverTitle.trim() || input.coverAuthor.trim() || input.coverAffiliation.trim() || input.coverDate.trim()
+          ? {
+              title: input.coverTitle.trim() || undefined,
+              author: input.coverAuthor.trim() || undefined,
+              affiliation: input.coverAffiliation.trim() || undefined,
+              date: input.coverDate.trim() || undefined,
+            }
+          : undefined,
+      // [论文助手定制] 有模板时把模板相对路径传给后端，走「套用模板」分支（视觉参数不生效）。
+      templatePath: input.templatePath.trim() || undefined,
+    }
+  })
   // [论文助手定制] 导出 PDF：把排版后的最终稿渲染成 PDF 保存到项目「正文」目录。
   const { exportPdf } = useThesisPdfExport("排版稿")
   const [artifact, setArtifact] = createSignal<FormattingArtifact | undefined>(undefined)
   const formatting = () => state().steps.formatting
   const input = () => formatting().input
-  const configSummary = () => {
-    const values = input()
-    const summary = [values.outputFormat.toUpperCase(), values.templateMode === "upload" ? "模板已选" : "手动参数", values.journal.trim() || "未指定期刊"]
-    return summary.join(" · ")
-  }
-  const sourcePaper = () => state().steps.writing.result ?? ""
 
   const exportCurrentDocx = async (content = formatting().result ?? "") => {
     const result = await exportDocx(content)
@@ -351,242 +239,7 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
     return result
   }
 
-  // [论文助手定制] 文件来源模式的文件清单：递归枚举文件空间（最多 3 层、排除隐藏项），
-  // 供「从文件空间选择文件」下拉选择（含子目录，如 资料/初稿.md）。
-  // source 用「是否处于文件模式」触发：每次切到该模式都会重新拉取，刚上传的文件能及时出现。
-  const [sourceFiles] = createResource(
-    () => input().paperSource === "file",
-    async () => {
-      const out: string[] = []
-      const walk = async (dir: string, depth: number) => {
-        if (depth > 3) return
-        const res = await sdk().client.file.list({ directory: sdk().directory, path: dir })
-        if (res.error) return
-        for (const node of res.data ?? []) {
-          if (node.name.startsWith(".")) continue
-          if (node.type === "directory") await walk(dir ? `${dir}/${node.name}` : node.name, depth + 1)
-          else out.push(dir ? `${dir}/${node.name}` : node.name)
-        }
-      }
-      await walk("", 0)
-      return out.sort((a, b) => a.localeCompare(b, "zh-Hans-CN"))
-    },
-  )
-
-  // [论文助手定制] 上传模板：把用户选的 .docx 上传到项目「模板/」目录（文件空间可见），
-  // 成功后记录模板文件名与相对路径，后端生成 docx 时按此套用模板。
-  const [uploadingTemplate, setUploadingTemplate] = createSignal(false)
-  let templateFileInput: HTMLInputElement | undefined
-  const toBase64 = (file: File) =>
-    file.arrayBuffer().then((buffer) => {
-      const bytes = new Uint8Array(buffer)
-      let binary = ""
-      const CHUNK = 0x8000
-      for (let index = 0; index < bytes.length; index += CHUNK) {
-        binary += String.fromCharCode(...bytes.subarray(index, index + CHUNK))
-      }
-      return btoa(binary)
-    })
-  const uploadTemplate = async (file: File) => {
-    // [论文助手定制] 扩展名校验随当前排版格式：md=Markdown，docx=Word（docx/dotx），pdf=LaTeX。
-    const format = TEMPLATE_FORMATS[input().outputFormat]
-    if (!format.ext.test(file.name)) {
-      showToast({ variant: "error", icon: "circle-x", title: `请选择 ${format.label} 格式的模板文件` })
-      return
-    }
-    const proj = await resolveProject()
-    if (!proj) {
-      showToast({ variant: "error", icon: "circle-x", title: "找不到当前论文项目" })
-      return
-    }
-    if (uploadingTemplate()) return
-    setUploadingTemplate(true)
-    try {
-      const content = await toBase64(file)
-      const res = await sdk().client.instance.thesisUpload({
-        projectID: proj.id,
-        filename: file.name,
-        content,
-        directory: "模板",
-      })
-      if (res.error) throw new Error(String(res.error))
-      // [论文助手定制] 记录模板文件（模板/ 目录下），模板模式随之生效。
-      updateInput("formatting", {
-        templateMode: "upload",
-        templateName: file.name,
-        templatePath: `模板/${file.name}`,
-      })
-      showToast({ variant: "success", icon: "circle-check", title: "模板已上传并启用" })
-    } catch (err) {
-      showToast({
-        variant: "error",
-        icon: "circle-x",
-        title: "模板上传失败",
-        description: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      setUploadingTemplate(false)
-    }
-  }
-  // [论文助手定制] 移除模板：回到无模板模式（保留已上传的文件，只是不再套用）。
-  const removeTemplate = () => updateInput("formatting", { templateMode: "none", templateName: "", templatePath: "" })
-
-  // [论文助手定制] 构造「排版要求」配置文档全文：写入项目 .thesis/config/formatting.md 后作为附件给模型，
-  // 而不是每次都把一大段配置拼进提示词；文件可编辑、可复用，模型工具调用中也能反复读取。
-  const buildConfigMarkdown = () => {
-    const values = input()
-    const lines: string[] = []
-    lines.push("# 论文排版配置")
-    lines.push("以下是本次排版的完整配置，请严格按此执行。")
-    lines.push("")
-    lines.push("## 排版要求")
-    const formatLabel = OUTPUT_FORMATS.find((item) => item.value === values.outputFormat)?.label ?? values.outputFormat
-    lines.push(`- 排版文件格式：${formatLabel}`)
-    if (values.templateMode === "upload" && values.templatePath) {
-      const tpl = TEMPLATE_FORMATS[values.outputFormat]
-      lines.push(`- 排版模板：${values.templateName || values.templatePath}（${tpl.label}），模板文件已作为附件提供`)
-      // [论文助手定制] docx 模板两条交付路径：选了 Skill=Skill 自己套用模板产出文件；
-      // 没选 Skill=系统（后端 applyDocxTemplate）把模型输出的 Markdown 正文插入模板。
-      if (values.outputFormat === "docx") {
-        lines.push(
-          values.skills.length > 0
-            ? "  - 请按所选 Skill 的指令把排版后的正文套用到该 Word 模板（保留模板页眉/页脚/页面设置）并产出 .docx 文件。"
-            : "  - 最终 Word 成品由系统套用该模板（保留页眉/页脚/页面设置），你只需输出排版后的 Markdown 正文（可读取模板了解结构）。",
-        )
-      } else {
-        lines.push("  - 请读取模板文件，按模板的结构与版式排版正文。")
-      }
-    } else {
-      lines.push("- 排版模板：无模板，按下方手动配置的排版参数与规范排版。")
-    }
-    if (values.templateMode !== "upload") {
-      lines.push(`- 目标期刊 / 学校模板：${values.journal.trim() || "未指定"}`)
-      lines.push(`- 论文类型：${values.paperType}`)
-      lines.push(`- 参考文献格式：${values.referenceStyle}`)
-      lines.push(`- 标题层级：${values.headingStyle}`)
-      lines.push(`- 排版风格：${values.typography}`)
-    }
-    // [论文助手定制] 文件来源：记录所选文件空间的源文件路径（模型可对照附件确认）。
-    if (values.paperSource === "file" && values.sourceFile) {
-      lines.push(`- 论文全文来源：文件空间文件 ${values.sourceFile}（已作为附件提供）。`)
-    }
-    if (values.requirements.trim()) lines.push(`- 额外排版要求：${values.requirements.trim()}`)
-    return lines.join("\n")
-  }
-
-  // [论文助手定制] 把文本写入项目内隐藏目录（.thesis/...，文件空间不显示）；
-  // 失败（找不到项目/后端报错）时返回 false，调用方退化为把内容直接拼进提示词。
-  const writeProjectFile = async (path: string, content: string): Promise<boolean> => {
-    const proj = await resolveProject()
-    if (!proj) return false
-    const res = await sdk().client.instance.thesisWriteFile({ projectID: proj.id, path, content })
-    if (res.error) return false
-    return true
-  }
-
-  // [论文助手定制] 排版模块固定走「真实文件链路」的提示词：全文/模板/配置全部作为文件附件
-  // （@形式）提交，提示词只留任务、附件清单与关键输出要求；不再内嵌全文，也不再出现
-  // 「严禁调用任何工具」「模型无需关心」这类自相矛盾的话。有 Skill 时提示用 Skill 产出文件，
-  // 没 Skill 时提示直接输出排版后的 Markdown 正文（由系统套模板/导出）。
-  const buildRealModePrompt = (configWritten: boolean) => {
-    const values = input()
-    const lines: string[] = []
-    lines.push("请完成论文「论文排版」任务：把论文全文按排版要求整理成最终稿。")
-    lines.push("")
-    lines.push("## 输入材料")
-    if (values.templateMode === "upload" && values.templatePath) {
-      lines.push(`- 排版模板：已作为附件提供（${values.templatePath}，${TEMPLATE_FORMATS[values.outputFormat].label}）。`)
-    }
-    if (values.paperSource === "auto") {
-      lines.push(`- 论文全文：已作为附件提供（${MANUSCRIPT_FILENAMES.writing}），请读取后排版。`)
-    } else if (values.paperSource === "manual" && values.manualPaper.trim()) {
-      lines.push(`- 论文全文：已写入附件 ${MANUAL_PAPER_PATH}，请读取后排版。`)
-    } else if (values.paperSource === "file" && values.sourceFile) {
-      lines.push(`- 论文全文：已作为附件提供（${values.sourceFile}），请读取后排版。`)
-    } else if (values.paperSource === "none") {
-      lines.push("- 论文全文：无源稿，请按通用学术论文结构排版（或结合模板自带的示例结构）。")
-    }
-    if (configWritten) {
-      lines.push(`- 排版配置：已写入附件 ${FORMATTING_CONFIG_PATH}，请先读取并按其中「排版要求」执行。`)
-    }
-    lines.push("")
-    lines.push("## 任务要求")
-    lines.push(`- 输出格式：${OUTPUT_FORMATS.find((item) => item.value === values.outputFormat)?.label ?? values.outputFormat}`)
-    if (!configWritten) {
-      lines.push("", "### 排版要求（配置未能写入文件，直接按以下参数执行）", buildConfigMarkdown())
-    }
-    // [论文助手定制] 关键输出要求保留在提示词里（比放在配置文件更稳，模型不会漏读）：
-    // md 直接 Markdown；docx/pdf 用 # 层级标题 + 纯文本段落（导出引擎自动处理缩进/模板套用）。
-    const bodyRule =
-      values.outputFormat === "md"
-        ? "Markdown 格式：统一标题层级与编号、段首缩进、图表编号、参考文献列表按指定格式排列。"
-        : "章节标题用 Markdown 的 # 层级标记（# 章 / ## 节 / ### 小节），正文段落为纯文本（不要使用 ** 加粗、* 斜体 等行内 Markdown 标记，段首不要手动空格缩进，导出时会自动处理），表格保留 Markdown 表格语法，参考文献每条单独一段（[1] 序号格式）。"
-    lines.push("", "## 输出要求")
-    if (values.skills.length > 0) {
-      // [论文助手定制] Skill 路径：正文由 Skill 产出为文件，回复不要重复输出正文文本。
-      lines.push("请使用我选中的 Skill（已作为 @skill part 真实提交）完成排版，按其指令实际产出排版文件（如 .docx/.md/.tex）；")
-      lines.push("正文内容不要作为回复文本重复输出（太长且无用），完成后用一两句话汇报结果与产出文件的路径。")
-    } else {
-      lines.push(
-        "只输出排版后的论文正文本身：禁止输出任何排版说明、页眉页脚设置说明、字体字号说明、注释或标注；正文之前不要有任何标题性文字；" +
-          bodyRule,
-      )
-      lines.push("请读取附件中的论文全文与排版配置后，直接输出排版后的论文正文本身（必要时可调用工具读取文件，但不是必须）。")
-    }
-    return lines.join("\n")
-  }
-
-  // [论文助手定制] 组装真实文件链路的附件（file part）：排版模板、论文全文、手动粘贴全文、排版配置。
-  // auto 源稿需文件存在才带；manual 源稿先写入 .thesis/manual-paper.md 再带（避免 file part 指向空内容）。
-  const buildAttachments = async (configWritten: boolean) => {
-    const attachments: { path: string; mime: string; filename: string }[] = []
-    if (input().templateMode === "upload" && input().templatePath) {
-      attachments.push({
-        path: input().templatePath,
-        mime: TEMPLATE_MIMES[input().outputFormat],
-        filename: input().templateName || getFilename(input().templatePath),
-      })
-    }
-    if (input().paperSource === "auto") {
-      const res = await sdk().client.file.read({ directory: sdk().directory, path: MANUSCRIPT_FILENAMES.writing })
-      if (!res.error && res.data?.type === "text") {
-        attachments.push({
-          path: MANUSCRIPT_FILENAMES.writing,
-          mime: "text/markdown",
-          filename: MANUSCRIPT_FILENAMES.writing,
-        })
-      }
-    } else if (input().paperSource === "manual" && input().manualPaper.trim()) {
-      const written = await writeProjectFile(MANUAL_PAPER_PATH, input().manualPaper.trim())
-      if (written) {
-        attachments.push({ path: MANUAL_PAPER_PATH, mime: "text/markdown", filename: MANUAL_PAPER_PATH })
-      }
-    } else if (input().paperSource === "file" && input().sourceFile) {
-      attachments.push({
-        path: input().sourceFile,
-        mime: mimeForSource(input().sourceFile),
-        filename: getFilename(input().sourceFile),
-      })
-    }
-    if (configWritten) {
-      attachments.push({ path: FORMATTING_CONFIG_PATH, mime: "text/markdown", filename: FORMATTING_CONFIG_PATH })
-    }
-    return attachments
-  }
-
-  // [论文助手定制] 配置面板浮窗化·自动开合：首次进入（idle）自动弹出配置抽屉；
-  // 生成中自动收起（产物全宽，配置弱化为首次生成时的浮窗填写）。
-  let autoOpened = false
-  createEffect(() => {
-    const st = formatting().status
-    if (st === "idle" && !autoOpened) {
-      setConfigOpen(true)
-      autoOpened = true
-    } else if (st === "generating") {
-      setConfigOpen(false)
-    }
-  })
-
+  // [论文助手定制] 排版格式切换后清掉旧成品预览（模板/格式变了，旧 docx/pdf 不再代表当前配置）。
   let previousOutputFormat = input().outputFormat
   createEffect(() => {
     const next = input().outputFormat
@@ -596,492 +249,61 @@ export function StepFormatting(props?: { configOpen?: boolean; onToggleConfig?: 
     }
   })
 
-  const generate = async () => {
-    if (generator.generating()) return
-    setStepStatus("formatting", "generating")
-    try {
-      // [论文助手定制] 排版模块固定走「真实文件链路」：全文/模板/配置全部转 file part（@形式）、
-      // 工具始终放行、Skill 转 agent part 真正加载执行；不再退回「全文+配置拼进提示词、禁工具」的旧模式。
-      const configText = buildConfigMarkdown()
-      const configWritten = await writeProjectFile(FORMATTING_CONFIG_PATH, configText)
-      const prompt = buildRealModePrompt(configWritten)
-      const attachments = await buildAttachments(configWritten)
-      const { sessionID, text } = await generator.generate({
-        prompt,
-        // [论文助手定制] 把选中 Skill 转成 agents（agent part，等价 @skill），生成器会真正加载执行；
-        // 排版模块不再走“把 Skill 文本拼进 prompt”的假调用。
-        agents: input().skills.length > 0 ? input().skills : undefined,
-        attachments: attachments.length > 0 ? attachments : undefined,
-        // [论文助手定制] 强制真实文件链路：即使没选 Skill 也放行工具、附件转 file part。
-        real: true,
-        sessionID: state().steps.formatting.sessionID,
-        // [论文助手定制] 边生成边显示：实时文本先写入 progress，完成后再落到 result。
-        // [论文助手定制] 方案 B：会话写进「论文排版」自己的 StepState（每步独立会话）。
-        onSessionCreated: (id) => setStepSessionID("formatting", id),
-        onProgress: (partial) => live.setStepProgress("formatting", partial),
-      })
-      setStepSessionID("formatting", sessionID)
-      if (input().skills.length > 0) {
-        // [论文助手定制] Skill 路径：Skill 自己把排版文件写进项目（docx/pdf 由 Skill 脚本直接产出），
-        // 会话回复只是汇报文字——不覆盖排版稿.md、不二次导出；产物在「文件空间」查看。
-        setStepResult("formatting", text)
-        setConfigOpen(false)
-        // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
-        live.clearStepProgress("formatting")
-        showToast({
-          variant: "success",
-          icon: "circle-check",
-          title: "排版完成：Skill 已实际执行",
-          description: "产物文件已由 Skill 写入项目，请到「文件空间」查看",
-        })
-        return
-      }
-      // [论文助手定制] 无 Skill 路径：模型输出 Markdown 正文 → 落盘排版稿.md → 按格式导出
-      // （docx 有模板时后端 applyDocxTemplate 把正文插进模板，保留页眉/页脚/页面设置）。
-      await manuscript.save("formatting", text)
-      setStepResult("formatting", text)
-      setConfigOpen(false)
-      // [论文助手定制] 完成时同步清掉 live progress（主 store 的 setStepResult 已清自身 progress）。
-      live.clearStepProgress("formatting")
-      // [论文助手定制] 按所选排版文件格式自动交付：
-      // md=只保存 Markdown 排版稿；docx/pdf=保存排版稿后自动导出对应文件（导出引擎会弹成功提示）。
-      if (input().outputFormat === "docx") {
-        await exportCurrentDocx(text)
-        showToast({ variant: "success", icon: "circle-check", title: "排版稿已生成并导出 Word" })
-      } else if (input().outputFormat === "pdf") {
-        await exportCurrentPdf(text)
-        showToast({ variant: "success", icon: "circle-check", title: "排版稿已生成并导出 PDF" })
-      } else {
-        setArtifact(undefined)
-        showToast({ variant: "success", icon: "circle-check", title: "排版稿已生成（Markdown）" })
-      }
-    } catch {
-      setStepStatus("formatting", formatting().result ? "done" : "idle")
+  // [论文助手定制] 配置浮窗：configOpen 变 true 时居中弹出 FormattingConfigForm。
+  // dialog.show 注册 dialog 层 onClose：无论用户用「同步到文件空间」按钮 / 右上角 X / 遮罩 / ESC 关闭，
+  // 都统一重置哨兵并把 configOpen 同步回 false（否则哨兵被吞、图标再次点不开）。
+  // configOpen 变 false（发送自动关 / 图标 toggle 关）时调用 dialog.close() 同步关闭浮窗。
+  // 关闭统一走 setConfigOpen(false)，由本 effect 的 close 分支调 dialog.close()，
+  // 表单按钮不再直接调 dialog.close()（dialog 有 100ms closing 窗口 + lock 防重入）。
+  let configDialogShown = false
+  createEffect((prev: boolean | undefined) => {
+    const open = configOpen()
+    if (open && !prev) {
+      configDialogShown = true
+      dialog.show(
+        () => <FormattingConfigForm onClose={() => setConfigOpen(false)} />,
+        () => {
+          configDialogShown = false
+          setConfigOpen(false)
+        },
+      )
+    } else if (!open && prev && configDialogShown) {
+      configDialogShown = false
+      dialog.close()
     }
-  }
+    return open
+  }, false)
 
   return (
-    <StepLayout
-      // [论文助手定制] 配置面板左侧列形态（弱化配置）：collapsed=收起为左侧窄轨；
-      // 展开时左侧为可拖拽表单列，与右侧产物并排，不遮挡文稿/会话界面，onExpand 展开。
-      collapsed={!configOpen()}
-      onExpand={() => setConfigOpen(true)}
-      form={
-        <StepFormPanel
-          title="论文排版"
-          collapsed={!configOpen()}
-          collapsedSummary={configSummary()}
-          footer={
-            <Button type="button" variant="primary" icon="layout-left" disabled={generator.generating()} onClick={() => void generate()}>
-              {generator.generating() ? "生成中…" : "生成排版稿"}
-            </Button>
-          }
-        >
-          {/* [论文助手定制] 第一步：先选排版文件格式（md / docx / pdf）。
-              决定生成排版稿后的交付方式：md=只保存 Markdown；docx/pdf=生成后自动导出对应文件。 */}
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">排版文件格式</div>
-            <select
-              class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-              value={input().outputFormat}
-              onChange={(event) => {
-                const next = event.currentTarget.value as "md" | "docx" | "pdf"
-                // [论文助手定制] 切换排版格式时，若已上传模板的类型与新格式不匹配（如 docx 模板切到 pdf），
-                // 清空模板避免误用；匹配则只更新格式。
-                const mismatch = input().templatePath && !TEMPLATE_FORMATS[next].ext.test(input().templatePath)
-                updateInput(
-                  "formatting",
-                  mismatch
-                    ? { outputFormat: next, templateMode: "none", templateName: "", templatePath: "" }
-                    : { outputFormat: next },
-                )
-              }}
-            >
-              <For each={OUTPUT_FORMATS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-            </select>
-          </section>
-          {/* [论文助手定制] 第二步：选择有无模板（md/docx/pdf 都支持，模板文件类型随排版格式联动：
-              md=Markdown、docx=Word（docx/dotx）、pdf=LaTeX）。无模板=显示排版参数手动配置；
-              有模板=上传对应格式模板文件，docx 时下方排版参数隐藏（模板自带版式）。 */}
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">排版模板</div>
-            <select
-              class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-              value={input().templateMode}
-              onChange={(event) => updateInput("formatting", { templateMode: event.currentTarget.value as "none" | "upload" })}
-            >
-              <For each={TEMPLATE_MODES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-            </select>
-          </section>
-          {/* [论文助手定制] 有模板：按当前排版格式上传对应模板文件（存到项目「模板/」目录），显示当前模板与移除按钮。 */}
-          <Show when={input().templateMode === "upload"}>
-            <section class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2.5">
-              <div class="text-12-medium text-v2-text-text-base">上传模板</div>
-              <div class="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  icon="cloud-upload"
-                  disabled={uploadingTemplate()}
-                  onClick={() => templateFileInput?.click()}
-                >
-                  {uploadingTemplate() ? "上传中…" : `选择 ${TEMPLATE_FORMATS[input().outputFormat].label}`}
-                </Button>
-                <input
-                  ref={templateFileInput}
-                  type="file"
-                  accept={TEMPLATE_FORMATS[input().outputFormat].accept}
-                  class="hidden"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0]
-                    event.currentTarget.value = ""
-                    if (file) void uploadTemplate(file)
-                  }}
-                />
-                <Show when={input().templatePath}>
-                  <div class="flex min-w-0 flex-1 items-center gap-1.5 text-13-regular text-v2-text-text-base">
-                    <Icon name="file-tree" class="size-4 shrink-0" />
-                    <span class="truncate">{input().templateName}</span>
-                    <button
-                      type="button"
-                      class="shrink-0 text-11-regular text-v2-text-text-faint hover:text-v2-text-text-base"
-                      onClick={() => removeTemplate()}
-                    >
-                      移除
-                    </button>
-                  </div>
-                </Show>
-              </div>
-              <div class="text-11-regular text-v2-text-text-faint">
-                {TEMPLATE_FORMATS[input().outputFormat].hint}
-              </div>
-            </section>
-          </Show>
-          {/* [论文助手定制] 方案 B：排版源稿来源（auto/manual/file/none），
-              不再强制依赖辅助写作先完成；file=从文件空间选择已上传的文件。 */}
-          <InputSourceSelect
-            label="内容来源"
-            value={input().paperSource}
-            onChange={(value) => updateInput("formatting", { paperSource: value })}
-            autoLabel="自动使用辅助写作的全文稿"
-            manualLabel="手动粘贴全文"
-            showFile
-            fileLabel="从文件空间选择文件"
-            noneLabel="无源稿（按通用结构排版）"
+    <StepProductPanel
+      title="排版后的最终稿"
+      status={formatting().status}
+      progressText={live.progress().formatting}
+      result={formatting().result}
+      onExportDocx={() => void exportCurrentDocx()}
+      onExportPdf={() => void exportCurrentPdf()}
+      emptyHint="在下方会话输入框发送需求开始生成"
+      manuscript={{ directory: sdk().directory, step: "formatting" }}
+      configOpen={configOpen()}
+      onToggleConfig={() => setConfigOpen(!configOpen())}
+      onSetConfigOpen={(next) => setConfigOpen(next)}
+      documentOverride={
+        input().outputFormat === "md" || formatting().status === "generating" ? undefined : (
+          <FormattingArtifactPreview
+            directory={sdk().directory}
+            status={formatting().status}
+            artifact={artifact()}
+            onExportDocx={() => void exportCurrentDocx()}
+            onExportPdf={() => void exportCurrentPdf()}
           />
-          <Show when={input().paperSource === "manual"}>
-            <TextField
-              multiline
-              placeholder="粘贴你的论文全文…"
-              value={input().manualPaper}
-              onChange={(value) => updateInput("formatting", { manualPaper: value })}
-            />
-          </Show>
-          {/* [论文助手定制] 文件来源：列出文件空间的文本/文档文件供选择（含子目录），
-              选中后生成时作为附件（@形式）给模型读取排版。 */}
-          <Show when={input().paperSource === "file"}>
-            <section class="flex flex-col gap-1.5">
-              <div class="text-12-medium text-v2-text-text-base">选择源文件</div>
-              <select
-                class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                value={input().sourceFile}
-                onChange={(event) => updateInput("formatting", { sourceFile: event.currentTarget.value })}
-              >
-                <option value="">请选择文件…</option>
-                <For each={sourceFiles() ?? []}>{(file) => <option value={file}>{file}</option>}</For>
-              </select>
-              <div class="text-11-regular text-v2-text-text-faint">支持 md/txt/docx/pdf/tex 等</div>
-            </section>
-          </Show>
-          {/* [论文助手定制] 有模板时由模板决定版式与规范，隐藏内容级配置（目标期刊/论文类型/参考文献格式/标题层级/排版风格/额外要求），
-              无模板时才需要手动配置这些规范。 */}
-          <Show when={input().templateMode === "none"}>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">目标期刊 / 学校模板</div>
-            <TextField
-              placeholder="例如：中文核心综述类期刊、学校毕业论文模板、SCI 期刊"
-              value={input().journal}
-              onChange={(value) => updateInput("formatting", { journal: value })}
-            />
-          </section>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">论文类型</div>
-            <select
-              class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-              value={input().paperType}
-              onChange={(event) => updateInput("formatting", { paperType: event.currentTarget.value })}
-            >
-              <For each={PAPER_TYPES}>{(item) => <option value={item}>{item}</option>}</For>
-            </select>
-          </section>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">参考文献格式</div>
-            <select
-              class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-              value={input().referenceStyle}
-              onChange={(event) => updateInput("formatting", { referenceStyle: event.currentTarget.value })}
-            >
-              <For each={REFERENCE_STYLES}>{(item) => <option value={item}>{item}</option>}</For>
-            </select>
-          </section>
-          <div class="flex gap-2">
-            <section class="flex min-w-0 flex-1 flex-col gap-1.5">
-              <div class="text-12-medium text-v2-text-text-base">标题层级</div>
-              <select
-                class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                value={input().headingStyle}
-                onChange={(event) => updateInput("formatting", { headingStyle: event.currentTarget.value })}
-              >
-                <For each={HEADING_STYLES}>{(item) => <option value={item}>{item}</option>}</For>
-              </select>
-            </section>
-            <section class="flex min-w-0 flex-1 flex-col gap-1.5">
-              <div class="text-12-medium text-v2-text-text-base">排版风格</div>
-              <select
-                class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                value={input().typography}
-                onChange={(event) => updateInput("formatting", { typography: event.currentTarget.value })}
-              >
-                <For each={TYPOGRAPHIES}>{(item) => <option value={item}>{item}</option>}</For>
-              </select>
-            </section>
-          </div>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">额外排版要求</div>
-            <TextField
-              multiline
-              placeholder="例如：图表编号、页眉页脚、参考文献排序规则"
-              value={input().requirements}
-              onChange={(value) => updateInput("formatting", { requirements: value })}
-            />
-          </section>
-          </Show>
-          {/* [论文助手定制] 仅 docx + 无模板才显示排版参数（字体/字号/行距/页边距/页眉/封面等）：
-              docx + 有模板时由上传的 .docx 模板自带版式，md/pdf 时这些参数不生效，均整块隐藏。 */}
-          <Show when={input().outputFormat === "docx" && input().templateMode === "none"}>
-          {/* [论文助手定制] docx 排版参数：控制导出的 Word 视觉规范（字体/字号/行距/页边距/标题编号），
-              直接存进 workflow store 并在导出时传给后端；改这里不会影响 AI 排版，只影响 docx 成品。 */}
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">docx 排版参数</div>
-            <div class="grid grid-cols-2 gap-2">
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">正文中文字体</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().fontFamily}
-                  onChange={(event) => updateInput("formatting", { fontFamily: event.currentTarget.value })}
-                >
-                  <For each={FONT_FAMILIES}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">正文字号</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().fontSize}
-                  onChange={(event) => updateInput("formatting", { fontSize: event.currentTarget.value })}
-                >
-                  <For each={FONT_SIZES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">行距</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().lineSpacing}
-                  onChange={(event) => updateInput("formatting", { lineSpacing: event.currentTarget.value })}
-                >
-                  <For each={LINE_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">页边距</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().pageMargin}
-                  onChange={(event) => updateInput("formatting", { pageMargin: event.currentTarget.value })}
-                >
-                  <For each={PAGE_MARGINS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              {/* [论文助手定制] 扩充：标题字体（默认黑体，独立于正文中文字体）。 */}
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">标题字体</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().headingFont}
-                  onChange={(event) => updateInput("formatting", { headingFont: event.currentTarget.value })}
-                >
-                  <For each={HEADING_FONTS}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-              {/* [论文助手定制] 扩充：首行缩进字符数（正文段落，默认 2 字符）。 */}
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">正文首行缩进</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().firstLineIndent}
-                  onChange={(event) => updateInput("formatting", { firstLineIndent: event.currentTarget.value })}
-                >
-                  <For each={FIRST_LINE_INDENTS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              {/* [论文助手定制] 扩充：正文段后间距（pt）。 */}
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">段后间距</div>
-                <select
-                  class="h-9 w-full rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 text-13-regular text-v2-text-text-base focus:outline-none"
-                  value={input().paragraphSpacing}
-                  onChange={(event) => updateInput("formatting", { paragraphSpacing: event.currentTarget.value })}
-                >
-                  <For each={PARAGRAPH_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
-                <input
-                  type="checkbox"
-                  class="size-4 accent-[var(--v2-text-text-accent)]"
-                  checked={input().titleNumbering}
-                  onChange={(event) => updateInput("formatting", { titleNumbering: event.currentTarget.checked })}
-                />
-                标题自动编号（1 / 1.1 / 1.1.1，摘要/参考文献/致谢除外）
-              </label>
-              {/* [论文助手定制] 扩充：页脚页码开关（默认开启）。 */}
-              <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
-                <input
-                  type="checkbox"
-                  class="size-4 accent-[var(--v2-text-text-accent)]"
-                  checked={input().pageNumber}
-                  onChange={(event) => updateInput("formatting", { pageNumber: event.currentTarget.checked })}
-                />
-                页脚居中页码
-              </label>
-            </div>
-          </section>
-          {/* [论文助手定制] 扩充：页眉文字（可选，填了才在每页顶部生成居中页眉 + 下边框）。 */}
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">页眉（可选）</div>
-            <TextField
-              type="text"
-              placeholder="如：本科毕业论文（设计）或论文标题，留空则不生成页眉"
-              value={input().headerText}
-              onChange={(value) => updateInput("formatting", { headerText: value })}
-            />
-            <div class="text-11-regular text-v2-text-text-faint">填了就在每页顶部居中显示页眉文字（9pt 加下边框细线）。</div>
-          </section>
-          {/* [论文助手定制] 直接重新导出：只改上面的 docx 排版参数时，无需重新跑一遍 AI 生成排版稿，
-              点这里就按当前参数把已有排版稿（Markdown）重新导出成 Word。 */}
-          <section class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2.5">
-            <div class="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                icon="download"
-                disabled={generator.generating() || !formatting().result}
-                onClick={() => void exportCurrentDocx()}
-              >
-                {docxExporting() ? "导出中…" : "按当前参数重新导出 Word"}
-              </Button>
-            </div>
-            {/* <div class="text-11-regular text-v2-text-text-faint">
-              改完上面的 docx 排版参数直接点这里，按新参数重新导出，不需要重新生成 AI 排版稿。
-            </div> */}
-          </section>
-          {/* [论文助手定制] 封面信息：毕业论文类型可填写，填了题目才会生成封面页，其余留空则不生成。 */}
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">封面信息（可选，毕业论文需要）</div>
-            <div class="grid grid-cols-2 gap-2">
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">论文题目</div>
-                <TextField
-                  type="text"
-                  placeholder="填了才会生成封面页"
-                  value={input().coverTitle}
-                  onChange={(value) => updateInput("formatting", { coverTitle: value })}
-                />
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">作者</div>
-                <TextField
-                  type="text"
-                  value={input().coverAuthor}
-                  onChange={(value) => updateInput("formatting", { coverAuthor: value })}
-                />
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">单位</div>
-                <TextField
-                  type="text"
-                  value={input().coverAffiliation}
-                  onChange={(value) => updateInput("formatting", { coverAffiliation: value })}
-                />
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">日期</div>
-                <TextField
-                  type="text"
-                  placeholder="如 2026 年 6 月"
-                  value={input().coverDate}
-                  onChange={(value) => updateInput("formatting", { coverDate: value })}
-                />
-              </section>
-            </div>
-          </section>
-          </Show>
-          {/* [论文助手定制] Skill 多选：勾选的 Skill 生成时作为 agent part 真正加载执行
-              （见 thesis-generator）；hideTools——排版模块固定真实文件链路、始终放行工具，
-              不再显示「生成时允许使用工具」开关。 */}
-          <ThesisSkillPicker step="formatting" hideTools />
-          <Show when={input().paperSource === "auto" && !sourcePaper()}>
-            <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">
-              自动模式暂无全文稿，可切换为「手动粘贴全文」或「无源稿」。
-            </div>
-          </Show>
-          <Show when={input().paperSource === "file" && !input().sourceFile}>
-            <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">
-              请先在上方选择文件空间中的一个文件作为排版源稿。
-            </div>
-          </Show>
-        </StepFormPanel>
+        )
       }
-      product={
-        <StepProductPanel
-          title="排版后的最终稿"
-          status={formatting().status}
-          progressText={live.progress().formatting}
-          result={formatting().result}
-          onExportDocx={() => void exportCurrentDocx()}
-          onExportPdf={() => void exportCurrentPdf()}
-          // [论文助手定制] 产物标题栏动作：保留生成/重新生成主按钮（配置入口已移至左侧表单列/窄轨齿轮）。
-          titleActions={
-            <Button
-              type="button"
-              variant="primary"
-              icon="layout-left"
-              disabled={generator.generating()}
-              onClick={() => void generate()}
-            >
-              {generator.generating() ? "生成中…" : formatting().status === "done" ? "重新生成" : "生成排版稿"}
-            </Button>
-          }
-          emptyHint="「生成排版稿」"
-          manuscript={{ directory: sdk().directory, step: "formatting" }}
-          configOpen={configOpen()}
-          onToggleConfig={() => setConfigOpen(!configOpen())}
-          documentOverride={
-            input().outputFormat === "md" || formatting().status === "generating" ? undefined : (
-              <FormattingArtifactPreview
-                directory={sdk().directory}
-                status={formatting().status}
-                artifact={artifact()}
-                onExportDocx={() => void exportCurrentDocx()}
-                onExportPdf={() => void exportCurrentPdf()}
-              />
-            )
-          }
-        />
+      footer={
+        <Show when={formatting().result}>
+          <Button type="button" variant="ghost" size="small" onClick={() => setStepResult("formatting", "")}>
+            清空排版稿
+          </Button>
+        </Show>
       }
     />
   )

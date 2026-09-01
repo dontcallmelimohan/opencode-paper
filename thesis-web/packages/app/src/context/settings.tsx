@@ -190,7 +190,9 @@ const defaultSettings: Settings = {
     showSearch: false,
     showStatus: false,
     showTerminal: false,
-    showReasoningSummaries: false,
+    // [论文助手定制] 默认展示思考过程：用户以全屏会话页为主要会话界面，
+    // 且偏好看到模型的推理细节（与论文工作台内嵌会话视图保持一致）。
+    showReasoningSummaries: true,
     shellToolPartsExpanded: false,
     editToolPartsExpanded: false,
     showCustomAgents: false,

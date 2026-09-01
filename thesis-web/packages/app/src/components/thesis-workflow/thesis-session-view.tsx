@@ -19,8 +19,7 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { Message } from "@opencode-ai/session-ui/message-part"
-import { createEffect, createMemo, createResource, createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { Prompt } from "@/context/prompt"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
@@ -35,9 +34,9 @@ import { useSessionKey } from "@/pages/session/session-layout"
 import { legacySessionHref } from "@/utils/session-route"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
 import { showToast } from "@/utils/toast"
-import { normalizeSessionMessages } from "@/utils/session-message"
 import { MANUSCRIPT_FILENAMES, useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
+import { ThesisSessionTimeline } from "./thesis-session-timeline"
 import { useThesisFigureActions } from "./thesis-figure-actions"
 import { ThesisFigurePanel } from "./thesis-figure-panel"
 import { parseFigures } from "./thesis-assets"
@@ -45,6 +44,14 @@ import { parseFigures } from "./thesis-assets"
 // [论文助手定制] 板块标识（会话记录/会话视图共用）：用于把会话 ID 映射回所属板块。
 const STEP_KEYS: StepKey[] = ["outline", "writing", "formatting", "review"]
 const STEP_LABELS: Record<StepKey, string> = {
+  outline: "提纲助手",
+  writing: "辅助写作",
+  formatting: "论文排版",
+  review: "论文评审",
+}
+// [论文助手定制] 板块 → 固定 Agent 映射（与后端 thesis-agents.ts 初始化的 agent 文件名一致）。
+// 板块会话发送时强制使用该 agent（角色/权限绑定板块），用户在会话里仍可按需 @skill 追加方法。
+const STEP_AGENTS: Record<StepKey, string> = {
   outline: "提纲助手",
   writing: "辅助写作",
   formatting: "论文排版",
@@ -68,12 +75,15 @@ const fileMime = (name: string): string => {
     md: "text/markdown",
     txt: "text/plain",
     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    // [论文助手定制] 修复 .dotx 模板被兜底成 application/octet-stream 导致
-    // 「file part media type … not supported」报错：补上 Word 模板等文档类型。
+    // [论文助手定制] dotx 模板类型：docx/dotx 属于二进制文档，模型 Provider 不直接支持
+    // （后端 message-v2 会把不支持的二进制附件转成文字说明，模型可用工具按路径读取），
+    // 这里给准确 MIME 用于消息卡片展示与工具读取。
     dotx: "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
     dot: "application/msword",
-    tex: "application/x-tex",
-    latex: "application/x-latex",
+    // [论文助手定制] tex 模板/源稿用 text/* MIME：模型 Provider（openai-compatible）的 file part
+    // 只支持 image/pdf/text，application/x-tex 会被拒绝导致整轮中断；text/x-tex 按纯文本附加。
+    tex: "text/x-tex",
+    latex: "text/x-tex",
     json: "application/json",
     csv: "text/csv",
     yml: "application/x-yaml",
@@ -87,7 +97,12 @@ const fileMime = (name: string): string => {
 
 // [论文助手定制] 「插入文件」弹窗：浏览论文项目文件空间（可进入子目录），点选文件后
 // 以原生文件引用方式插入输入框（file part，发送后成为真实附件，消息里带图标）。
-function FilePickerDialog(props: { directory: string; onPick: (path: string, name: string) => void }) {
+// 写作配置「参考提纲」选择也复用此弹窗（title 可自定义）。
+export function FilePickerDialog(props: {
+  directory: string
+  onPick: (path: string, name: string) => void
+  title?: string
+}) {
   const sdk = useSDK()
   const dialog = useDialog()
   // [论文助手定制] 当前浏览目录（相对项目根，空串=根目录），与文件空间面板同一套浏览逻辑。
@@ -129,7 +144,7 @@ function FilePickerDialog(props: { directory: string; onPick: (path: string, nam
   }
 
   return (
-    <Dialog title="插入文件" description="选择文件空间中的文件，插入到输入框" size="large">
+    <Dialog title={props.title ?? "插入文件"} description="选择文件空间中的文件，插入到输入框" size="large">
       <div class="flex min-h-0 w-full flex-1 flex-col gap-1.5 px-2.5 pb-4">
         {/* [论文助手定制] 路径栏：面包屑 + 上一级，与文件空间面板一致。 */}
         <div class="flex shrink-0 items-center gap-1 rounded-[10px] bg-v2-background-bg-layer-01 p-1.5">
@@ -279,7 +294,7 @@ export function ThesisSessionView(props: {
   const sync = useSync()
   const local = useLocal()
   const serverSync = useServerSync()
-  const { state, updateInput, setStepSessionID, setStepResult, setCurrentArtifact, markTurn, ensureArtifactForStep, ensureScratchArtifact, upsertArtifact } = useThesisWorkflow()
+  const { state, updateInput, setStepSessionID, setStepResult, setCurrentArtifact, markTurn, ensureArtifactForStep, ensureScratchArtifact, upsertArtifact, registerSessionInsertFile } = useThesisWorkflow()
   // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到项目根目录 <step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
   // [论文助手定制] 插图动作（writing）：输入框底栏「插图」浮窗复用，插资料图/改图注/删图统一落盘。
@@ -298,8 +313,20 @@ export function ThesisSessionView(props: {
     const id = sessionID()
     return !!id && state().localSessionIDs.includes(id)
   })
-  // [论文助手定制] 配置图标仅 outline/writing 显示：收窄 step 类型避免 undefined 索引。
-  const configStep = createMemo(() => (props.step === "outline" || props.step === "writing" ? props.step : undefined))
+  // [论文助手定制] 会话归属兜底：侧边栏「会话记录/新会话」点开的会话若未归属任何板块
+  // （独立会话，displaySessionID 优先显示），打开时立即归属到当前板块——这样切回「文稿」
+  // 再切到「会话」仍是这条会话，而不是回到「还没有会话」；局部会话（选区改写）不归属，
+  // 保持在侧边栏单独折叠展示。
+  createEffect(() => {
+    if (props.fixedSessionID) return
+    const id = state().displaySessionID
+    if (!id || state().localSessionIDs.includes(id)) return
+    const bound = STEP_KEYS.some((step) => state().steps[step].sessionID === id)
+    if (!bound) setStepSessionID(state().activeStep, id)
+  })
+  // [论文助手定制] 配置图标四个板块都显示（outline/writing/formatting/review）：
+  // 点击弹出对应配置浮窗（Outline/Writing/Formatting/ReviewConfigForm），配置面板已全部浮窗化。
+  const configStep = createMemo(() => props.step)
   const route = useSessionKey()
 
   // [论文助手定制] 复用主会话页的自动滚动 Hook：内容渲染完成后（ResizeObserver 在布局后触发）
@@ -320,15 +347,34 @@ export function ThesisSessionView(props: {
     queryOptions: serverSync().queryOptions,
     model,
   })
+  // [论文助手定制] 板块固定 agent：会话归属板块时，发送与展示都强制用该板块的 agent（见 STEP_AGENTS），
+  // 忽略输入框的全局 agent 选择；agent 尚未就绪（后端未初始化）时回退全局选择，避免发送失败。
+  const boardAgentName = createMemo(() => {
+    // props.step = 当前板块面板；用它的原因：板块专属会话还没创建时 sessionStep() 为 null，
+    // 但第一轮发送就该用板块 agent（否则首个会话会退回全局 agent，行为不一致）。
+    const step = props.step ?? sessionStep()
+    if (!step) return undefined
+    const name = STEP_AGENTS[step]
+    const available = controls().agents.available as Array<{ name?: string }> | undefined
+    return available?.some((agent) => agent.name === name) ? name : undefined
+  })
+  const boardControls = createMemo(() => {
+    const base = controls()
+    const fixed = boardAgentName()
+    if (!fixed) return base
+    return { ...base, agents: { ...base.agents, current: fixed } }
+  })
 
   // [论文助手定制] 完整会话输入框（PromptInputV2Composer）：
   // embedded 模式=复用当前模块的专属会话继续对话、发送后不跳转页面；
   // 首次发送（还没有专属会话）时自动创建，onSessionCreated 把新会话写回工作流状态。
   const input = usePromptInputV2Controller({
     get controls() {
-      return controls()
+      return boardControls()
     },
     embedded: true,
+    // [论文助手定制] 固定板块 agent：发送时强制使用该板块的角色。
+    fixedAgent: boardAgentName,
     // [论文助手定制] 会话归属：新会话写回「当前显示的会话所属板块」（普通会话时写回当前板块）。
     onSessionCreated: (id) => {
       if (props.fixedSessionID) return
@@ -338,8 +384,8 @@ export function ThesisSessionView(props: {
       const id = sessionID()
       if (id) markTurn(id, { target: "chat" })
       autoScroll.resume()
-      // [论文助手定制] 配置面板弱化（第二轮）：发送即生成——发送时自动关闭配置浮窗（outline/writing）。
-      if (props.step === "outline" || props.step === "writing") props.onSetConfigOpen?.(false)
+      // [论文助手定制] 配置面板弱化（第二轮）：发送即生成——发送时自动关闭配置浮窗（四个板块统一）。
+      if (props.step) props.onSetConfigOpen?.(false)
     },
     // [论文助手定制] 配置不再注入会话文本：配置唯一交付方式为落盘 config/论文主题.md（见 thesis-config-forms），
     // 由「提纲助手」等 Skill 直接读取；故 promptTransform 透传，不追加任何配置段。
@@ -384,6 +430,13 @@ export function ThesisSessionView(props: {
     )
   }
 
+  // [论文助手定制] 把输入框 @ 引用能力注册到 workflow store，供配置浮窗「同步到文件空间」按钮调用：
+  // 保存 config/论文主题.md 后把该文件追加为输入框引用，让 Skill 必须看到配置文件。
+  createEffect(() => {
+    registerSessionInsertFile(insertFile)
+    onCleanup(() => registerSessionInsertFile(undefined))
+  })
+
   // [论文助手定制] 打开会话视图时确保该会话已同步（先拉历史消息，之后 SSE 增量继续写入）。
   createEffect(() => {
     const id = sessionID()
@@ -391,11 +444,12 @@ export function ThesisSessionView(props: {
     void sync().session.sync(id).catch(() => {})
   })
 
-  // [论文助手定制] 消息列表来自 session_message（normalize 成标准 Message[]）；parts 用 sync().data.part 拿流式增量。
-  const normalized = createMemo(() => {
+  // [论文助手定制] 会话是否已有消息：只用于空态判定（消息列表由 ThesisSessionTimeline 直接渲染，
+  // 与全屏会话页同源读取 sync 数据，保证报错/diff/重试/思考过程显示一致）。
+  const hasMessages = createMemo(() => {
     const id = sessionID()
-    if (!id) return { messages: [] as ReturnType<typeof normalizeSessionMessages>["messages"], parts: new Map() }
-    return normalizeSessionMessages(id, sync().data.session_message[id] ?? [])
+    if (!id) return false
+    return (sync().data.message[id] ?? []).length > 0
   })
 
   // [论文助手定制] 每次打开/切换会话视图时强制滚到底部。
@@ -410,7 +464,9 @@ export function ThesisSessionView(props: {
   // [论文助手定制] 最后一条 assistant 消息：用于完成判定（非最后一条历史回复一律视为已完成，
   // 只有最后一条才需要等 finish/time.completed——它是当前正在流式输出的回复）。
   const lastAssistantId = createMemo(() => {
-    const messages = normalized().messages
+    const id = sessionID()
+    if (!id) return undefined
+    const messages = sync().data.message[id] ?? []
     const index = messages.findLastIndex((m) => m.role === "assistant")
     return index >= 0 ? messages[index]?.id : undefined
   })
@@ -501,6 +557,83 @@ export function ThesisSessionView(props: {
     }
   }
 
+  // [论文助手定制] 自动采纳（板块会话）：提纲/排版/评审的回复完成后自动写入对应文稿（写作保留手动确认）。
+  // 只在「当前板块的专属会话」且未打开会话记录时生效，避免把历史回复/自由提问误写进画布；
+  // 采用「替换」语义——该板块的产物始终是最近一轮完整回复。手动「采纳到画布」按钮仍保留可修正。
+  const AUTO_APPLY_STEPS: StepKey[] = ["outline", "formatting", "review"]
+  const autoApplied = new Set<string>()
+  createEffect(() => {
+    const step = sessionStep()
+    const id = sessionID()
+    if (props.fixedSessionID || state().displaySessionID) return
+    if (!step || !AUTO_APPLY_STEPS.includes(step)) return
+    if (!id) return
+    const messages = sync().data.message[id] ?? []
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== "assistant") return
+    if (!(last.finish || last.time.completed)) return
+    if (autoApplied.has(last.id)) return
+    if (!assistantText(last.id)) return
+    autoApplied.add(last.id)
+    void applyMessageToCanvas(last.id, "replace")
+  })
+
+  // [论文助手定制] 「采纳到画布」动作（时间线组件在每轮末尾渲染）：
+  // 完成判定与原来一致——最后一条 assistant 需 finish/time.completed，历史回复一律视为已完成；
+  // 带错误的消息不提供采纳动作（错误卡片由时间线组件渲染）。
+  const renderApplyActions = (assistant: AssistantMessage) => {
+    const isLastAssistant = assistant.id === lastAssistantId()
+    const done = !isLastAssistant || !!assistant.finish || !!assistant.time.completed
+    return (
+      <Show when={!assistant.error}>
+        <div class="flex items-center justify-end pb-1">
+          <div class="flex overflow-hidden rounded-md border border-v2-border-border-muted bg-v2-background-bg-layer-01">
+            <button
+              type="button"
+              data-action="save-message-as-result"
+              class="flex cursor-pointer items-center gap-1 px-2 py-1 text-11-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base disabled:cursor-default disabled:opacity-40"
+              disabled={!done}
+              onClick={() => void applyMessageToCanvas(assistant.id)}
+            >
+              <Icon name="circle-check" size="small" />
+              {done ? defaultApplyLabel(sessionStep()) : "生成中…"}
+            </button>
+            <MenuV2 modal={false} placement="bottom-end" gutter={4}>
+              <MenuV2.Trigger
+                as="button"
+                type="button"
+                aria-label="更多应用方式"
+                disabled={!done}
+                class="flex h-6 w-6 cursor-pointer items-center justify-center border-l border-v2-border-border-muted text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base disabled:cursor-default disabled:opacity-40"
+              >
+                <IconV2 name="chevron-down" size="small" />
+              </MenuV2.Trigger>
+              <MenuV2.Portal>
+                <MenuV2.Content class="w-[184px]">
+                  <Show when={sessionStep()}>
+                    <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant.id, "append")}>
+                      <Icon name="plus-small" size="small" />
+                      追加到当前画布
+                    </MenuV2.Item>
+                    <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant.id, "replace")}>
+                      <Icon name="circle-check" size="small" />
+                      替换当前画布
+                    </MenuV2.Item>
+                    <MenuV2.Separator />
+                  </Show>
+                  <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant.id, "scratch")}>
+                    <Icon name="open-file" size="small" />
+                    另存为新文档
+                  </MenuV2.Item>
+                </MenuV2.Content>
+              </MenuV2.Portal>
+            </MenuV2>
+          </div>
+        </div>
+      </Show>
+    )
+  }
+
   return (
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <div class="flex shrink-0 items-center justify-between gap-2 border-b border-v2-border-border-base px-3 py-2">
@@ -531,7 +664,7 @@ export function ThesisSessionView(props: {
       </div>
       <div ref={autoScroll.scrollRef} onScroll={autoScroll.handleScroll} class="min-h-0 flex-1 overflow-y-auto">
         <Show
-          when={normalized().messages.length > 0}
+          when={hasMessages()}
           fallback={
             <div class="flex h-full items-center justify-center px-6 text-center text-12-regular text-v2-text-text-faint">
               {sessionID()
@@ -540,73 +673,13 @@ export function ThesisSessionView(props: {
             </div>
           }
         >
-          <div ref={autoScroll.contentRef} class="flex flex-col">
-            <For each={normalized().messages}>
-              {(message) => {
-                // [论文助手定制] 类型收窄：只有助手消息才有 finish/error，用于「存为当前文稿」按钮。
-                const assistant = message.role === "assistant" ? (message as AssistantMessage) : undefined
-                // [论文助手定制] 完成判定：该后端消息完成可能只带 time.completed（没有 finish），两个都认；
-                // 且只对「最后一条 assistant」做流式完成判定——历史回复（非最后一条）一律视为已完成，
-                // 否则个别协议不写 finish/time.completed 时，最后一条的按钮会永远禁用。
-                const isLastAssistant = !!assistant && assistant.id === lastAssistantId()
-                const done =
-                  !!assistant && (!isLastAssistant || !!assistant.finish || !!assistant.time.completed)
-                return (
-                  <div class="px-4 py-2 md:px-5">
-                    {/* [论文助手定制] 助手消息完成且无错误时提供「采纳」动作：
-                        板块专属会话 = 追加 / 替换 / 另存；独立会话 = 另存为独立文档。 */}
-                    <Show when={assistant && !assistant.error}>
-                      <div class="flex items-center justify-end pb-1">
-                        <div class="flex overflow-hidden rounded-md border border-v2-border-border-muted bg-v2-background-bg-layer-01">
-                          <button
-                            type="button"
-                            data-action="save-message-as-result"
-                            class="flex cursor-pointer items-center gap-1 px-2 py-1 text-11-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base disabled:cursor-default disabled:opacity-40"
-                            disabled={!done}
-                            onClick={() => void applyMessageToCanvas(assistant!.id)}
-                          >
-                            <Icon name="circle-check" size="small" />
-                            {done ? defaultApplyLabel(sessionStep()) : "生成中…"}
-                          </button>
-                          <MenuV2 modal={false} placement="bottom-end" gutter={4}>
-                            <MenuV2.Trigger
-                              as="button"
-                              type="button"
-                              aria-label="更多应用方式"
-                              disabled={!done}
-                              class="flex h-6 w-6 cursor-pointer items-center justify-center border-l border-v2-border-border-muted text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base disabled:cursor-default disabled:opacity-40"
-                            >
-                              <IconV2 name="chevron-down" size="small" />
-                            </MenuV2.Trigger>
-                            <MenuV2.Portal>
-                              <MenuV2.Content class="w-[184px]">
-                                <Show when={sessionStep()}>
-                                  <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant!.id, "append")}>
-                                    <Icon name="plus-small" size="small" />
-                                    追加到当前画布
-                                  </MenuV2.Item>
-                                  <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant!.id, "replace")}>
-                                    <Icon name="circle-check" size="small" />
-                                    替换当前画布
-                                  </MenuV2.Item>
-                                  <MenuV2.Separator />
-                                </Show>
-                                <MenuV2.Item onSelect={() => void applyMessageToCanvas(assistant!.id, "scratch")}>
-                                  <Icon name="open-file" size="small" />
-                                  另存为新文档
-                                </MenuV2.Item>
-                              </MenuV2.Content>
-                            </MenuV2.Portal>
-                          </MenuV2>
-                        </div>
-                      </div>
-                    </Show>
-                    <Message message={message} parts={sync().data.part[message.id] ?? []} useV2Actions />
-                  </div>
-                )
-              }}
-            </For>
-          </div>
+          {/* [论文助手定制] 与全屏会话页一致的时间线渲染：用户消息 / 助手片段（含思考过程）/
+              错误卡片 / diff 摘要 / 重试 / 中断分隔都可见；「采纳到画布」动作在每轮末尾渲染。 */}
+          <ThesisSessionTimeline
+            sessionID={sessionID()!}
+            contentRef={(el) => autoScroll.contentRef(el)}
+            renderApplyActions={renderApplyActions}
+          />
         </Show>
       </div>
       {/* [论文助手定制] 底部完整会话输入框：与主会话页同款（模型选择、skill 选择、@引用/附件、
@@ -619,9 +692,9 @@ export function ThesisSessionView(props: {
           borderUnderlay
           controlsSlot={
             <>
-              {/* [论文助手定制]「配置」图标（仅 outline/writing 显示）：点击切换配置浮窗
-                  （step 文件的 effect 监听 configOpen 弹 OutlineConfigForm/WritingConfigForm）。
-                  配置不再以「方块」形式附加到消息，而是写入文件空间 config/论文主题.md 由 Skill 读取。 */}
+              {/* [论文助手定制]「配置」图标（四个板块显示）：点击切换配置浮窗
+                  （step 文件的 effect 监听 configOpen 弹对应 ConfigForm）。
+                  配置不再以「方块」形式附加到消息，而是写入文件空间固定配置文件由 Skill 读取。 */}
               <Show when={configStep() !== undefined}>
                 <TooltipV2 placement="top" value="配置">
                   <IconButtonV2

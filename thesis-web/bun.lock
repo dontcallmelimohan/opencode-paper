@@ -51,6 +51,7 @@
         "@tanstack/solid-virtual": "catalog:",
         "@thisbeyond/solid-dnd": "0.7.5",
         "diff": "catalog:",
+        "docx-preview": "0.4.0",
         "effect": "catalog:",
         "fuzzysort": "catalog:",
         "ghostty-web": "github:anomalyco/ghostty-web#83c0a07b8628b748aed073b232cb4b52a6ca11c1",
@@ -981,6 +982,8 @@
     "diff": ["diff@8.0.2", "https://registry.npmmirror.com/diff/-/diff-8.0.2.tgz", {}, "sha512-sSuxWU5j5SR9QQji/o2qMvqRNYRDOcBTgsJ/DeCf4iSN4gW+gNMXM7wFIP+fdXZxoNiAnHUTGjCr+TSWXdRDKg=="],
 
     "dingbat-to-unicode": ["dingbat-to-unicode@1.0.1", "https://registry.npmmirror.com/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz", {}, "sha512-98l0sW87ZT58pU4i61wa2OHwxbiYSbuxsCBozaVnYX2iCnr3bLM3fIes1/ej7h1YdOKuKt/MLs706TVnALA65w=="],
+
+    "docx-preview": ["docx-preview@0.4.0", "https://registry.npmmirror.com/docx-preview/-/docx-preview-0.4.0.tgz", { "dependencies": { "jszip": ">=3.0.0" } }, "sha512-OdKtE/uj3M4RfGarLkGjahUzRg8/kBp0Sraj1r1NAY1tp/sTpHOBqDrzVf9onMBt9vxP6SdQ6bpLCUCsFwjgcA=="],
 
     "dom-serializer": ["dom-serializer@2.0.0", "https://registry.npmmirror.com/dom-serializer/-/dom-serializer-2.0.0.tgz", { "dependencies": { "domelementtype": "^2.3.0", "domhandler": "^5.0.2", "entities": "^4.2.0" } }, "sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg=="],
 
