@@ -127,6 +127,7 @@ export interface Interface {
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
+  readonly removeGlobalProvider: (providerID: string) => Effect.Effect<boolean>
   readonly invalidate: () => Effect.Effect<void>
   readonly invalidateAll: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
@@ -663,8 +664,28 @@ const layer = Layer.effect(
         if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
       }
 
-      if (changed) yield* invalidate()
+      // [论文助手定制] 全局路由（PATCH /global/config）没有 InstanceRef 上下文，
+      // InstanceState.invalidate 会以 defect 崩溃（"InstanceRef not provided"）。
+      // 全局缓存失效照常执行，实例级失效在无上下文时安全跳过（调用方会另行 dispose 实例）。
+      if (changed) {
+        yield* invalidateGlobal
+        yield* InstanceState.invalidate(state).pipe(Effect.catchDefect(() => Effect.void))
+      }
       return { info: next, changed }
+    })
+
+    // [论文助手定制] 删除全局配置里的某个 provider（模型 API 配置管理）。
+    // updateGlobal 是 deep merge，无法删键，这里直接改写全局配置文件。
+    const removeGlobalProvider = Effect.fn("Config.removeGlobalProvider")(function* (providerID: string) {
+      const file = globalConfigFile()
+      const before = (yield* readConfigFile(file)) ?? "{}"
+      const parsed = ConfigParse.jsonc(before, file)
+      if (!isRecord(parsed) || !isRecord(parsed.provider) || !(providerID in parsed.provider)) return false
+      delete parsed.provider[providerID]
+      yield* fs.writeFileString(file, JSON.stringify(parsed, null, 2)).pipe(Effect.orDie)
+      yield* invalidateGlobal
+      yield* InstanceState.invalidate(state).pipe(Effect.catchDefect(() => Effect.void))
+      return true
     })
 
     return Service.of({
@@ -673,6 +694,7 @@ const layer = Layer.effect(
       getConsoleState,
       update,
       updateGlobal,
+      removeGlobalProvider,
       invalidate,
       invalidateAll,
       directories,

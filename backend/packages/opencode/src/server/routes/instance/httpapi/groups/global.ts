@@ -111,6 +111,17 @@ export const GlobalApi = HttpApi.make("global").add(
           description: "Update global OpenCode configuration settings and preferences.",
         }),
       ),
+      HttpApiEndpoint.post("modelApiRemove", "/thesis/model-api/remove", {
+        query: Schema.Struct({ providerID: Schema.String }),
+        success: described(Schema.Boolean, "Removed model provider"),
+        error: HttpApiError.BadRequest,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.modelApi.remove",
+          summary: "Remove a configured model API provider",
+          description: "Remove a provider entry from the global configuration (模型 API 配置管理).",
+        }),
+      ),
       HttpApiEndpoint.post("dispose", GlobalPaths.dispose, {
         success: described(Schema.Boolean, "Global disposed"),
       }).annotateMerge(

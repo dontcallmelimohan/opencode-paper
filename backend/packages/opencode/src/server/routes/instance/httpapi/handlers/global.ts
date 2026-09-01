@@ -89,6 +89,15 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       return result.info
     })
 
+    // [论文助手定制] 模型 API 配置管理：删除全局配置中的某个 provider（opencode 的配置合并无法删键）。
+    const modelApiRemove = Effect.fn("GlobalHttpApi.modelApiRemove")(function* (ctx: {
+      query: { providerID: string }
+    }) {
+      const removed = yield* config.removeGlobalProvider(ctx.query.providerID)
+      if (removed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
+      return removed
+    })
+
     const dispose = Effect.fn("GlobalHttpApi.dispose")(function* () {
       yield* disposeAllInstancesAndEmitGlobalDisposed()
       return true
@@ -150,6 +159,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handleRaw("event", event)
       .handle("configGet", configGet)
       .handle("configUpdate", configUpdate)
+      .handle("modelApiRemove", modelApiRemove)
       .handle("dispose", dispose)
       .handleRaw("upgrade", upgradeRaw)
   }),
