@@ -2,7 +2,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Effect, Stream } from "effect"
 import { HttpBody, HttpClient, HttpClientRequest, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
-import { gzipSync } from "node:zlib"
+import { brotliCompressSync, gzipSync } from "node:zlib"
 import { ProxyUtil } from "../proxy-util"
 
 let embeddedUIPromise: Promise<Record<string, string> | null> | undefined
@@ -67,17 +67,44 @@ function shouldCompress(mime: string) {
   )
 }
 
+// [论文助手定制] 压缩结果缓存（按 算法+文件），避免每个请求都重复压缩大文件（index 2.9MB 压缩约几十 ms）。
+const compressionCache = new Map<string, Uint8Array>()
+
+// [论文助手定制] 静态资源响应：优先 Brotli（比 gzip 再省 15~20%），并给带 hash 的产物加长缓存，
+// 让低带宽服务器上二次访问/刷新直接走浏览器缓存，不用反复下载大包；HTML 保持 no-cache 每次校验。
 function embeddedUIResponse(file: string, body: Uint8Array, acceptEncoding?: string) {
   const mime = FSUtil.mimeType(file)
   const headers = new Headers({ "content-type": mime })
   if (mime.startsWith("text/html")) {
     headers.set("content-security-policy", cspForHtml(new TextDecoder().decode(body)))
+    headers.set("cache-control", "no-cache")
+  } else {
+    headers.set("cache-control", "public, max-age=31536000, immutable")
   }
-  const wantsGzip = acceptEncoding?.toLowerCase().includes("gzip") ?? false
-  if (wantsGzip && body.byteLength >= 1024 && shouldCompress(mime)) {
-    headers.set("content-encoding", "gzip")
-    headers.set("vary", "Accept-Encoding")
-    return HttpServerResponse.uint8Array(gzipSync(body), { headers })
+  const enc = acceptEncoding?.toLowerCase() ?? ""
+  if (body.byteLength >= 1024 && shouldCompress(mime)) {
+    if (enc.includes("br")) {
+      const key = `br:${file}`
+      let compressed = compressionCache.get(key)
+      if (!compressed) {
+        compressed = brotliCompressSync(body)
+        compressionCache.set(key, compressed)
+      }
+      headers.set("content-encoding", "br")
+      headers.set("vary", "Accept-Encoding")
+      return HttpServerResponse.uint8Array(compressed, { headers })
+    }
+    if (enc.includes("gzip")) {
+      const key = `gz:${file}`
+      let compressed = compressionCache.get(key)
+      if (!compressed) {
+        compressed = gzipSync(body)
+        compressionCache.set(key, compressed)
+      }
+      headers.set("content-encoding", "gzip")
+      headers.set("vary", "Accept-Encoding")
+      return HttpServerResponse.uint8Array(compressed, { headers })
+    }
   }
   return HttpServerResponse.uint8Array(body, { headers })
 }

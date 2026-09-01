@@ -210,7 +210,27 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           })
         // text/plain and directory files are converted into text parts, ignore them
         if (part.type === "file" && part.mime !== "text/plain" && part.mime !== "application/x-directory") {
-          if (options?.stripMedia && isMedia(part.mime)) {
+          // [论文助手定制] 修复二进制附件（如 .docx/.dotx/octet-stream）被模型 Provider 拒绝
+          // 导致整轮中断、且坏附件留在会话历史里使之后所有消息都无法回复的问题：
+          // openai-compatible 等 Provider 的 file part 只支持 image/*、application/pdf、text/*，
+          // 其余二进制 MIME 会抛 "file part media type ... not supported"。
+          // 这里把不支持的二进制附件转成文字说明（保留文件名与 MIME，模型可用工具按路径读取），
+          // 既不让 Provider 崩溃，也保证后续轮次复用同一会话时不会再被历史里的坏附件打断。
+          const providerSupported =
+            part.mime.startsWith("image/") || part.mime === "application/pdf" || part.mime.startsWith("text/")
+          if (!providerSupported) {
+            // [论文助手定制] 附件的本地路径从 file:// URL 提取，写进说明让模型能按路径读取
+            // （论文模板等 docx 由 docx-editor-cn 等 Skill 用工具读取，与「看文件空间排版」路径一致）。
+            const attachedPath = part.url?.startsWith("file://")
+              ? part.url.replace(/^file:\/\//, "")
+              : undefined
+            userMessage.parts.push({
+              type: "text",
+              text: attachedPath
+                ? `[Attached binary file ${part.filename ?? "file"} (${part.mime}) is not directly supported by the model provider; read it with tools at ${attachedPath} if needed]`
+                : `[Attached binary file ${part.filename ?? "file"} (${part.mime}) is not directly supported by the model provider; use tools to read it if needed]`,
+            })
+          } else if (options?.stripMedia && isMedia(part.mime)) {
             userMessage.parts.push({
               type: "text",
               text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
