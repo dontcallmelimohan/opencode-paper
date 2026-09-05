@@ -8,6 +8,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
+import { Switch } from "@opencode-ai/ui/switch"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useTheme } from "@opencode-ai/ui/theme/context"
 import { createQuery, useMutation, useQueryClient } from "@tanstack/solid-query"
@@ -16,14 +17,12 @@ import JSZip from "jszip"
 import { For, Show, createEffect, createMemo, createResource, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useDirectoryPicker } from "@/components/directory-picker"
-import { LocalProvider, useLocal } from "@/context/local"
+import { LocalProvider } from "@/context/local"
 import { ServerConnection, useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
 import { useServerSync } from "@/context/server-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
-import { useSync } from "@/context/sync"
 import { DirectoryDataProvider } from "@/pages/directory-layout"
-import { pathKey } from "@/utils/path-key"
 import { showToast } from "@/utils/toast"
 
 export const AGENT_COLORS = ["#4f8cff", "#22c55e", "#f59e0b", "#a855f7", "#ef4444", "#06b6d4"]
@@ -45,11 +44,58 @@ export function formatApiError(error: unknown) {
   return typeof message === "string" ? message : undefined
 }
 
+// [论文助手定制] Skill 类型徽标：后端加载 skill 时按包内真实文件推断 kind
+// （见 backend/packages/opencode/src/skill/index.ts 的 inferSkillKind），前端只负责展示。
+type SkillKind = "script" | "mcp" | "resource" | "knowledge"
+const SKILL_KIND_META: Record<SkillKind, { label: string; color: string }> = {
+  script: { label: "脚本", color: "#c2410c" },
+  mcp: { label: "MCP", color: "#7c3aed" },
+  resource: { label: "模板/资源", color: "#0369a1" },
+  knowledge: { label: "知识指令", color: "#64748b" },
+}
+const SKILL_KIND_DESC: Record<SkillKind, string> = {
+  script: "包内自带确定性脚本（scripts/ 或 .py/.sh 等）",
+  mcp: "编排外部 MCP 服务完成调用与格式化",
+  resource: "包内带模板/参考/静态资源，约束输出规范",
+  knowledge: "纯指令/领域规则，无附属文件",
+}
+const SKILL_KIND_IMPACT: Record<SkillKind, { kept: boolean; text: string }> = {
+  script: {
+    kept: false,
+    text: "删除会连同包内脚本一并丢失，确定性处理能力消失；Python/沙箱等平台基础能力仍保留",
+  },
+  mcp: {
+    kept: true,
+    text: "删除的是调用与编排逻辑；外部 MCP 服务本身（若已配置）仍保留",
+  },
+  resource: {
+    kept: false,
+    text: "包内模板/参考/静态资源会丢失，输出格式规范减弱；模型能力不受影响",
+  },
+  knowledge: {
+    kept: true,
+    text: "删除仅丢失指令与规则，平台与模型能力完整保留",
+  },
+}
+const skillKindOf = (skill: unknown): SkillKind => (skill as { kind?: SkillKind }).kind ?? "knowledge"
+const skillSubagentOf = (skill: unknown): boolean => (skill as { subagent?: boolean }).subagent === true
+function SkillKindChip(props: { kind: SkillKind }) {
+  const meta = SKILL_KIND_META[props.kind]
+  return (
+    <span
+      class="shrink-0 rounded-md px-1.5 py-0.5 text-11-medium"
+      style={{ background: `${meta.color}1f`, color: meta.color }}
+      title={SKILL_KIND_DESC[props.kind]}
+    >
+      {meta.label}
+    </span>
+  )
+}
+
 type InstallForm = {
   name: string
   description: string
   content: string
-  prompt: string
   filename: string
   // [论文助手定制] zip 导入：解压后的完整文件树（含 SKILL.md / references / static 等），
   // 提交时走 skillInstallZip 接口整包写入，而不是只装一个 SKILL.md。
@@ -59,12 +105,9 @@ type InstallForm = {
 
 export function InstallSkillDialog() {
   const dialog = useDialog()
-  const local = useLocal()
   const sdk = useSDK()
   const server = useServer()
   const serverSDK = useServerSDK()
-  const serverSync = useServerSync()
-  const sync = useSync()
   const queryClient = useQueryClient()
   const pickDirectory = useDirectoryPicker()
   const [dragging, setDragging] = createSignal(false)
@@ -74,7 +117,6 @@ export function InstallSkillDialog() {
     name: "",
     description: "",
     content: "",
-    prompt: "",
     filename: "",
     zipFiles: [],
   })
@@ -112,7 +154,6 @@ export function InstallSkillDialog() {
       name: parsed.name || form.name,
       description: parsed.description || form.description,
       content: parsed.content,
-      prompt: form.prompt,
       zipFiles: entries,
       error: undefined,
     })
@@ -131,7 +172,6 @@ export function InstallSkillDialog() {
       name: parsed.name || form.name,
       description: parsed.description || form.description,
       content: parsed.content,
-      prompt: form.prompt,
       zipFiles: [],
       error: undefined,
     })
@@ -140,7 +180,7 @@ export function InstallSkillDialog() {
   const install = useMutation(() => ({
     mutationFn: async () => {
       const name = form.name.trim()
-      if (!name) throw new Error("请输入 Agent 名称")
+      if (!name) throw new Error("请输入 Skill 名称")
       if (!SKILL_NAME_RE.test(name) || name.startsWith("."))
         throw new Error("名称仅支持字母、数字、下划线和短横线，且不能以 . 开头")
       if (!form.content.trim()) throw new Error("请输入 Skill 内容")
@@ -164,24 +204,18 @@ export function InstallSkillDialog() {
           name,
           description: form.description.trim() || undefined,
           content: form.content.trim(),
-          prompt: form.prompt.trim() || undefined,
         })
       }
 
-      const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
-      await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
       await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
-      const agents = await queryClient.fetchQuery(agentsQuery())
-      sync().set("agent", agents)
       return name
     },
-    onSuccess: (name) => {
+    onSuccess: () => {
       dialog.close()
-      local.agent.set(name)
       showToast({
         variant: "success",
         icon: "circle-check",
-        title: `已添加 Skill「${name}」`,
+        title: `已添加 Skill「${form.name}」`,
       })
     },
     onError: (err) => {
@@ -192,23 +226,18 @@ export function InstallSkillDialog() {
   const installFromDirectory = useMutation(() => ({
     mutationFn: async (directory: string) => {
       const result = await sdk().client.instance.skillInstallDirectory({ directory })
-      const agent = result.data?.agent
-      if (!agent) throw new Error(formatApiError(result.error) ?? "安装失败：未返回 Agent 信息")
+      const skill = result.data?.skill
+      if (!skill) throw new Error(formatApiError(result.error) ?? "安装失败：未返回 Skill 信息")
 
-      const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
-      await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
       await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
-      const agents = await queryClient.fetchQuery(agentsQuery())
-      sync().set("agent", agents)
-      return agent.name
+      return skill.name
     },
     onSuccess: (name) => {
       dialog.close()
-      local.agent.set(name)
       showToast({
         variant: "success",
         icon: "circle-check",
-        title: `已添加 Skill「${name}」`,
+        title: `已安装 Skill「${name}」`,
       })
     },
     onError: (err) => {
@@ -328,13 +357,6 @@ export function InstallSkillDialog() {
           value={form.content}
           onChange={(value) => setForm("content", value)}
         />
-        <TextField
-          multiline
-          label="Prompt（可选）"
-          placeholder="该 agent 的系统提示词，留空则使用默认提示词"
-          value={form.prompt}
-          onChange={(value) => setForm("prompt", value)}
-        />
         <Show when={form.error}>
           <div class="text-12-regular text-red-500">{form.error}</div>
         </Show>
@@ -343,7 +365,7 @@ export function InstallSkillDialog() {
             取消
           </Button>
           <Button type="submit" variant="primary" disabled={install.isPending}>
-            {install.isPending ? "安装中…" : "创建并启用"}
+            {install.isPending ? "安装中…" : "创建"}
           </Button>
         </div>
       </form>
@@ -410,6 +432,14 @@ function SkillDetailDialog(props: { name: string }) {
             }
           >
           <div class="rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2">
+            <div class="flex items-center gap-2">
+              <SkillKindChip kind={skillKindOf(detail())} />
+              <span class="text-11-regular text-v2-text-text-faint">{SKILL_KIND_DESC[skillKindOf(detail())]}</span>
+            </div>
+            <div class="mt-0.5 text-11-regular text-v2-text-text-base">
+              {SKILL_KIND_IMPACT[skillKindOf(detail())].kept ? "✅ " : "⚠️ "}
+              {SKILL_KIND_IMPACT[skillKindOf(detail())].text}
+            </div>
             <div class="text-13-regular text-v2-text-text-base">{detail()?.description || "无描述"}</div>
             <div class="mt-0.5 text-11-regular text-v2-text-text-faint">位置：{detail()?.location}</div>
           </div>
@@ -423,12 +453,10 @@ function SkillDetailDialog(props: { name: string }) {
   )
 }
 
-// [论文助手定制] Skill 删除确认：调 /skill/uninstall 删除全局 skill 目录与同名 agent 配置（不可恢复）。
+// [论文助手定制] Skill 删除确认：调 /skill/uninstall 删除全局 skill 文件夹（SKILL.md 与附属资源，不可恢复）。
 function SkillDeleteDialog(props: { name: string }) {
   const dialog = useDialog()
   const sdk = useSDK()
-  const serverSync = useServerSync()
-  const sync = useSync()
   const queryClient = useQueryClient()
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string | undefined>(undefined)
@@ -441,11 +469,7 @@ function SkillDeleteDialog(props: { name: string }) {
       const res = await sdk().client.instance.skillUninstall({ directory: sdk().directory, name: props.name })
       if (res.error) throw new Error(formatApiError(res.error) ?? "删除失败")
       dialog.close()
-      const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
-      await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
       await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
-      const agents = await queryClient.fetchQuery(agentsQuery())
-      sync().set("agent", agents)
       showToast({ variant: "success", icon: "circle-check", title: `已删除 Skill「${props.name}」` })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -457,7 +481,7 @@ function SkillDeleteDialog(props: { name: string }) {
   return (
     <Dialog
       title="删除 Skill"
-      description={`确定删除「${props.name}」吗？将删除全局 skill 文件与同名 agent，且不可恢复。`}
+      description={`确定删除「${props.name}」吗？将删除全局 skill 文件夹（SKILL.md 与附属资源），不可恢复。`}
     >
       <form
         class="flex flex-col gap-4 px-2.5 pb-4"
@@ -481,13 +505,10 @@ function SkillDeleteDialog(props: { name: string }) {
 }
 
 // [论文助手定制] Skill 编辑：修改名称 / 简介 / 内容。加载现有 SKILL.md 填进表单，
-// 保存时调 skillUpdate 整包重写，改名会同时重命名全局 skills/<name> 目录与 agent/<name>.md。
+// 保存时调 skillUpdate 整包重写，改名会重命名全局 skills/<name> 目录。
 function SkillEditDialog(props: { name: string }) {
   const dialog = useDialog()
   const sdk = useSDK()
-  const local = useLocal()
-  const serverSync = useServerSync()
-  const sync = useSync()
   const queryClient = useQueryClient()
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string | undefined>(undefined)
@@ -531,13 +552,7 @@ function SkillEditDialog(props: { name: string }) {
       })
       if (res.error) throw new Error(formatApiError(res.error) ?? "保存失败")
       dialog.close()
-      const agentsQuery = () => serverSync().queryOptions.agents(pathKey(sdk().directory))
-      await queryClient.invalidateQueries({ queryKey: agentsQuery().queryKey })
       await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
-      const agents = await queryClient.fetchQuery(agentsQuery())
-      sync().set("agent", agents)
-      // [论文助手定制] 改名的 skill 若正被选为当前 agent，同步更新选中项，避免“当前”徽标丢失。
-      if (local.agent.current()?.name === props.name) local.agent.set(name)
       showToast({ variant: "success", icon: "circle-check", title: `已更新 Skill「${name}」` })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -589,13 +604,11 @@ function SkillEditDialog(props: { name: string }) {
 }
 
 function SkillsContent() {
-  const local = useLocal()
   const dialog = useDialog()
   const theme = useTheme()
   const navigate = useNavigate()
   const sdk = useSDK()
-  const agents = createMemo(() => local.agent.list())
-  const active = createMemo(() => local.agent.current()?.name)
+  const queryClient = useQueryClient()
   const skillsQuery = createQuery(() => ({
     queryKey: skillsQueryKey(sdk().directory),
     queryFn: async () => {
@@ -605,14 +618,36 @@ function SkillsContent() {
     },
   }))
   const skills = createMemo(() => skillsQuery.data ?? [])
-  const getAgent = (name: string) => agents().find((agent) => agent.name === name)
-  const canActivate = (name: string) => !!getAgent(name)
-  const canEdit = (name: string) => getAgent(name)?.native === false
-  const activateSkill = (name: string) => {
-    const agent = getAgent(name)
-    if (!agent) return
-    local.agent.set(name)
-    showToast({ variant: "success", icon: "circle-check", title: `已启用 Skill「${name}」` })
+  // [论文助手定制] Skill 只作为技能存在：除平台内置项外都可编辑/删除（编辑与删除作用于全局 skills/<name>）。
+  const canEdit = (location: string) => location !== "<built-in>"
+  const [subagentBusy, setSubagentBusy] = createSignal<string | undefined>(undefined)
+  // [论文助手定制] 切换“可作为子代理执行”：写入 SKILL.md frontmatter 的 subagent 字段，
+  // 开启后后端会把它动态注册为 mode: subagent 的执行代理，可被 task 工具调度。
+  const toggleSubagent = async (name: string, enabled: boolean) => {
+    if (subagentBusy()) return
+    setSubagentBusy(name)
+    try {
+      const res = await sdk().client.instance.skillSubagent({
+        directory: sdk().directory,
+        name,
+        enabled,
+      })
+      if (res.error) throw new Error(formatApiError(res.error) ?? "切换失败")
+      await queryClient.invalidateQueries({ queryKey: skillsQueryKey(sdk().directory) })
+      showToast({
+        variant: "success",
+        icon: "circle-check",
+        title: enabled ? `已开启「${name}」的子代理执行` : `已关闭「${name}」的子代理执行`,
+      })
+    } catch (err) {
+      showToast({
+        variant: "error",
+        icon: "circle-x",
+        title: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setSubagentBusy(undefined)
+    }
   }
 
   return (
@@ -652,7 +687,13 @@ function SkillsContent() {
         </div>
       </div>
       <div class="text-13-regular text-v2-text-text-weak">
-        管理已发现的 Skill。安装、编辑、删除会同步到文件空间与后端，支持直接查看 Skill 指令内容。
+        管理已发现的 Skill。Skill 只作为技能使用（会话内 @ 引用，不再生成同名 Agent）；
+        安装、编辑、删除会同步到文件空间与后端，支持直接查看 Skill 指令内容。
+      </div>
+      <div class="text-12-regular text-v2-text-text-faint">
+        类型徽标按包内真实文件自动判定：脚本 / 模板资源删除会丢失包内文件；知识指令 / MCP 删除后平台能力仍保留。
+        勾选「作为子代理执行」后，模型可用 task 工具把该技能派给独立子代理执行（长耗时、自包含任务适用）；
+        未勾选的技能不会被当作子代理派发，始终在会话内直接执行。
       </div>
       <Show
         when={!skillsQuery.isPending && skills().length > 0}
@@ -673,10 +714,7 @@ function SkillsContent() {
       >
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <For each={skills()}>
-            {(skill, index) => {
-              const agent = () => getAgent(skill.name)
-              const isActive = () => active() === skill.name
-              return (
+            {(skill, index) => (
                 <div
                   classList={{
                     "flex cursor-pointer flex-col items-start gap-1.5 rounded-[10px] border px-4 py-3 text-left transition-colors": true,
@@ -690,21 +728,7 @@ function SkillsContent() {
                       style={{ background: AGENT_COLORS[index() % AGENT_COLORS.length] }}
                     />
                     <span class="min-w-0 flex-1 truncate text-14-medium text-v2-text-text-strong">{skill.name}</span>
-                    <Show when={isActive()}>
-                      <span class="shrink-0 rounded-md bg-v2-accent-accent-strong px-1.5 py-0.5 text-11-medium text-white">
-                        当前
-                      </span>
-                    </Show>
-                    <Show when={!isActive() && canActivate(skill.name)}>
-                      <span class="shrink-0 rounded-md bg-v2-state-bg-info px-1.5 py-0.5 text-11-medium text-v2-text-text-accent">
-                        可启用
-                      </span>
-                    </Show>
-                    <Show when={!canActivate(skill.name)}>
-                      <span class="shrink-0 rounded-md bg-v2-background-bg-layer-02 px-1.5 py-0.5 text-11-medium text-v2-text-text-faint">
-                        仅技能
-                      </span>
-                    </Show>
+                    <SkillKindChip kind={skillKindOf(skill)} />
                   </span>
                   <span class="line-clamp-2 text-12-regular text-v2-text-text-faint">
                     {skill.description ?? "未填写描述"}
@@ -712,7 +736,24 @@ function SkillsContent() {
                   <span class="line-clamp-1 text-11-regular text-v2-text-text-faint">
                     {skill.location}
                   </span>
-                  {/* [论文助手定制] 操作区：查看 / 启用 / 编辑 / 删除（编辑与删除仅自定义 skill）。 */}
+                  {/* [论文助手定制] 子代理开关：仅自定义（非内置）技能可切换。 */}
+                  <Show when={canEdit(skill.location)}>
+                    <span
+                      class="flex w-full items-center justify-between gap-2 border-t border-v2-border-border-base pt-2"
+                      onClick={(event: MouseEvent) => event.stopPropagation()}
+                      title="开启后，模型可在任务自包含且耗时较长时用 task 工具把它作为子代理派发执行；否则始终在当前会话内执行。"
+                    >
+                      <span class="text-12-regular text-v2-text-text-weak">作为子代理执行</span>
+                      <Switch
+                        checked={skillSubagentOf(skill)}
+                        disabled={subagentBusy() !== undefined}
+                        onChange={(enabled: boolean) => {
+                          void toggleSubagent(skill.name, enabled)
+                        }}
+                      />
+                    </span>
+                  </Show>
+                  {/* [论文助手定制] 操作区：查看 / 编辑 / 删除（内置项不可编辑删除）。 */}
                   <span class="flex w-full items-center justify-end gap-1 pt-1">
                     <IconButton
                       type="button"
@@ -725,21 +766,7 @@ function SkillsContent() {
                         dialog.show(() => <SkillDetailDialog name={skill.name} />)
                       }}
                     />
-                    <Show when={canActivate(skill.name) && !isActive()}>
-                      <Button
-                        type="button"
-                        size="small"
-                        variant="secondary"
-                        icon="check"
-                        onClick={(event: MouseEvent) => {
-                          event.stopPropagation()
-                          activateSkill(skill.name)
-                        }}
-                      >
-                        启用
-                      </Button>
-                    </Show>
-                    <Show when={canEdit(skill.name)}>
+                    <Show when={canEdit(skill.location)}>
                       <IconButton
                         type="button"
                         icon="edit"
@@ -765,8 +792,7 @@ function SkillsContent() {
                     </Show>
                   </span>
                 </div>
-              )
-            }}
+            )}
           </For>
         </div>
       </Show>

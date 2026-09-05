@@ -737,3 +737,206 @@
   line-height: 1;
   color: var(--v2-state-fg-danger);
 }
+
+/* ===== [论文助手定制] 模型 API 配置页：与 servers/thesis 一致的列表与表单观感 ===== */
+.settings-v2-tab-body.settings-v2-modelapi {
+  gap: 28px;
+}
+
+.settings-v2-tab-header.settings-v2-modelapi-header.settings-v2-tab-header--stacked {
+  gap: 24px;
+  padding-bottom: 24px;
+}
+
+.settings-v2-modelapi-header .settings-v2-tab-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-v2-modelapi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-v2-modelapi-section-title {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-modelapi-list [data-component="settings-v2-list"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-v2-modelapi-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 16px;
+  border-bottom: 0.5px solid var(--v2-border-border-base);
+}
+
+.settings-v2-modelapi-item:last-child {
+  border-bottom: none;
+}
+
+.settings-v2-modelapi-lead {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.settings-v2-modelapi-lead [data-component="provider-icon"] {
+  color: var(--v2-icon-icon-base);
+}
+
+.settings-v2-modelapi-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-v2-modelapi-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-modelapi-models {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-v2-modelapi-url {
+  overflow: hidden;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 440;
+  line-height: 1;
+  color: var(--v2-text-text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-v2-modelapi-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.settings-v2-modelapi-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-block: 64px 56px;
+  color: var(--v2-text-text-muted);
+  font-size: 13px;
+  font-weight: 440;
+  line-height: 20px;
+  text-align: center;
+}
+
+.settings-v2-modelapi-empty-title {
+  font-size: 14px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-modelapi-empty-action {
+  margin-top: 14px;
+}
+
+.settings-v2-modelapi-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+  box-shadow: inset 0 0 0 0.5px var(--v2-border-border-muted);
+  padding: 20px;
+}
+
+.settings-v2-modelapi-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-v2-modelapi-form-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-modelapi-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-v2-modelapi-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-v2-modelapi-field--full {
+  grid-column: 1 / -1;
+}
+
+.settings-v2-modelapi-label {
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 1;
+  color: var(--v2-text-text-base);
+}
+
+.settings-v2-modelapi-hint {
+  font-size: 12px;
+  font-weight: 440;
+  line-height: 16px;
+  color: var(--v2-text-text-faint);
+}
+
+.settings-v2-modelapi-form-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 0.5px solid var(--v2-border-border-base);
+}
+
+@media (max-width: 700px) {
+  .settings-v2-modelapi-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

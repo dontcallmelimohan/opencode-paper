@@ -26,10 +26,17 @@ export function ThesisFigurePanel(props: {
   onInsertMaterial: (name: string) => Promise<void>
   onRename: (ref: string, alt: string) => Promise<void>
   onRemove: (ref: string) => Promise<void>
+  // [论文助手定制] AI 生图：可选，由宿主提供「调用生图接口」与「保存并插入文稿」两个动作。
+  onGenerateImage?: (prompt: string) => Promise<{ b64: string; mediaType?: string }>
+  onSaveGenerated?: (b64: string, mediaType?: string) => Promise<void>
 }) {
   const sdk = useSDK()
   const [drafts, setDrafts] = createSignal<Record<string, string>>({})
   const [thumbsTick, setThumbsTick] = createSignal(0)
+  const [aiPrompt, setAiPrompt] = createSignal("")
+  const [generating, setGenerating] = createSignal(false)
+  const [previewB64, setPreviewB64] = createSignal<string | null>(null)
+  const [previewType, setPreviewType] = createSignal("image/png")
 
   // [论文助手定制] 「资料」目录里的图片文件，可直接引用为插图。
   const [materialImages] = createResource(
@@ -105,9 +112,97 @@ export function ThesisFigurePanel(props: {
     }
   }
 
+  const generateAi = async () => {
+    const prompt = aiPrompt().trim()
+    if (!props.onGenerateImage) return
+    if (!prompt) {
+      showToast({ variant: "error", icon: "circle-x", title: "请先输入生图描述" })
+      return
+    }
+    setGenerating(true)
+    try {
+      const result = await props.onGenerateImage(prompt)
+      setPreviewB64(result.b64)
+      setPreviewType(result.mediaType || "image/png")
+      // [论文助手定制] 自动保存：生成成功即上传到「资料」并插入文稿底部，无需再手动保存。
+      if (props.onSaveGenerated) {
+        try {
+          await props.onSaveGenerated(result.b64, result.mediaType || "image/png")
+          showToast({ variant: "success", icon: "circle-check", title: "已生成并保存到资料，已插入正文底部" })
+        } catch (err) {
+          showToast({ variant: "error", icon: "circle-x", title: "自动保存失败", description: errorMessage(err) })
+        }
+      } else {
+        showToast({ variant: "success", icon: "circle-check", title: "图片已生成" })
+      }
+    } catch (err) {
+      showToast({ variant: "error", icon: "circle-x", title: "生图失败", description: errorMessage(err) })
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   return (
-    <section class="flex flex-col gap-1.5">
-      <span class="text-12-medium text-v2-text-text-base">插图</span>
+    <section class="mx-auto flex w-full flex-col gap-1.5 px-2.5 pb-4">
+      <Show when={props.onGenerateImage}>
+        <div class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2">
+          <span class="text-11-regular text-v2-text-text-base">AI 生图</span>
+          <textarea
+            rows={2}
+            value={aiPrompt()}
+            disabled={generating()}
+            placeholder={"描述要生成的图，例如：细胞信号通路示意图，简洁扁平风格，白色背景"}
+            class="w-full resize-none rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2 py-1.5 text-12-regular text-v2-text-text-base placeholder:text-v2-text-text-faint focus:border-v2-border-border-focus focus:outline-none"
+            onInput={(event) => setAiPrompt(event.currentTarget.value)}
+          />
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-10-regular text-v2-text-text-faint">1024×1024，生成约需 1–2 分钟</span>
+            <button
+              type="button"
+              class="flex shrink-0 cursor-pointer items-center gap-1 rounded-md bg-v2-accent-accent-strong px-2.5 py-1.5 text-11-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={generating() || !aiPrompt().trim()}
+              onClick={() => void generateAi()}
+            >
+              {generating() ? "生成中…" : "生成"}
+            </button>
+          </div>
+          <Show when={generating()}>
+            <div class="flex items-center gap-1.5 text-11-regular text-v2-text-text-faint">
+              <span class="size-3 animate-spin rounded-full border border-v2-border-border-focus border-t-transparent" />
+              正在调用生图接口，请稍候…
+            </div>
+          </Show>
+          <Show when={previewB64()}>
+            {(preview) => (
+              <div class="flex items-start gap-2 rounded-md border border-v2-border-border-base p-1.5">
+                <img
+                  src={`data:${previewType()};base64,${preview()}`}
+                  alt="AI 生成预览"
+                  class="h-28 max-w-[45%] shrink-0 rounded border border-v2-border-border-base object-contain"
+                />
+                <div class="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+                  <span class="flex items-center gap-1 text-11-regular text-v2-text-text-base">
+                    <Icon name="circle-check" size="small" />
+                    已自动保存到资料并插入正文底部
+                  </span>
+                  <button
+                    type="button"
+                    class="cursor-pointer rounded-md px-2 py-1 text-11-regular text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover"
+                    disabled={generating()}
+                    onClick={() => void generateAi()}
+                  >
+                    不满意，重新生成
+                  </button>
+                  <span class="text-10-regular leading-normal text-v2-text-text-faint">
+                    每次生成会新增一张图片到项目根目录（fig-ai-*，png/jpg/webp/gif）
+                    并在正文底部插入引用，可在下方列表改图注或删除。
+                  </span>
+                </div>
+              </div>
+            )}
+          </Show>
+        </div>
+      </Show>
       <Show when={materialImages.loading}>
         <div class="text-11-regular text-v2-text-text-faint">加载「资料」图片…</div>
       </Show>

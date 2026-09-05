@@ -25,9 +25,12 @@ import type { Prompt } from "@/context/prompt"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import type { PromptInputV2PersistedState } from "@opencode-ai/session-ui/v2/prompt-input"
 import { useServerSync } from "@/context/server-sync"
+import { useServer } from "@/context/server"
+import { authTokenFromCredentials } from "@/utils/server"
 import { useLocal } from "@/context/local"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
+import { useQuery } from "@tanstack/solid-query"
 import { createPromptInputController } from "@/pages/session/composer"
 import { createPromptModelSelection } from "@/pages/session/composer/prompt-model-selection"
 import { useSessionKey } from "@/pages/session/session-layout"
@@ -35,11 +38,13 @@ import { legacySessionHref } from "@/utils/session-route"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
 import { showToast } from "@/utils/toast"
 import { MANUSCRIPT_FILENAMES, useThesisManuscriptFile } from "./thesis-manuscript-file"
+import { useThesisProject } from "./thesis-export"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
 import { ThesisSessionTimeline } from "./thesis-session-timeline"
-import { useThesisFigureActions } from "./thesis-figure-actions"
 import { ThesisFigurePanel } from "./thesis-figure-panel"
-import { parseFigures } from "./thesis-assets"
+import { ASSET_MATERIALS, figureMarker, parseFigures, removeFigure, replaceFigureAlt } from "./thesis-assets"
+import { thesisSessionsQueryKey } from "./thesis-session-cache"
+import { thesisSessionAgents } from "./thesis-session-agents"
 
 // [论文助手定制] 板块标识（会话记录/会话视图共用）：用于把会话 ID 映射回所属板块。
 const STEP_KEYS: StepKey[] = ["outline", "writing", "formatting", "review"]
@@ -57,6 +62,8 @@ const STEP_AGENTS: Record<StepKey, string> = {
   formatting: "论文排版",
   review: "论文评审",
 }
+// [论文助手定制] 通用会话固定 Agent：不归属任何板块的自由会话用「通用助手」（与后端 thesis-agents.ts 一致）。
+const GENERAL_AGENT = "通用助手"
 type CanvasApplyMode = "replace" | "append" | "scratch"
 
 // [论文助手定制] 按扩展名推断文件 MIME：图片/PDF/常见文本给准确类型，其余兜底 octet-stream，
@@ -297,8 +304,77 @@ export function ThesisSessionView(props: {
   const { state, updateInput, setStepSessionID, setStepResult, setCurrentArtifact, markTurn, ensureArtifactForStep, ensureScratchArtifact, upsertArtifact, registerSessionInsertFile } = useThesisWorkflow()
   // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到项目根目录 <step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
-  // [论文助手定制] 插图动作（writing）：输入框底栏「插图」浮窗复用，插资料图/改图注/删图统一落盘。
-  const { insertMaterialFigure, renameFigure, removeFigureFromManuscript } = useThesisFigureActions()
+  // [论文助手定制] 插图/生图动作（writing + 通用会话共用同一浮窗）：
+  // 落盘前先读磁盘「全文稿.md」作为基准（通用会话里 writing store 未必加载，
+  // 直接按空 result 追加会把已有正文覆盖掉），磁盘没有时再回退 store 内容。
+  const readWritingDisk = async (): Promise<string | undefined> => {
+    const res = await sdk().client.file.read({ directory: sdk().directory, path: MANUSCRIPT_FILENAMES.writing })
+    if (res.error || res.data?.type !== "text") return undefined
+    const text = res.data.content
+    return text && text.trim() ? text : undefined
+  }
+  const writingBase = async (): Promise<string> => (await readWritingDisk()) ?? state().steps.writing.result ?? ""
+  const commitWriting = async (next: string) => {
+    if (!next.trim()) return
+    setStepResult("writing", next)
+    await manuscript.save("writing", next)
+  }
+  const insertMaterialFigure = async (name: string) => {
+    const current = await writingBase()
+    const marker = figureMarker(`${ASSET_MATERIALS}/${name}`, `图${parseFigures(current).length + 1}`)
+    await commitWriting(current.trim() ? `${current.trimEnd()}\n\n${marker}` : marker)
+  }
+  const renameFigure = async (ref: string, alt: string) => {
+    const current = await writingBase()
+    const next = replaceFigureAlt(current, ref, alt)
+    if (next !== current) await commitWriting(next)
+  }
+  const removeFigureFromManuscript = async (ref: string) => {
+    const current = await writingBase()
+    const next = removeFigure(current, ref)
+    if (next !== current) await commitWriting(next)
+  }
+  const server = useServer()
+  const resolveProject = useThesisProject()
+  // [论文助手定制] AI 生图：调后端 /thesis/image/generate（服务端持有「生图」provider 的 key），
+  // 返回 base64 PNG；随后上传到项目根目录（资料）并按 asset://materials/ 标记插入文稿。
+  const generateAiImage = async (prompt: string) => {
+    const conn = server.current
+    const base = conn?.http?.url
+    if (!base) throw new Error("未连接到服务器")
+    const headers: Record<string, string> = { "content-type": "application/json" }
+    if (conn?.type === "http" && conn.http.password) {
+      headers["Authorization"] = `Basic ${authTokenFromCredentials({
+        username: conn.http.username,
+        password: conn.http.password,
+      })}`
+    }
+    const response = await fetch(`${base}/thesis/image/generate`, {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ prompt }),
+    })
+    const data = (await response.json().catch(() => undefined)) as
+      | { b64?: string; message?: string; data?: { message?: string } }
+      | undefined
+    if (!response.ok || !data?.b64) {
+      throw new Error(data?.data?.message ?? data?.message ?? `生图失败（HTTP ${response.status}）`)
+    }
+    return data as { b64: string; mediaType?: string }
+  }
+  const saveGeneratedFigure = async (b64: string, mediaType?: string) => {
+    const proj = await resolveProject()
+    if (!proj) throw new Error("找不到当前论文项目")
+    const ext = mediaType === "image/jpeg" ? "jpg" : mediaType === "image/webp" ? "webp" : mediaType === "image/gif" ? "gif" : "png"
+    const filename = `fig-ai-${Date.now()}.${ext}`
+    const upload = await sdk().client.instance.thesisUpload({ projectID: proj.id, filename, content: b64 })
+    if (upload.error) {
+      const raw = upload.error as { data?: { message?: string } } | undefined
+      throw new Error(raw?.data?.message ?? "保存图片到资料失败")
+    }
+    await insertMaterialFigure(filename)
+  }
   // [论文助手定制] 会话记录联动：显示的会话优先级 = 全屏页指定（fixedSessionID）>
   // 会话记录点选的会话（displaySessionID）> 当前板块专属会话。
   const sessionID = () =>
@@ -313,20 +389,18 @@ export function ThesisSessionView(props: {
     const id = sessionID()
     return !!id && state().localSessionIDs.includes(id)
   })
-  // [论文助手定制] 会话归属兜底：侧边栏「会话记录/新会话」点开的会话若未归属任何板块
-  // （独立会话，displaySessionID 优先显示），打开时立即归属到当前板块——这样切回「文稿」
-  // 再切到「会话」仍是这条会话，而不是回到「还没有会话」；局部会话（选区改写）不归属，
-  // 保持在侧边栏单独折叠展示。
-  createEffect(() => {
-    if (props.fixedSessionID) return
-    const id = state().displaySessionID
-    if (!id || state().localSessionIDs.includes(id)) return
-    const bound = STEP_KEYS.some((step) => state().steps[step].sessionID === id)
-    if (!bound) setStepSessionID(state().activeStep, id)
+  // [论文助手定制] 会话所属板块判定（板块上下文）：
+  // - 有会话 id 时以会话归属为准：归属板块 = 板块会话；否则（通用/独立/局部会话）不属于任何板块，
+  //   忽略所在板块容器透传的 props.step，避免“选中通用会话却仍按板块处理”；
+  // - 还没有专属会话（板块首轮）时才跟随所在板块 props.step 绑定板块角色。
+  const sessionBoard = createMemo<StepKey | null>(() => {
+    const id = sessionID()
+    if (id) return sessionStep()
+    return props.step ?? null
   })
-  // [论文助手定制] 配置图标四个板块都显示（outline/writing/formatting/review）：
+  // [论文助手定制] 配置图标仅在板块上下文显示（outline/writing/formatting/review）：
   // 点击弹出对应配置浮窗（Outline/Writing/Formatting/ReviewConfigForm），配置面板已全部浮窗化。
-  const configStep = createMemo(() => props.step)
+  const configStep = createMemo(() => sessionBoard() ?? undefined)
   const route = useSessionKey()
 
   // [论文助手定制] 复用主会话页的自动滚动 Hook：内容渲染完成后（ResizeObserver 在布局后触发）
@@ -347,22 +421,86 @@ export function ThesisSessionView(props: {
     queryOptions: serverSync().queryOptions,
     model,
   })
-  // [论文助手定制] 板块固定 agent：会话归属板块时，发送与展示都强制用该板块的 agent（见 STEP_AGENTS），
-  // 忽略输入框的全局 agent 选择；agent 尚未就绪（后端未初始化）时回退全局选择，避免发送失败。
+  // [论文助手定制] 通用会话 agent 可选：板块会话固定 STEP_AGENTS；
+  // 游离（通用）会话在“还没有任何消息”时允许在输入框切换 agent，
+  // 首条消息发出后把所用 agent 记入 thesis-session-agents 并锁定，会话中途不再切换。
+  const sessionsQuery = useQuery(() => ({
+    queryKey: thesisSessionsQueryKey(sdk().directory),
+    queryFn: async () => {
+      const res = await sdk().client.v2.session.list({ directory: sdk().directory, limit: 100 })
+      const list = res.data?.data ?? []
+      return list.sort((a, b) => (b.time.updated ?? b.time.created) - (a.time.updated ?? a.time.created))
+    },
+  }))
+  const sessionInfo = createMemo(() => sessionsQuery.data?.find((item) => item.id === sessionID()))
+  const [interacted, setInteracted] = createSignal(false)
+  const sessionStarted = createMemo(() => {
+    if (interacted()) return true
+    const info = sessionInfo()
+    if (!info) return false
+    // 会话只要有消息，服务端 updated 就会晚于 created；刚创建还没发消息时两者相等。
+    return (info.time.updated ?? info.time.created) > info.time.created
+  })
+  const isGenericSession = createMemo(() => !!sessionID() && !sessionStep())
+  // [论文助手定制] 通用会话未开始时的默认 agent：默认「通用助手」，首条消息前可在输入框切换；
+  // genericSelect 记录切换结果，首条消息发出后写入 thesis-session-agents 并锁定。
+  const [genericAgent, setGenericAgent] = createSignal<string | null>(null)
+  const genericSelect = (name?: string) => {
+    setGenericAgent(name ?? null)
+    controls().agents.select(name)
+  }
+  // 打开一个还没有记录的通用会话时，把默认 agent 重置为「通用助手」，与板块彻底解耦。
+  createEffect(() => {
+    const id = sessionID()
+    if (!id || sessionStep() || sessionStarted()) return
+    if (thesisSessionAgents.read(sdk().directory, id)) return
+    if (!genericAgent()) setGenericAgent(GENERAL_AGENT)
+  })
+  const persistSessionAgent = () => {
+    const id = sessionID()
+    if (!id || sessionStep()) return
+    const name = controls().agents.current
+    thesisSessionAgents.set(sdk().directory, id, name ?? GENERAL_AGENT)
+    setInteracted(true)
+  }
+  // 板块会话固定角色；通用会话不固定（首条消息前跟随选择，之后锁定会话记录）。
   const boardAgentName = createMemo(() => {
-    // props.step = 当前板块面板；用它的原因：板块专属会话还没创建时 sessionStep() 为 null，
-    // 但第一轮发送就该用板块 agent（否则首个会话会退回全局 agent，行为不一致）。
-    const step = props.step ?? sessionStep()
-    if (!step) return undefined
-    const name = STEP_AGENTS[step]
+    const board = sessionBoard()
+    if (!board) return undefined
     const available = controls().agents.available as Array<{ name?: string }> | undefined
-    return available?.some((agent) => agent.name === name) ? name : undefined
+    const name = STEP_AGENTS[board]
+    return name && available?.some((agent) => agent.name === name) ? name : undefined
   })
   const boardControls = createMemo(() => {
     const base = controls()
     const fixed = boardAgentName()
-    if (!fixed) return base
-    return { ...base, agents: { ...base.agents, current: fixed } }
+    if (fixed) {
+      // 通用会话锁定后隐藏 agent 切换入口，避免会话中途误切换；
+      // 板块会话仍显示入口（发送时固定用板块角色，与之前一致）。
+      const hideAgentPicker = isGenericSession() && sessionStarted()
+      return {
+        ...base,
+        agents: { ...base.agents, current: fixed, visible: hideAgentPicker ? false : base.agents.visible },
+      }
+    }
+    const id = sessionID()
+    if (id && !sessionStep()) {
+      // 通用/独立/局部会话：不属于任何板块。未开始时可切换 agent（默认「通用助手」），
+      // 开始后锁定为会话记录的 agent（未记录过则默认「通用助手」）。
+      const started = sessionStarted()
+      const name =
+        (started ? thesisSessionAgents.read(sdk().directory, id) : genericAgent()) ?? GENERAL_AGENT
+      return {
+        ...base,
+        agents: {
+          ...base.agents,
+          current: name,
+          visible: started ? false : true,
+          ...(started ? {} : { select: genericSelect }),
+        },
+      }
+    }
+    return base
   })
 
   // [论文助手定制] 完整会话输入框（PromptInputV2Composer）：
@@ -375,17 +513,26 @@ export function ThesisSessionView(props: {
     embedded: true,
     // [论文助手定制] 固定板块 agent：发送时强制使用该板块的角色。
     fixedAgent: boardAgentName,
-    // [论文助手定制] 会话归属：新会话写回「当前显示的会话所属板块」（普通会话时写回当前板块）。
+    // [论文助手定制] 会话归属：板块上下文创建的新会话写回对应板块；
+    // 通用会话（不属于任何板块）只记录所用 agent，绝不写回某个板块。
     onSessionCreated: (id) => {
-      if (props.fixedSessionID) return
-      setStepSessionID(sessionStep() ?? state().activeStep, id)
+      const board = sessionBoard()
+      if (board) {
+        if (props.fixedSessionID) return
+        setStepSessionID(board, id)
+        return
+      }
+      const name = genericAgent() ?? controls().agents.current
+      thesisSessionAgents.set(sdk().directory, id, name ?? GENERAL_AGENT)
+      setInteracted(true)
     },
     onSubmit: () => {
       const id = sessionID()
+      persistSessionAgent()
       if (id) markTurn(id, { target: "chat" })
       autoScroll.resume()
       // [论文助手定制] 配置面板弱化（第二轮）：发送即生成——发送时自动关闭配置浮窗（四个板块统一）。
-      if (props.step) props.onSetConfigOpen?.(false)
+      if (sessionBoard()) props.onSetConfigOpen?.(false)
     },
     // [论文助手定制] 配置不再注入会话文本：配置唯一交付方式为落盘 config/论文主题.md（见 thesis-config-forms），
     // 由「提纲助手」等 Skill 直接读取；故 promptTransform 透传，不追加任何配置段。
@@ -707,26 +854,35 @@ export function ThesisSessionView(props: {
                   />
                 </TooltipV2>
               </Show>
-              {/* [论文助手定制] 配置面板弱化（第二轮）：「插图」图标（仅 writing 显示）——
-                  弹出插图管理浮窗（复用 ThesisFigurePanel，插资料图/改图注/删图，改动落盘到 全文稿.md）。 */}
-              <Show when={props.step === "writing"}>
-                <TooltipV2 placement="top" value="插图">
+              {/* [论文助手定制] 「插图 / AI 生图」图标：辅助写作板块与通用会话（无板块）都显示——
+                  弹出插图管理浮窗（复用 ThesisFigurePanel，插资料图/改图注/删图 + AI 生图，
+                  改动落盘到 全文稿.md，通用会话下同样可用）。 */}
+              <Show when={sessionBoard() === "writing" || sessionBoard() === null}>
+                <TooltipV2 placement="top" value={sessionBoard() === "writing" ? "插图" : "生图"}>
                   <IconButtonV2
                     type="button"
                     icon={<Icon name="photo" />}
                     variant="ghost-muted"
                     size="large"
-                    aria-label="插图"
+                    aria-label={sessionBoard() === "writing" ? "插图" : "生图"}
                     onClick={() =>
                       dialog.show(() => (
-                        <ThesisFigurePanel
-                          directory={sdk().directory}
-                          figures={parseFigures(state().steps.writing.result ?? "")}
-                          busy={false}
-                          onInsertMaterial={insertMaterialFigure}
-                          onRename={renameFigure}
-                          onRemove={removeFigureFromManuscript}
-                        />
+                        <Dialog
+                          title={sessionBoard() === "writing" ? "插图" : "AI 生图"}
+                          description="管理正文中的插图；AI 生图会保存到「资料」并插入文稿底部"
+                          size="large"
+                        >
+                          <ThesisFigurePanel
+                            directory={sdk().directory}
+                            figures={parseFigures(state().steps.writing.result ?? "")}
+                            busy={false}
+                            onInsertMaterial={insertMaterialFigure}
+                            onRename={renameFigure}
+                            onRemove={removeFigureFromManuscript}
+                            onGenerateImage={generateAiImage}
+                            onSaveGenerated={saveGeneratedFigure}
+                          />
+                        </Dialog>
                       ))
                     }
                   />

@@ -356,10 +356,15 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     commands,
     context,
     skills: {
-      options: () =>
-        props.controls.agents.available
+      options: () => {
+        // [论文助手定制] 优先用真实 Skill 列表（app.skills）；旧调用方没提供时
+        // 回退到“非平台角色的自定义 agent”，保证行为兼容。
+        const skills = props.controls.skills?.() ?? []
+        if (skills.length > 0) return skills
+        return props.controls.agents.available
           .filter((agent) => !agent.hidden && agent.native === false && !isThesisRoleAgent(agent.name))
-          .map((agent) => ({ id: agent.name, label: agent.name })),
+          .map((agent) => ({ id: agent.name, label: agent.name }))
+      },
     },
     // [论文助手定制] 附加方块（config chip）：透传给输入框 UI，由论文工作台控制显隐与移除。
     extraChips: props.extraChips,

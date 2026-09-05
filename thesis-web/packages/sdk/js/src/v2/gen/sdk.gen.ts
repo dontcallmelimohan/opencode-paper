@@ -105,6 +105,8 @@ import type {
   InstanceSkillUninstallResponses,
   InstanceSkillUpdateErrors,
   InstanceSkillUpdateResponses,
+  InstanceSkillSubagentErrors,
+  InstanceSkillSubagentResponses,
   InstanceThesisCreateErrors,
   InstanceThesisCreateResponses,
   InstanceThesisDeleteErrors,
@@ -2326,6 +2328,49 @@ export class Instance extends HeyApiClient {
       ThrowOnError
     >({
       url: "/skill/update",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Toggle whether a skill can run as a subagent
+   *
+   * Writes the subagent flag into the skill's SKILL.md frontmatter, then reloads skills and agents so the skill is (or is no longer) registered as a task-dispatchable subagent.
+   */
+  public skillSubagent<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      enabled?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "enabled" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      InstanceSkillSubagentResponses,
+      InstanceSkillSubagentErrors,
+      ThrowOnError
+    >({
+      url: "/skill/subagent",
       ...options,
       ...params,
       headers: {

@@ -19,6 +19,9 @@ export type PromptInputControls = {
     visible: boolean
     select: (name: string | undefined) => void
   }
+  // [论文助手定制] 真正的 Skill 列表（输入框技能选择器用；旧实现依赖“skill 同名 agent”，
+  // 现在 skill 只作为技能存在，故改为直接读 app.skills）。可选，兼容旧调用方。
+  skills?: () => { id: string; label: string }[]
   model: {
     selection: ReturnType<typeof useLocal>["model"]
     paid: boolean

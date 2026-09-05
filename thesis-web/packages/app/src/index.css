@@ -361,3 +361,147 @@
     }
   }
 }
+
+/* ===== [论文助手定制] 品牌样式（Z 蓝 #1565C0） ===== */
+:root {
+  color-scheme: light dark;
+  /* 浅色主题 → 浅蓝；暗色主题 → 深蓝（light-dark(浅色值, 暗色值)） */
+  --brand-600: light-dark(#1e88e5, #0d47a1);
+  --brand-700: light-dark(#1976d2, #0a3d86);
+  --brand-800: light-dark(#1565c0, #08306b);
+  --brand-tint: light-dark(#e7f0fb, #152a44);
+  --brand-gradient: light-dark(
+    linear-gradient(135deg, #0a1e3f 0%, #1e88e5 100%),
+    linear-gradient(135deg, #050d1f 0%, #0a3d86 100%)
+  );
+  /* [论文助手定制] 主按钮暗色改“淡蓝描边 + 半透明底”形式：暗色不再用一整块深蓝实心，
+     浅色保持品牌蓝实心；hover/active 逐步提亮描边与底。 */
+  --brand-primary-bg: light-dark(#1e88e5, color-mix(in srgb, #2f81f7 15%, transparent));
+  --brand-primary-bg-hover: light-dark(#1976d2, color-mix(in srgb, #2f81f7 26%, transparent));
+  --brand-primary-bg-active: light-dark(#1565c0, color-mix(in srgb, #2f81f7 34%, transparent));
+  --brand-primary-border: light-dark(#1e88e5, #2f81f7);
+  --brand-primary-border-hover: light-dark(#1976d2, #58a6ff);
+  --brand-primary-border-active: light-dark(#1565c0, #79c0ff);
+  --brand-primary-text: #ffffff;
+  --brand-primary-text-disabled: light-dark(#ffffff, #7d8590);
+}
+
+/* 主操作按钮：opencode 默认近黑 primary → 品牌蓝 */
+[data-component="button"][data-variant="primary"] {
+  background-color: var(--brand-primary-bg);
+  border-color: var(--brand-primary-border);
+  color: var(--brand-primary-text);
+}
+[data-component="button"][data-variant="primary"] [data-slot="icon-svg"] {
+  color: inherit;
+}
+[data-component="button"][data-variant="primary"]:is(:hover, [data-state="hover"]):not(:disabled) {
+  background-color: var(--brand-primary-bg-hover);
+  border-color: var(--brand-primary-border-hover);
+}
+[data-component="button"][data-variant="primary"]:is(:focus, [data-state="focus"]):not(:disabled) {
+  background-color: var(--brand-primary-bg-hover);
+  border-color: var(--brand-primary-border-hover);
+}
+[data-component="button"][data-variant="primary"]:is(:active, [data-state="pressed"]):not(:disabled) {
+  background-color: var(--brand-primary-bg-active);
+  border-color: var(--brand-primary-border-active);
+}
+[data-component="button"][data-variant="primary"]:is(:disabled, [data-state="disabled"]) {
+  background-color: color-mix(in srgb, var(--brand-primary-bg) 45%, transparent);
+  border-color: transparent;
+  color: var(--brand-primary-text-disabled);
+}
+
+/* 品牌色工具类 */
+.brand-text {
+  color: var(--brand-600);
+}
+.brand-tile {
+  background: var(--brand-gradient);
+  color: #fff;
+}
+.brand-chip {
+  background: var(--brand-tint);
+  color: var(--brand-700);
+}
+
+/* [论文助手定制] 主页背景：GitHub 式纯色背景（浅色 #ffffff / 暗色 #0d1117）。 */
+.home-page-bg {
+  background-color: light-dark(#ffffff, #0d1117);
+}
+
+/* [论文助手定制] 主页工作空间卡片：GitHub 式专业简约——白底、细边框、小圆角、无阴影，hover 仅边框变色不上浮。 */
+.thesis-card {
+  border: 1px solid light-dark(#d8dee4, #3d444d);
+  border-radius: 10px;
+  background-color: light-dark(#ffffff, #0d1117);
+  transition: border-color 0.15s ease;
+}
+.thesis-card:hover {
+  border-color: light-dark(#0969da, #2f81f7);
+}
+
+/* ===== [论文助手定制] 论文工作台 GitHub 式扁平化：与主页 thesis-card 同一套视觉语言。
+   去掉多层级“浮层卡片 + 大圆角 + 阴影”的 AI 味，改用纯色页面、1px 细分隔线、
+   浅灰悬浮行与蓝色下划线 tab。 ===== */
+.workbench-page {
+  background-color: light-dark(#ffffff, #0d1117);
+}
+.workbench-subtle {
+  background-color: light-dark(#f6f8fa, #161b22);
+}
+.workbench-row-hover:hover {
+  background-color: light-dark(#f6f8fa, #161b22);
+}
+.workbench-border {
+  border-color: light-dark(#d8dee4, #3d444d);
+}
+.workbench-accent-text {
+  color: light-dark(#0969da, #2f81f7);
+}
+
+/* ===== [论文助手定制] 登录页 GitHub 式：灰底 + 细边框白色卡片，无品牌渐变/重阴影 ===== */
+.auth-page-bg {
+  background-color: light-dark(#f6f8fa, #0d1117);
+}
+.auth-card {
+  background-color: light-dark(#ffffff, #161b22);
+  border: 1px solid light-dark(#d8dee4, #3d444d);
+  border-radius: 10px;
+}
+.auth-link {
+  color: light-dark(#0969da, #2f81f7);
+  cursor: pointer;
+}
+.auth-link:hover {
+  text-decoration: underline;
+}
+.auth-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid light-dark(#d8dee4, #3d444d);
+  border-radius: 6px;
+  background-color: light-dark(#ffffff, #0d1117);
+  color: var(--v2-text-text-base);
+  font-size: 14px;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.auth-input::placeholder {
+  color: var(--v2-text-text-faint);
+}
+.auth-input:focus {
+  border-color: light-dark(#0969da, #2f81f7);
+  box-shadow: 0 0 0 3px color-mix(in srgb, light-dark(#0969da, #2f81f7) 18%, transparent);
+}
+
+/* [论文助手定制] KaTeX 隐藏的 MathML（.katex-mathml）用 absolute 定位，
+   若祖先链没有定位元素会锚到页面坐标，把主区域撑出可滚动高度——
+   现象：会话里有公式时工作台整体能下滑一段。给 .katex 建立定位上下文即可兜住。 */
+.katex {
+  position: relative;
+}

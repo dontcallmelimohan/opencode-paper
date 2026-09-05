@@ -15,6 +15,7 @@ import { useSDK } from "@/context/sdk"
 import { showToast } from "@/utils/toast"
 import { useThesisWorkflow, type StepKey } from "./thesis-workflow-store"
 import { refreshThesisSessions, thesisSessionsQueryKey, upsertThesisSessionCache } from "./thesis-session-cache"
+import { thesisSessionAgents } from "./thesis-session-agents"
 
 // [论文助手定制] 方案 B（去线性化）：四个模块并列展示，不再标注「第 N 步」，
 // 暗示四步独立、可任意顺序使用。
@@ -40,6 +41,13 @@ export function ThesisStepSidebar(props: {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const active = () => state().activeStep
+  // [论文助手定制] 查看通用（非板块）会话时，四个板块都不高亮：通用会话不属于任何板块，
+  // 避免“选中通用会话却仍显示停留在某个板块”。
+  const navActive = createMemo(() => {
+    const id = state().displaySessionID
+    if (id && !STEPS.some((item) => state().steps[item.key].sessionID === id)) return null
+    return active()
+  })
   const stepStatus = (key: StepKey) => state().steps[key].status
   const [localOpen, setLocalOpen] = createSignal(false)
 
@@ -93,7 +101,7 @@ export function ThesisStepSidebar(props: {
 
   return (
     // [论文助手定制] 固定布局：宽度由外层容器（thesis-workbench.tsx，固定 220px）控制，这里撑满即可。
-    <div class="flex w-full shrink-0 flex-col overflow-y-auto rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
+    <div class="flex w-full shrink-0 flex-col overflow-y-auto p-1">
       {/* [论文助手定制] 顶部：返回主页 + 收起侧边栏 */}
       <div class="flex items-center gap-1 pr-1">
         <Button
@@ -142,18 +150,26 @@ export function ThesisStepSidebar(props: {
               type="button"
               class="flex w-full cursor-pointer flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-colors"
               classList={{
-                "bg-v2-background-bg-layer-01": active() === item.key,
-                "hover:bg-v2-background-bg-layer-01": active() !== item.key,
+                "workbench-subtle": navActive() === item.key,
+                "workbench-row-hover": navActive() !== item.key,
               }}
               onClick={() => setActiveStep(item.key)}
             >
               <span class="flex w-full items-center gap-1.5">
-                <Icon name={item.icon} size="small" class="shrink-0 text-v2-text-text-base" />
+                <Icon
+                  name={item.icon}
+                  size="small"
+                  class="shrink-0"
+                  classList={{
+                    "workbench-accent-text": navActive() === item.key,
+                    "text-v2-text-text-muted": navActive() !== item.key,
+                  }}
+                />
                 <span
                   class="min-w-0 flex-1 truncate text-13-medium"
                   classList={{
-                    "text-v2-text-text-accent": active() === item.key,
-                    "text-v2-text-text-base": active() !== item.key,
+                    "workbench-accent-text": navActive() === item.key,
+                    "text-v2-text-text-base": navActive() !== item.key,
                   }}
                 >
                   {item.label}
@@ -189,18 +205,18 @@ export function ThesisStepSidebar(props: {
         </For>
       </div>
       {/* [论文助手定制] 本项目会话记录：条目可点击打开（当前生成会话高亮）+ 新建会话按钮 */}
-      <div class="mt-1 flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
+      <div class="mt-1 flex flex-col gap-1 border-t workbench-border pt-1">
         <div class="flex items-center justify-between gap-1 px-2 pt-0.5">
           <span class="text-11-regular text-v2-text-text-faint">会话记录</span>
           <Button
             type="button"
             variant="ghost"
             size="small"
-            icon="plus-small"
+            icon="speech-bubble"
             class="h-6 gap-0.5 px-1.5 text-11-medium"
             onClick={() => void createSession()}
           >
-            新会话
+            通用会话
           </Button>
         </div>
         <Show
@@ -220,7 +236,7 @@ export function ThesisStepSidebar(props: {
               return (
                 <button
                   type="button"
-                  class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
+                  class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors workbench-row-hover"
                   classList={{
                     "bg-v2-background-bg-layer-01":
                       state().displaySessionID === session.id || state().steps[active()].sessionID === session.id,
@@ -234,10 +250,14 @@ export function ThesisStepSidebar(props: {
                   />
                   <span class="min-w-0 flex-1">
                     <span class="block truncate text-12-regular text-v2-text-text-base">
-                      {step ? `${step.label} · ${session.title || "未命名对话"}` : session.title || "未命名对话"}
+                      {step
+                        ? `${step.label} · ${session.title || "未命名对话"}`
+                        : `通用 · ${session.title || "自由对话"}`}
                     </span>
                     <span class="block text-10-regular text-v2-text-text-faint">
-                      {step ? `${statusLabel(step.key)} · ` : ""}
+                      {step
+                        ? `${statusLabel(step.key)} · `
+                        : `${thesisSessionAgents.read(sdk().directory, session.id) ?? "通用助手"} · `}
                       {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
                     </span>
                   </span>
@@ -249,10 +269,10 @@ export function ThesisStepSidebar(props: {
       </div>
       {/* [论文助手定制] 局部会话：选区 AI 改写的记录单独折叠，默认不占用主会话列表空间。 */}
       <Show when={localSessions().length > 0}>
-        <div class="mt-1 flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
+        <div class="mt-1 flex flex-col gap-1 border-t workbench-border pt-1">
           <button
             type="button"
-            class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
+            class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors workbench-row-hover"
             onClick={() => setLocalOpen((open) => !open)}
           >
             <span class="flex min-w-0 items-center gap-1.5">
@@ -276,7 +296,7 @@ export function ThesisStepSidebar(props: {
                 {(session) => (
                   <button
                     type="button"
-                    class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-v2-background-bg-layer-01"
+                    class="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors workbench-row-hover"
                     classList={{
                       "bg-v2-background-bg-layer-01":
                         state().displaySessionID === session.id || state().steps[active()].sessionID === session.id,
@@ -300,7 +320,7 @@ export function ThesisStepSidebar(props: {
         </div>
       </Show>
       {/* [论文助手定制] 底部工具：文件空间——改为跳转到独立整页（/:dir/files），空间更大，便于预览图片与长文本。 */}
-      <div class="mt-auto flex flex-col gap-1 border-t border-v2-border-border-base pt-1">
+      <div class="mt-auto flex flex-col gap-1 border-t workbench-border pt-1">
         <Button
           type="button"
           variant="ghost"

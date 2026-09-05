@@ -8513,6 +8513,8 @@ export type AppSkillsResponses = {
     description?: string
     location: string
     content: string
+    subagent?: boolean
+    kind?: "script" | "mcp" | "resource" | "knowledge"
   }>
 }
 
@@ -8721,6 +8723,49 @@ export type InstanceSkillUpdateResponses = {
 
 export type InstanceSkillUpdateResponse =
   InstanceSkillUpdateResponses[keyof InstanceSkillUpdateResponses]
+
+export type InstanceSkillSubagentData = {
+  body?: {
+    name: string
+    enabled: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/subagent"
+}
+
+export type InstanceSkillSubagentErrors = {
+  /**
+   * SkillInstallError | InvalidRequestError
+   */
+  400: SkillInstallError | InvalidRequestError
+}
+
+export type InstanceSkillSubagentError =
+  InstanceSkillSubagentErrors[keyof InstanceSkillSubagentErrors]
+
+export type InstanceSkillSubagentResponses = {
+  /**
+   * Updated skill subagent flag
+   */
+  200: {
+    agent?: Agent
+    skill: {
+      name: string
+      description?: string
+      location: string
+      content: string
+      subagent?: boolean
+      kind?: "script" | "mcp" | "resource" | "knowledge"
+    }
+  }
+}
+
+export type InstanceSkillSubagentResponse =
+  InstanceSkillSubagentResponses[keyof InstanceSkillSubagentResponses]
 
 export type InstanceThesisCreateData = {
   body?: {

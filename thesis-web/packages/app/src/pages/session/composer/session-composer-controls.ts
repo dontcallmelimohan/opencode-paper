@@ -33,6 +33,15 @@ export function createPromptInputController(input: {
   const agentsQuery = createQuery(() => input.queryOptions.agents(pathKey(sdk().directory)))
   const globalProvidersQuery = createQuery(() => input.queryOptions.providers(null))
   const providersQuery = createQuery(() => input.queryOptions.providers(pathKey(sdk().directory)))
+  // [论文助手定制] 技能选择器的数据源：真实 Skill（SKILL.md），不再依赖 skill 同名 agent。
+  const skillsQuery = createQuery(() => ({
+    queryKey: ["skills", pathKey(sdk().directory)] as const,
+    queryFn: async () => {
+      const res = await sdk().client.app.skills({ directory: sdk().directory })
+      if (res.error) return []
+      return (res.data ?? []).map((item) => ({ id: item.name, label: item.name }))
+    },
+  }))
 
   return createMemo<PromptInputControls>(() => {
     return {
@@ -44,6 +53,7 @@ export function createPromptInputController(input: {
         visible: local.agent.visible(),
         select: local.agent.set,
       },
+      skills: () => skillsQuery.data ?? [],
       model: {
         selection: input.model ?? local.model,
         paid: providers.paid().length > 0,

@@ -18,6 +18,13 @@ type Store = {
 
 const RECENT_LIMIT = 5
 
+// [论文助手定制] 生图类 provider（全局配置里名称为「生图」，如 GLM-Image）只服务
+// AI 生图浮窗（OpenAI 兼容 images/generations，一次性返回图片），不支持 SSE 流式对话；
+// 从对话模型候选里排除，避免在模型选择器里误选后报「当前模型不支持 SSE 调用方式」。
+const IMAGE_ONLY_PROVIDER_NAMES = new Set(["生图"])
+const isImageOnlyProvider = (provider: { id: string; name: string }) =>
+  IMAGE_ONLY_PROVIDER_NAMES.has(provider.id) || IMAGE_ONLY_PROVIDER_NAMES.has(provider.name)
+
 function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
 }
@@ -38,12 +45,15 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
     )
 
     const available = createMemo(() =>
-      providers.connected().flatMap((p) =>
-        Object.values(p.models).map((m) => ({
-          ...m,
-          provider: p,
-        })),
-      ),
+      providers
+        .connected()
+        .filter((p) => !isImageOnlyProvider(p))
+        .flatMap((p) =>
+          Object.values(p.models).map((m) => ({
+            ...m,
+            provider: p,
+          })),
+        ),
     )
 
     const release = createMemo(

@@ -1,18 +1,32 @@
 import { type ComponentProps } from "solid-js"
 
-// [论文助手定制] 平台统一标识：红底黄色 M（与 public/favicon-mcd.svg 一致），
-// 抹除 opencode 原始 logo。以后换品牌时替换这里 + public/ 下的图标文件即可。
-const M_PATH =
-  "m195.8 17.933c23.3 0 42.2 98.3 42.2 219.7h34c0-130.7-34.3-236.5-76.3-236.5-24 0-45.2 31.7-59.2 81.5-14-49.8-35.2-81.5-59-81.5-42 0-76.2 105.7-76.2 236.4h34c0-121.4 18.7-219.6 42-219.6s42.2 90.8 42.2 202.8h33.8c0-112 19-202.8 42.3-202.8"
+// [论文助手定制] 平台统一标识：蓝色渐变菱形 + 白色 Z + 青色点（与 public/favicon-mcd.svg / z.svg 一致）。
+// 以后换品牌时替换这里 + public/ 下的图标文件即可。
+const Z_DIAMOND = "M82.5 0L165 47.3L165 150.7L82.5 198L0 150.7L0 47.3L82.5 0Z"
+const Z_LETTER = "M0 0L88 0L88 16.5L22 77L88 77L88 93.5L0 93.5L0 77L66 16.5L0 16.5L0 0Z"
 
-const MarkGlyph = () => (
+const MarkGlyph = (props: { gradientID: string }) => (
   <>
-    <rect width="100" height="100" rx="9" fill="#DA0007" />
-    <path
-      fill="#FFBC0C"
-      d={M_PATH}
-      transform="translate(50 50) scale(0.308 0.255) translate(-136.35 -127.72)"
-    />
+    <defs>
+      <linearGradient
+        id={props.gradientID}
+        gradientTransform="matrix(165 198 -198 165 0 0)"
+        gradientUnits="userSpaceOnUse"
+        x1="0"
+        y1="0"
+        x2="1"
+        y2="0"
+      >
+        <stop offset="0" stop-color="#0A1E3F" />
+        <stop offset="1" stop-color="#1565C0" />
+      </linearGradient>
+    </defs>
+    <path fill={`url(#${props.gradientID})`} transform="matrix(1 0 0 1 27.5 11)" d={Z_DIAMOND} />
+    <g opacity="0.35">
+      <path fill="#0A1E3F" transform="matrix(1 0 0 1 70.4 75.9)" d={Z_LETTER} />
+    </g>
+    <path fill="#FFF" transform="matrix(1 0 0 1 66 71.5)" d={Z_LETTER} />
+    <ellipse fill="#00BCD4" transform="matrix(1 0 0 1 105.6 34.1)" cx="4.4" cy="4.4" rx="4.4" ry="4.4" />
   </>
 )
 
@@ -25,7 +39,9 @@ export const Mark = (props: { class?: string }) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <MarkGlyph />
+      <g transform="scale(0.4545 0.4545)">
+        <MarkGlyph gradientID="thesis-mark-gradient" />
+      </g>
     </svg>
   )
 }
@@ -40,7 +56,9 @@ export const Splash = (props: Pick<ComponentProps<"svg">, "ref" | "class">) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <MarkGlyph />
+      <g transform="scale(0.4545 0.4545)">
+        <MarkGlyph gradientID="thesis-splash-gradient" />
+      </g>
     </svg>
   )
 }
@@ -53,13 +71,8 @@ export const Logo = (props: { class?: string }) => {
       fill="none"
       classList={{ [props.class ?? ""]: !!props.class }}
     >
-      <g transform="translate(0 0)">
-        <rect width="42" height="42" rx="4" fill="#DA0007" />
-        <path
-          fill="#FFBC0C"
-          d={M_PATH}
-          transform="translate(21 21) scale(0.165 0.178) translate(-136.35 -127.72)"
-        />
+      <g transform="translate(0 0) scale(0.19 0.19)">
+        <MarkGlyph gradientID="thesis-logo-gradient" />
       </g>
       <text
         x="52"

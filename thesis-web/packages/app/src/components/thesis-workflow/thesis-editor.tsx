@@ -54,6 +54,9 @@ export interface ThesisEditorProps {
   onReplaced?: (selection: ThesisEditorSelection) => void
   onReady?: () => void
   apiRef?: { current: ThesisEditorApi | undefined }
+  // [论文助手定制] 文稿 asset:// 插图“显示层”解析器：文档本身仍存 asset:// 原文，
+  // 渲染时把 <img src="asset://..."> 换成真实图片 data URL（见 sweepAssetImages）。
+  resolveAssetUrl?: (src: string) => Promise<string | undefined>
 }
 
 // [论文助手定制] AI 修改段高亮：淡黄泛光的 inline decoration，存于插件状态（不进文档）。
@@ -131,6 +134,32 @@ export function ThesisEditor(props: ThesisEditorProps) {
 
   const getView = (): EditorView | undefined =>
     editor?.action((ctx) => ctx.get(editorViewCtx))
+
+  // [论文助手定制] 把编辑器内 asset:// 图片的 src 换成真实图片 data URL（仅显示层，
+  // 不改 ProseMirror 文档/序列化的 Markdown，保存内容仍是 asset:// 引用）。
+  // ProseMirror 内容更新时会重建被改动的 DOM，所以每次 markdownUpdated 后重新扫一遍，
+  // 未改动的图片节点 DOM 会被复用，src 保持不变不会闪烁。
+  const assetInFlight = new Set<string>()
+  const sweepAssetImages = async () => {
+    const loader = props.resolveAssetUrl
+    if (!rootRef || !loader) return
+    const imgs = [...rootRef.querySelectorAll<HTMLImageElement>('img[src^="asset://"]')]
+    if (imgs.length === 0) return
+    for (const img of imgs) {
+      const src = img.getAttribute("src") ?? ""
+      if (!src || assetInFlight.has(src)) continue
+      assetInFlight.add(src)
+      void loader(src)
+        .then((dataUrl) => {
+          // 解析期间图片节点可能被重渲染（src 变了 / 节点已卸载）：只在 src 未变时替换。
+          if (dataUrl && img.isConnected && img.getAttribute("src") === src) img.src = dataUrl
+        })
+        .catch(() => {
+          // 读取失败保持原样（下次编辑触发的 sweep 会重试）。
+        })
+        .finally(() => assetInFlight.delete(src))
+    }
+  }
 
   const setHighlightRange = (view: EditorView, from: number, to: number) => {
     view.dispatch(view.state.tr.setMeta(aiHighlightKey, { from, to }))
@@ -335,7 +364,11 @@ export function ThesisEditor(props: ThesisEditorProps) {
           prev({ ...options, plugins: [...(options.plugins ?? []), aiHighlightPlugin] }),
         )
         ctx.get(listenerCtx)
-          .markdownUpdated((_ctx, markdown) => props.onMdChange?.(markdown))
+          .markdownUpdated((_ctx, markdown) => {
+            props.onMdChange?.(markdown)
+            // [论文助手定制] 内容更新后重扫 asset:// 图片（新建图片节点/重渲染的旧节点需要补 data URL）。
+            void sweepAssetImages()
+          })
           .selectionUpdated((ctx) => {
             const view = ctx.get(editorViewCtx)
             if (!view || !(view as EditorView).state) return
@@ -360,6 +393,8 @@ export function ThesisEditor(props: ThesisEditorProps) {
     void editor.create().then(() => {
       if (props.apiRef) props.apiRef.current = api
       props.onReady?.()
+      // [论文助手定制] 首次挂载也扫一遍：让已有 asset:// 插图在打开文档后立即显示真图。
+      void sweepAssetImages()
     }).catch(() => {
       if (props.apiRef) props.apiRef.current = undefined
     })

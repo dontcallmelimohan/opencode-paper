@@ -3,8 +3,8 @@
 //   提纲助手 → 辅助写作 → 论文排版 → 论文评审
 // 每步：左侧输入表单 + 右侧产物（Markdown），「生成」按钮调用模型并保存产物；
 // 产物与设置按论文项目持久化（localStorage），生成记录落在该项目专属会话里。
-// [论文助手定制] 可拖拽布局：左侧侧边栏宽度可用分割手柄拖拽调整（180~360px），
-// 右侧「表单 | 产物」的宽度分割在 thesis-workflow-ui.tsx 的 StepLayout 里同样可拖拽。
+// [论文助手定制] GitHub 式扁平布局：左侧固定宽度侧边栏（220px，可收起）+ 右侧当前步骤全宽产物，
+// 各步骤的配置面板为浮窗（见 step-*.tsx），产物/会话/并列切换在 StepProductPanel 的 tab 栏。
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useNavigate } from "@solidjs/router"
 import { createMemo, createSignal, onMount, Show } from "solid-js"
@@ -95,17 +95,18 @@ function ThesisWorkbenchInner() {
   )
 
   return (
-    // [论文助手定制] 外层容器与主页卡片一致（self-stretch 撑满主区域宽度、圆角卡片浮在深色底上），
-    // 顶部栏已删除（主页/标题/资料/生成记录集中到左侧边栏），布局为：侧边栏 + 当前步骤内容。
-    <div class="m-1.5 min-h-0 flex-1 self-stretch overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)] md:m-2">
-      <div class="flex size-full min-h-0 min-w-0 gap-1.5 overflow-hidden p-1.5 md:gap-2 md:p-2">
+    // [论文助手定制] GitHub 式扁平外壳：与主页同一套纯色页面 + 1px 边框（不再用多层浮层卡片），
+    // 内部为「侧边栏 | 当前步骤内容」两块，侧边栏与内容之间以 1px 竖线分隔。
+    // 顶部栏已删除（主页/标题/资料/生成记录集中到左侧边栏）。
+    <div class="workbench-page m-1.5 flex min-h-0 flex-1 self-stretch overflow-hidden rounded-[10px] border workbench-border md:m-2">
+      <div class="flex size-full min-h-0 min-w-0 overflow-hidden">
         {/* [论文助手定制] 左侧侧边栏：四步切换 + 顶部（主页/标题）+ 底部工具（资料/生成记录）。
             固定宽度 220px（max-w-full 保证窄屏不溢出），不再挂拖拽手柄——画布宽度保持稳定；
             可收起：点顶部「收起」按钮折叠，折叠时换成一列「展开」按钮。 */}
         <Show
           when={!collapsed()}
           fallback={
-            <div class="flex min-h-0 shrink-0 flex-col items-center gap-1 rounded-[10px] bg-v2-background-bg-base p-1 shadow-[var(--v2-elevation-raised)]">
+            <div class="workbench-subtle flex min-h-0 w-10 shrink-0 flex-col items-center gap-1 border-r workbench-border py-1.5">
               <IconButton
                 type="button"
                 icon="chevron-double-right"
@@ -117,7 +118,7 @@ function ThesisWorkbenchInner() {
             </div>
           }
         >
-          <div class="flex min-h-0 w-[220px] max-w-full shrink-0">
+          <div class="workbench-page flex min-h-0 w-[220px] max-w-full shrink-0 border-r workbench-border">
             <ThesisStepSidebar
               title={title()}
               hasProject={!!project()}

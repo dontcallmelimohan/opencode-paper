@@ -4,6 +4,8 @@ import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { useTheme } from "@opencode-ai/ui/theme/context"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { getFilename } from "@opencode-ai/core/util/path"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import { CheckboxV2 } from "@opencode-ai/ui/v2/checkbox-v2"
@@ -19,7 +21,7 @@ import { downloadBlob } from "./thesis-manuscript-preview"
 import type { InputSource, StepKey, StepStatus } from "./thesis-workflow-store"
 import { useThesisWorkflow } from "./thesis-workflow-store"
 import { ThesisSessionView } from "./thesis-session-view"
-import { resolveMarkdownImages } from "./thesis-assets"
+import { cachedDataUrl, ensureFigureDataUrls, resolveMarkdownImages } from "./thesis-assets"
 import { absolutePath, waitForAssistantReply } from "./thesis-generator"
 import { ThesisEditor, normalizeInlineAiReplacement, shouldKeepAiReplacementInline } from "./thesis-editor"
 import type { ThesisEditorApi, ThesisEditorSelection } from "./thesis-editor"
@@ -230,6 +232,7 @@ export function StepProductPanel(props: {
   } = useThesisWorkflow()
   const sdk = useSDK()
   const sync = useSync()
+  const theme = useTheme()
   const queryClient = useQueryClient()
   // [论文助手定制] 文稿文件化：编辑保存 / 接受建议时落盘到项目根目录 <step>.md（与「存为当前文稿」同一链路）。
   const manuscript = useThesisManuscriptFile(props.manuscript?.directory ?? sdk().directory)
@@ -256,6 +259,16 @@ export function StepProductPanel(props: {
   // 保证文件空间里的文本文件保存后，画布/预览能重新读到新内容。
   const [docsVersion, setDocsVersion] = createSignal(0)
   const manuscriptPath = () => (props.manuscript ? MANUSCRIPT_FILENAMES[props.manuscript.step] : null)
+
+  // [论文助手定制] 通用（游离）会话上下文：displaySessionID 指向的不是任何板块专属会话时，
+  // 视为不在任何板块——与侧边栏四板块不高亮一致，画布标题也不再显示板块文案。
+  const boardlessSession = () => {
+    const id = state().displaySessionID
+    return !!id && !(["outline", "writing", "formatting", "review"] as const).some((key) => state().steps[key].sessionID === id)
+  }
+  // [论文助手定制] 画布标题：通用会话下不显示任何板块相关文案（文件下拉里已能看到文件名），
+  // 直接留空，避免误导“停在某个板块”。
+  const canvasTitle = () => (boardlessSession() ? "" : props.title)
   const draftForPath = (path: string | null | undefined) => (path ? drafts()[path] : undefined)
 
   // [论文助手定制] 文件下拉条目：合并根目录与 docs/ 目录下的 .md/.txt 文本文件；
@@ -742,6 +755,16 @@ export function StepProductPanel(props: {
     window.addEventListener("pointerup", onUp)
   }
 
+  // [论文助手定制] Milkdown 编辑器 asset:// 插图显示层 loader：把 asset://materials/xx.png
+  // 按项目根目录读成本机 data URL（写入编辑器 DOM 的 img.src，不改文档里的 Markdown 原文）。
+  const editorAssetLoader = async (src: string) => {
+    const dir = props.manuscript?.directory
+    const ref = src.startsWith("asset://") ? src.slice("asset://".length) : ""
+    if (!dir || !ref) return undefined
+    await ensureFigureDataUrls(sdk(), dir, [ref])
+    return cachedDataUrl(dir, ref) || undefined
+  }
+
   // [论文助手定制] 会话面板（全宽会话 / 并列右侧复用）：透传板块标识 + 配置浮窗开合状态与回调。
   const SessionPane = () => (
     <div class="min-h-0 flex-1 overflow-hidden">
@@ -858,6 +881,7 @@ export function StepProductPanel(props: {
                       >
                         <ThesisEditor
                           initialMd={currentText() ?? ""}
+                          resolveAssetUrl={editorAssetLoader}
                           onMdChange={handleEditorChange}
                           onSelectionChange={handleSelection}
                           onReady={() => setHistoryVersion((v) => v + 1)}
@@ -1051,29 +1075,31 @@ export function StepProductPanel(props: {
   )
 
   return (
-    // [论文助手定制] 画布宽度：max-w-7xl（1280px）居中，宽屏下给文稿更充足的编辑空间；
-    // 窄屏自动占满（w-full）。
-    <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]">
+    // [论文助手定制] GitHub 式扁平产物面板：整块产品区铺满内容列（不再嵌套浮层卡片/阴影），
+    // 顶部标题行收纳标题、状态、动作与「文稿/并列/会话」切换（细边框分段按钮），正文直接渲染在页面底色上。
+    <div class="workbench-page flex h-full min-h-0 w-full flex-col overflow-hidden">
       {/* [论文助手定制] 标题栏响应式：窄屏时允许换行（flex-wrap），标题截断不挤压右侧操作区，
           操作区整体右对齐（ml-auto），窄屏自动折到下一行，避免控件横向溢出。 */}
       <div class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2">
-        <span class="min-w-0 max-w-full truncate text-13-medium text-v2-text-text-base">{props.title}</span>
+        <span class="min-w-0 max-w-full truncate text-13-medium text-v2-text-text-base">{canvasTitle()}</span>
         <span>
           <Show
             when={props.status === "done"}
             fallback={
               <Show when={props.status === "generating"}>
-                <span class="rounded-full bg-v2-state-bg-info px-2 py-0.5 text-10-medium text-v2-text-text-accent">生成中…</span>
+                <span class="flex items-center gap-1 rounded-full border workbench-border px-2 py-0.5 text-10-medium workbench-accent-text">
+                  <span class="size-2 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
+                  生成中…
+                </span>
               </Show>
             }
           >
-            <span class="flex items-center gap-1 rounded-full bg-v2-state-bg-info px-2 py-0.5 text-10-medium text-v2-text-text-accent">
+            <span class="flex items-center gap-1 rounded-full border workbench-border px-2 py-0.5 text-10-medium workbench-accent-text">
               <Icon name="circle-check" size="small" /> 已完成
             </span>
           </Show>
         </span>
-        {/* [论文助手定制] 右侧操作区：动作插槽 + 导出 + 文件下拉 + 文稿/会话切换。
-            窄屏整组换行右对齐；文件下拉宽度自适应（w-36，md 及以上恢复 w-44）。 */}
+        {/* [论文助手定制] 右侧操作区：动作插槽 + 导出 + 文稿文件下拉 + 文稿/并列/会话切换，全部收在同一行。 */}
         <div class="ml-auto flex min-w-0 flex-wrap items-center gap-2">
           {/* [论文助手定制] 标题栏动作插槽：与状态徽章同一行右侧区，保持 shrink-0。
               各 step 传「生成/重新生成」主按钮 +「配置」按钮（配置面板浮窗化的高频入口）。 */}
@@ -1118,13 +1144,12 @@ export function StepProductPanel(props: {
               </DropdownMenu.Portal>
             </DropdownMenu>
           </Show>
-          {/* [论文助手定制] 文稿文件切换（画布文件唯一入口）：默认当前板块文稿文件（提纲.md 等），
-              可切换到文件空间里其它 .md/.txt 文本文件查看/编辑（docs/ 独立文档可编辑，其余只读）。
-              不再有独立的「产物」下拉，避免两个选框重复。 */}
+          {/* [论文助手定制] 视图切换（文稿/并列/会话）+ 文稿文件下拉都收进标题行，不单独占行；
+              窄屏放不下时整组换行到下一行右侧。 */}
           <Show when={!props.documentOverride && props.manuscript && textFiles.data && textFiles.data.length > 0}>
             <select
               ref={fileSelectRef}
-              class="h-7 w-36 min-w-0 max-w-full shrink-0 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none sm:w-44"
+              class="h-7 w-36 min-w-0 max-w-full shrink-0 rounded-md border workbench-border bg-v2-background-bg-base px-1.5 text-11-regular text-v2-text-text-base focus:outline-none sm:w-44"
               value={viewPath() ?? currentPath() ?? ""}
               onChange={(event) => {
                 setViewPath(event.currentTarget.value || null)
@@ -1140,56 +1165,66 @@ export function StepProductPanel(props: {
               </For>
             </select>
           </Show>
-          {/* [论文助手定制] 渲染即编辑：不再有「编辑」按钮——完成态默认就是 Milkdown 编辑器，
-              选中文字直接出 AI 操作条；文件切换（查看文件空间其它文本）时切换为只读渲染。 */}
-          {/* [论文助手定制] 视图切换：文稿（单栏画布）/ 并列（左文稿右会话）/ 会话（单栏聊天）。 */}
-          <div class="flex shrink-0 items-center gap-0.5 rounded-md bg-v2-background-bg-layer-01 p-0.5">
+          {/* [论文助手定制] 亮暗切换：与主页同款 ghost 图标按钮，放在「文稿/并列/会话」分段切换左边。 */}
+          <TooltipV2 placement="bottom" value={theme.mode() === "dark" ? "切换为亮色模式" : "切换为暗色模式"}>
+            <IconButton
+              type="button"
+              data-action="workbench-theme-toggle"
+              icon={theme.mode() === "dark" ? "sun" : "moon"}
+              size="normal"
+              variant="ghost"
+              aria-label={theme.mode() === "dark" ? "切换为亮色模式" : "切换为暗色模式"}
+              onClick={() => theme.setColorScheme(theme.mode() === "dark" ? "light" : "dark")}
+            />
+          </TooltipV2>
+          {/* [论文助手定制] GitHub 式分段切换：细边框分组，激活项浅灰底 + 蓝色文字。 */}
+          <div class="flex h-7 shrink-0 items-center overflow-hidden rounded-md border workbench-border">
             <button
               type="button"
-              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
+              class="flex h-full cursor-pointer items-center border-r workbench-border px-2 text-12-medium transition-colors last:border-r-0"
               classList={{
-                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "document",
-                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "document",
+                "workbench-subtle workbench-accent-text": view() === "document",
+                "text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base":
+                  view() !== "document",
               }}
               onClick={() => {
+                // [论文助手定制] 视图切换保留当前会话：不再清 displaySessionID，
+                // 会话视图 ↔ 并列不会跳回「板块专属会话」（清空只在切换板块 setActiveStep 时发生）。
                 setProductView("document")
-                setDisplaySession(null)
               }}
             >
               文稿
             </button>
             <button
               type="button"
-              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
+              class="flex h-full cursor-pointer items-center border-r workbench-border px-2 text-12-medium transition-colors last:border-r-0"
               classList={{
-                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "split",
-                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "split",
+                "workbench-subtle workbench-accent-text": view() === "split",
+                "text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base":
+                  view() !== "split",
               }}
               onClick={() => {
                 setProductView("split")
-                setDisplaySession(null)
               }}
             >
               并列
             </button>
             <button
               type="button"
-              class="cursor-pointer rounded px-2 py-1 text-12-medium transition-colors"
+              class="flex h-full cursor-pointer items-center border-r workbench-border px-2 text-12-medium transition-colors last:border-r-0"
               classList={{
-                "bg-v2-background-bg-base text-v2-text-text-accent shadow-[var(--v2-elevation-raised)]": view() === "session",
-                "text-v2-text-text-muted hover:text-v2-text-text-base": view() !== "session",
+                "workbench-subtle workbench-accent-text": view() === "session",
+                "text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base":
+                  view() !== "session",
               }}
               onClick={() => {
                 setProductView("session")
-                setDisplaySession(null)
               }}
             >
               会话
             </button>
           </div>
         </div>
-        {/* [论文助手定制] 配置入口已移到侧边栏顶部，不再在产物标题栏重复出现；
-            这样配置始终与左侧面板的层级一致，且收起状态不再留下额外占位。 */}
       </div>
       <Show
         when={view() === "split"}
@@ -1200,7 +1235,7 @@ export function StepProductPanel(props: {
           >
             <DocumentPane />
             <Show when={props.footer}>
-              <div class="flex shrink-0 items-center justify-end gap-2 border-t border-v2-border-border-base px-3 py-2">{props.footer}</div>
+              <div class="flex shrink-0 items-center justify-end gap-2 border-t workbench-border px-3 py-2">{props.footer}</div>
             </Show>
           </Show>
         }
@@ -1211,7 +1246,7 @@ export function StepProductPanel(props: {
               <DocumentPane />
             </div>
             <Show when={props.footer}>
-              <div class="flex shrink-0 items-center justify-end gap-2 border-t border-v2-border-border-base px-3 py-2">{props.footer}</div>
+              <div class="flex shrink-0 items-center justify-end gap-2 border-t workbench-border px-3 py-2">{props.footer}</div>
             </Show>
           </div>
           {/* [论文助手定制] 并列分割条：拖拽调整右侧会话面板宽度（320~640px，localStorage 记忆）。 */}
@@ -1220,7 +1255,7 @@ export function StepProductPanel(props: {
             onPointerDown={startSplitResize}
             title="拖拽调整会话宽度"
           />
-          <div class="flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-v2-border-border-base" style={{ width: `${splitWidth()}px` }}>
+          <div class="flex min-h-0 shrink-0 flex-col overflow-hidden border-l workbench-border" style={{ width: `${splitWidth()}px` }}>
             <SessionPane />
           </div>
         </div>
