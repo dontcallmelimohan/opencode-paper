@@ -48,13 +48,34 @@ const SkillInstallBody = Schema.Struct({
   prompt: Schema.optional(Schema.String),
 })
 
+// [论文助手定制] Skill 列表额外返回 kind（脚本/MCP/资源/知识，HTTP 层按包内文件推断），
+// 供 Skill 管理页展示类型徽标与删除影响提示。
+const SkillInfoWithKind = Schema.Struct({
+  name: Schema.String,
+  description: Schema.optional(Schema.String),
+  location: Schema.String,
+  content: Schema.String,
+  // [论文助手定制] 技能可作子代理：SKILL.md frontmatter subagent: true 时返回 true，
+  // 供 Skill 管理页展示/切换“可作为子代理执行”。
+  subagent: Schema.optional(Schema.Boolean),
+  kind: Schema.optional(
+    Schema.Union([
+      Schema.Literal("script"),
+      Schema.Literal("mcp"),
+      Schema.Literal("resource"),
+      Schema.Literal("knowledge"),
+    ]),
+  ),
+})
+
 const SkillInstallDirectoryBody = Schema.Struct({
   directory: Schema.String,
 })
 
 const SkillInstallResult = Schema.Struct({
-  agent: Agent.Info,
-  skill: Skill.Info,
+  // [论文助手定制] Skill 只作为技能存在（会话 @ 引用），不再生成同名 agent，故 agent 可为空。
+  agent: Schema.optional(Agent.Info),
+  skill: SkillInfoWithKind,
 })
 
 // [论文助手定制] Skill 管理：卸载（删除全局 skills/<name> 目录与 agent/<name>.md）。
@@ -83,6 +104,12 @@ const SkillUpdateBody = Schema.Struct({
   description: Schema.optional(Schema.String),
   content: Schema.optional(Schema.String),
   prompt: Schema.optional(Schema.String),
+})
+
+// [论文助手定制] Skill 管理：切换“可作为子代理执行”（写入 SKILL.md frontmatter 的 subagent 字段）。
+export const SkillSubagentBody = Schema.Struct({
+  name: Schema.String,
+  enabled: Schema.Boolean,
 })
 
 const ThesisCreateBody = Schema.Struct({
@@ -257,6 +284,7 @@ export const InstancePaths = {
   skillUninstall: "/skill/uninstall",
   skillInstallZip: "/skill/install-zip",
   skillUpdate: "/skill/update",
+  skillSubagent: "/skill/subagent",
   thesisCreate: "/thesis/create",
   thesisUpload: "/thesis/upload",
   thesisMkdir: "/thesis/mkdir",
@@ -376,7 +404,7 @@ export const InstanceApi = HttpApi.make("instance")
         ),
         HttpApiEndpoint.get("skill", InstancePaths.skill, {
           query: WorkspaceRoutingQuery,
-          success: described(Schema.Array(Skill.Info), "List of skills"),
+          success: described(Schema.Array(SkillInfoWithKind), "List of skills"),
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "app.skills",
@@ -409,7 +437,7 @@ export const InstanceApi = HttpApi.make("instance")
               "Copies the whole skill folder (SKILL.md, manifest.yaml, references, static) into the global skills directory, then creates its agent.",
           }),
         ),
-        // [论文助手定制] Skill 管理：卸载（删除全局 skill 目录与同名 agent 配置）。
+        // [论文助手定制] Skill 管理：卸载（删除全局 skill 目录；如残留同名 agent 一并删除）。
         HttpApiEndpoint.post("skillUninstall", InstancePaths.skillUninstall, {
           query: WorkspaceRoutingQuery,
           payload: SkillUninstallBody,
@@ -422,7 +450,7 @@ export const InstanceApi = HttpApi.make("instance")
             description: "Deletes the global skill directory and the agent config, then reloads agents and skills.",
           }),
         ),
-        // [论文助手定制] Skill 管理：zip 安装（前端解压 zip 后以文件树形式上传，后端写盘并创建 agent）。
+        // [论文助手定制] Skill 管理：zip 安装（前端解压 zip 后以文件树形式上传，后端整包写盘）。
         HttpApiEndpoint.post("skillInstallZip", InstancePaths.skillInstallZip, {
           query: WorkspaceRoutingQuery,
           payload: SkillInstallZipBody,
@@ -435,7 +463,7 @@ export const InstanceApi = HttpApi.make("instance")
             description: "Writes the given file tree under the global skills directory, then creates its agent.",
           }),
         ),
-        // [论文助手定制] Skill 管理：编辑（改名称/简介/内容，改名时重命名 skill 目录与 agent 文件）。
+        // [论文助手定制] Skill 管理：编辑（改名称/简介/内容，改名时重命名 skill 目录）。
         HttpApiEndpoint.post("skillUpdate", InstancePaths.skillUpdate, {
           query: WorkspaceRoutingQuery,
           payload: SkillUpdateBody,
@@ -447,6 +475,21 @@ export const InstanceApi = HttpApi.make("instance")
             summary: "Update a skill and its agent",
             description:
               "Updates the skill's SKILL.md metadata/content and its agent config; renames the skill directory and agent file when the name changes.",
+          }),
+        ),
+        // [论文助手定制] Skill 管理：切换“可作为子代理执行”。开启后该技能会被动态注册为
+        // mode: subagent 的执行代理（可被 task 工具调度，不出现在主会话 agent 列表）。
+        HttpApiEndpoint.post("skillSubagent", InstancePaths.skillSubagent, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillSubagentBody,
+          success: described(SkillInstallResult, "Updated skill subagent flag"),
+          error: ApiSkillInstallError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "instance.skillSubagent",
+            summary: "Toggle whether a skill can run as a subagent",
+            description:
+              "Writes the subagent flag into the skill's SKILL.md frontmatter, then reloads skills and agents so the skill is (or is no longer) registered as a task-dispatchable subagent.",
           }),
         ),
         HttpApiEndpoint.post("thesisCreate", InstancePaths.thesisCreate, {

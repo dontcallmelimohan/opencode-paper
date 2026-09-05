@@ -7,6 +7,7 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Global } from "@opencode-ai/core/global"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { which } from "@opencode-ai/core/util/which"
+import { readdirSync, statSync } from "node:fs"
 import { Git } from "@/git"
 import { LSP } from "@/lsp/lsp"
 import { Project } from "@/project/project"
@@ -25,6 +26,7 @@ import {
   ThesisExportDocxBody,
   ThesisMkdirBody,
   ThesisSaveManuscriptBody,
+  SkillSubagentBody,
   ThesisWriteFileBody,
 } from "../groups/instance"
 import { applyDocxTemplate, markdownToDocx } from "../thesis-docx"
@@ -107,8 +109,48 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* agent.list()
     })
 
+    // [论文助手定制] skill 类型推断（HTTP 层）：按包内真实文件扫描，
+    // 供 Skill 管理页徽标与删除影响提示使用，不改动 skill 服务本身的 Info。
+    const SKILL_KIND_RESOURCE_DIRS = new Set([
+      "templates",
+      "static",
+      "references",
+      "evals",
+      "examples",
+      "assets",
+      "resources",
+    ])
+    const thesisSkillKind = (
+      location: string,
+      content: string,
+    ): "script" | "mcp" | "resource" | "knowledge" | undefined => {
+      const root = path.dirname(location)
+      if (!root.startsWith("/")) return undefined
+      try {
+        if (!statSync(root).isDirectory()) return undefined
+      } catch {
+        return undefined
+      }
+      let entries: string[] = []
+      try {
+        entries = readdirSync(root)
+      } catch {
+        entries = []
+      }
+      let hasResources = false
+      for (const entry of entries) {
+        const name = entry.split("/")[0] ?? entry
+        if (name === "scripts" || /\.(py|sh|rb|pl|js|cjs|mjs)$/.test(name)) return "script"
+        if (SKILL_KIND_RESOURCE_DIRS.has(name)) hasResources = true
+      }
+      if (hasResources) return "resource"
+      if (/\bmcp__\w/.test(content)) return "mcp"
+      return "knowledge"
+    }
+
     const getSkill = Effect.fn("InstanceHttpApi.skill")(function* () {
-      return yield* skill.all()
+      const list = yield* skill.all()
+      return list.map((item) => ({ ...item, kind: thesisSkillKind(item.location, item.content) }))
     })
 
     const skillInstallError = (message: string) =>
@@ -118,28 +160,27 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       yield* config.invalidateAll()
       yield* agent.reloadAll()
       yield* skill.reloadAll()
-      const installed = (yield* agent.list()).find((item) => item.name === name)
       const installedSkill = (yield* skill.all()).find((item) => item.name === name)
-      if (!installed || !installedSkill) {
+      if (!installedSkill) {
         return yield* Effect.fail(
           skillInstallError(`Installed "${name}" but it is not visible yet; restart the server to pick it up.`),
         )
       }
-      return { agent: installed, skill: installedSkill }
+      // [论文助手定制] Skill 只作为技能存在：不创建/返回同名 agent。
+      return { agent: undefined, skill: installedSkill }
     })
 
     const installSkill = Effect.fn("InstanceHttpApi.skillInstall")(function* (ctx: {
       payload: { name: string; description?: string; content: string; prompt?: string }
     }) {
-      const { name, description, content, prompt } = ctx.payload
+      const { name, description, content } = ctx.payload
       const trimmed = name.trim()
       if (!/^[\p{L}\p{N}_-]+$/u.test(trimmed) || trimmed.startsWith(".")) {
         return yield* Effect.fail(skillInstallError(`Invalid skill name: "${name}". Use letters, numbers, _ or -`))
       }
 
-      // Install globally so the skill and its agent are available in every project.
+      // Install globally so the skill is available in every project（只写 skill，不再创建同名 agent）。
       const skillPath = path.join(Global.Path.config, "skills", trimmed, "SKILL.md")
-      const agentPath = path.join(Global.Path.config, "agent", `${trimmed}.md`)
       const frontmatter = `---\nname: ${trimmed}\ndescription: ${description ?? ""}\n---\n\n`
 
       const writeError = (error: unknown) =>
@@ -149,14 +190,6 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
         })
       yield* fs
         .writeWithDirs(skillPath, frontmatter + content + "\n")
-        .pipe(Effect.mapError(writeError))
-      yield* fs
-        .writeWithDirs(
-          agentPath,
-          `---\nmode: primary\ndescription: ${description ?? ""}\n---\n\n${
-            prompt ?? `You are the ${trimmed} agent. Always follow the instructions in the ${trimmed} skill to complete the user's request.`
-          }\n`,
-        )
         .pipe(Effect.mapError(writeError))
 
       return yield* finalizeSkillInstall(trimmed)
@@ -218,7 +251,6 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
           skillInstallError(`无法从文件夹识别有效的 skill 名称（仅支持字母、数字、下划线和短横线）: ${path.basename(source)}`),
         )
       }
-      const description = readFrontmatter("description") ?? readManifest("description")
 
       const writeError = (error: unknown) =>
         skillInstallError(
@@ -228,12 +260,6 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       yield* fs.makeDirectory(path.dirname(target), { recursive: true }).pipe(Effect.catch(() => Effect.void))
       yield* fs.remove(target, { recursive: true }).pipe(Effect.catch(() => Effect.void))
       yield* fs.copy(source, target, { overwrite: true }).pipe(Effect.mapError(writeError))
-      yield* fs
-        .writeWithDirs(
-          path.join(Global.Path.config, "agent", `${name}.md`),
-          `---\nmode: primary\ndescription: ${description ?? ""}\n---\n\nYou are the ${name} agent. Always follow the instructions in the ${name} skill to complete the user's request.\n`,
-        )
-        .pipe(Effect.mapError(writeError))
       return yield* finalizeSkillInstall(name)
     })
 
@@ -262,7 +288,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const installSkillZip = Effect.fn("InstanceHttpApi.skillInstallZip")(function* (ctx: {
       payload: { name: string; description?: string; files: readonly { readonly path: string; readonly content: string }[] }
     }) {
-      const { name, description, files } = ctx.payload
+      const { name, files } = ctx.payload
       const trimmed = name.trim()
       if (!/^[\p{L}\p{N}_-]+$/u.test(trimmed) || trimmed.startsWith(".")) {
         return yield* Effect.fail(skillInstallError(`Invalid skill name: "${name}". Use letters, numbers, _ or -`))
@@ -285,12 +311,6 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
         const filePath = path.join(target, file.path)
         yield* fs.writeWithDirs(filePath, file.content).pipe(Effect.mapError(writeError))
       }
-      yield* fs
-        .writeWithDirs(
-          path.join(Global.Path.config, "agent", `${trimmed}.md`),
-          `---\nmode: primary\ndescription: ${description ?? ""}\n---\n\nYou are the ${trimmed} agent. Always follow the instructions in the ${trimmed} skill to complete the user's request.\n`,
-        )
-        .pipe(Effect.mapError(writeError))
       return yield* finalizeSkillInstall(trimmed)
     })
 
@@ -356,25 +376,44 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
         .writeWithDirs(path.join(Global.Path.config, "skills", newName, "SKILL.md"), skillText)
         .pipe(Effect.mapError(writeError))
 
-      // agent 配置：同步简介与 prompt；改名时删除旧 agent 文件。
-      const agentPath = path.join(Global.Path.config, "agent", `${name}.md`)
-      const existingAgent = yield* fs.readFileStringSafe(agentPath).pipe(Effect.catch(() => Effect.succeed(undefined)))
-      const agentBody = existingAgent?.replace(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/, "")?.trim()
-      const prompt = ctx.payload.prompt?.trim() || agentBody?.trim()
-      yield* fs
-        .writeWithDirs(
-          path.join(Global.Path.config, "agent", `${newName}.md`),
-          `---\nmode: primary\ndescription: ${description ?? ""}\n---\n\n${
-            prompt ??
-            `You are the ${newName} agent. Always follow the instructions in the ${newName} skill to complete the user's request.`
-          }\n`,
+      return yield* finalizeSkillInstall(newName)
+    })
+
+    // [论文助手定制] Skill 管理：切换“可作为子代理执行”。在全局 skills/<name>/SKILL.md 的
+    // frontmatter 里写入/移除 subagent 字段，随后重载 skill 与 agent：
+    // 开启后 agent 层会把它动态注册为 mode: subagent 的执行代理，可被 task 工具调度。
+    const setSkillSubagent = Effect.fn("InstanceHttpApi.skillSubagent")(function* (ctx: {
+      payload: Schema.Schema.Type<typeof SkillSubagentBody>
+    }) {
+      const name = ctx.payload.name.trim()
+      if (!/^[\p{L}\p{N}_-]+$/u.test(name) || name.startsWith(".")) {
+        return yield* Effect.fail(skillInstallError(`Invalid skill name: "${name}". Use letters, numbers, _ or -`))
+      }
+      const skillDir = path.join(Global.Path.config, "skills", name)
+      const skillPath = path.join(skillDir, "SKILL.md")
+      const existing = yield* fs.readFileStringSafe(skillPath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (existing === undefined) {
+        return yield* Effect.fail(
+          skillInstallError(`Skill「${name}」不在全局技能目录中，无法切换子代理开关（仅支持管理自定义 Skill）`),
         )
-        .pipe(Effect.mapError(writeError))
-      if (newName !== name) {
-        yield* fs.remove(agentPath).pipe(Effect.catch(() => Effect.void))
       }
 
-      return yield* finalizeSkillInstall(newName)
+      const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(existing)
+      const body = fm ? existing.slice(fm[0].length) : existing
+      const lines = (fm?.[1] ?? "").length > 0 ? (fm?.[1] ?? "").split("\n") : []
+      const subagentIndex = lines.findIndex((line) => /^subagent:\s*/i.test(line))
+      if (ctx.payload.enabled) {
+        if (subagentIndex >= 0) lines[subagentIndex] = "subagent: true"
+        else lines.push("subagent: true")
+      } else if (subagentIndex >= 0) {
+        lines.splice(subagentIndex, 1)
+      }
+      const skillText = `---\n${lines.join("\n")}\n---\n\n${body}`
+
+      yield* fs
+        .writeWithDirs(skillPath, skillText)
+        .pipe(Effect.mapError((error) => skillInstallError(`Failed to write skill files: ${String(error)}`)))
+      return yield* finalizeSkillInstall(name)
     })
 
     const thesisError = (message: string) =>
@@ -739,7 +778,8 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
 .handle("skillUninstall", uninstallSkill)
      .handle("skillInstallZip", installSkillZip)
      .handle("skillUpdate", updateSkill)
-      .handle("thesisCreate", createThesis)
+     .handle("skillSubagent", setSkillSubagent)
+     .handle("thesisCreate", createThesis)
       .handle("thesisUpload", uploadThesisFile)
       .handle("thesisMkdir", mkdirThesis)
       .handle("thesisWriteFile", writeThesisFile)

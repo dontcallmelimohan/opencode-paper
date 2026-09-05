@@ -7,6 +7,7 @@ import "@/server/event"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { described } from "./metadata"
+import { InvalidRequestError } from "../errors"
 
 const GlobalHealth = Schema.Struct({
   healthy: Schema.Literal(true),
@@ -61,6 +62,20 @@ const GlobalUpgradeResult = Schema.Union([
     error: Schema.String,
   }),
 ])
+
+// [论文助手定制] AI 生图（智谱 GLM-Image / CogView）：全局配置里名为「生图」的 provider
+// （OpenAI 兼容 images/generations）。key 只留在服务端，前端只拿到生成的 base64。
+export const ThesisImageGenerateInput = Schema.Struct({
+  prompt: Schema.String,
+  size: Schema.optional(Schema.String),
+  model: Schema.optional(Schema.String),
+})
+
+export const ThesisImageGenerateResult = Schema.Struct({
+  b64: Schema.String,
+  model: Schema.String,
+  mediaType: Schema.String,
+})
 
 export const GlobalPaths = {
   health: "/global/health",
@@ -120,6 +135,18 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.modelApi.remove",
           summary: "Remove a configured model API provider",
           description: "Remove a provider entry from the global configuration (模型 API 配置管理).",
+        }),
+      ),
+
+      HttpApiEndpoint.post("imageGenerate", "/thesis/image/generate", {
+        payload: ThesisImageGenerateInput,
+        success: described(ThesisImageGenerateResult, "Generated image as base64 PNG"),
+        error: InvalidRequestError,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.thesis.image.generate",
+          summary: "Generate an image via the configured image provider",
+          description: "论文助手定制：调用全局配置中「生图」provider（智谱 GLM-Image 等）生成图片，返回 base64。",
         }),
       ),
       HttpApiEndpoint.post("dispose", GlobalPaths.dispose, {

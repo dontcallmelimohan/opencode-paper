@@ -99,10 +99,21 @@ const layer = Layer.effect(
         if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
         const list = yield* skill.available(agent)
+        const hasDelegatable = list.some((item) => item.subagent === true)
 
         return [
           "Skills provide specialized instructions and workflows for specific tasks.",
           "Use the skill tool to load a skill when a task matches its description.",
+          // [论文助手定制] 只有标记 <subagent>true</subagent> 的技能才允许用 task 工具派发：
+          // 防止模型把普通技能名录误当成 subagent_type（task 工具只认 agent，不认技能）。
+          ...(hasDelegatable
+            ? [
+                "Skills whose <skill> entry contains <subagent>true</subagent> can also be delegated as subagents when the task is long-running, tool-heavy and self-contained: call the task tool with subagent_type set to that skill name, and put ALL required context into the task prompt (the subagent starts with a fresh context).",
+                "Skills WITHOUT that marker must never be used as subagent_type — execute them inline in the current session.",
+              ]
+            : [
+                "None of the available skills can be used as a subagent: never pass a skill name as the task tool's subagent_type — execute the skill inline in the current session instead.",
+              ]),
           // the agents seem to ingest the information about skills a bit better if we present a more verbose
           // version of them here and a less verbose version in tool description, rather than vice versa.
           Skill.fmt(list, { verbose: true }),

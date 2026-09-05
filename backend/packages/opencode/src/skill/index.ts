@@ -39,6 +39,9 @@ export const Info = Schema.Struct({
   description: Schema.optional(Schema.String),
   location: Schema.String,
   content: Schema.String,
+  // [论文助手定制] 技能可作子代理：SKILL.md frontmatter 含 subagent: true 时，
+  // agent 层会把它动态注册为 mode: subagent 的执行代理（可被 task 工具调度）。
+  subagent: Schema.optional(Schema.Boolean),
 })
 export type Info = Schema.Schema.Type<typeof Info>
 
@@ -133,11 +136,13 @@ const add = Effect.fnUntraced(function* (state: State, match: string, events: Ev
   }
 
   state.dirs.add(path.dirname(match))
+  const frontmatter = md.data as { name: string; description?: string; subagent?: unknown }
   state.skills[md.data.name] = {
-    name: md.data.name,
-    description: md.data.description,
+    name: frontmatter.name,
+    description: frontmatter.description,
     location: match,
     content: md.content,
+    subagent: frontmatter.subagent === true || frontmatter.subagent === "true",
   }
 })
 
@@ -343,6 +348,7 @@ export function fmt(list: Info[], opts: { verbose: boolean }) {
           `    <name>${skill.name}</name>`,
           `    <description>${skill.description}</description>`,
           `    <location>${escapeHtml(skill.location)}</location>`,
+          ...(skill.subagent === true ? [`    <subagent>true</subagent>`] : []),
           "  </skill>",
         ]),
       "</available_skills>",

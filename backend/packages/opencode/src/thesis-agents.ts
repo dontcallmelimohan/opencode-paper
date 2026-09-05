@@ -1,10 +1,9 @@
-// [论文助手定制] 论文工作台四个板块的固定 Agent：提纲助手 / 辅助写作 / 论文排版 / 论文评审。
+// [论文助手定制] 平台固定的角色 Agent：四个板块（提纲助手/辅助写作/论文排版/论文评审）+ 通用助手。
 // 每个板块绑定一个角色（谁来做），配置材料由文件空间 config/*.md 提供，用户按需在会话里 @skill 追加方法。
-// Agent 文件写入全局配置目录 Global.Path.config/agent/（与「技能管理」安装 Skill 时写 agent 的位置一致）。
-// 这四个 agent 是平台固定的板块角色（与 build/plan 等内置 agent 同级），平台启动时自动初始化并覆盖写入，
-// 保证各板块行为一致；用户如需定制行为，应通过 @skill 追加方法，而不是改这四个角色文件。
+// Agent 文件写入全局配置目录 Global.Path.config/agent/，平台启动时自动初始化并覆盖写入，保证各板块行为一致。
+// Skill 只作为技能存在（会话内 @ 引用），不再生成同名 agent；启动时顺带清理历史残留的同名 agent 文件。
 import { Global } from "@opencode-ai/core/global"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 const AGENTS: Record<string, string> = {
@@ -119,13 +118,13 @@ permission:
 `,
   "通用助手.md": `---
 name: 通用助手
-description: 中立助手：处理论文工作台四个板块之外的一般对话（提问、头脑风暴、方案讨论、文本润色等）。
+description: 通用论文助手：处理四个板块之外的自由对话（提问、头脑风暴、方案讨论、文本润色、文件整理等），具备完整读写与工具权限。
 mode: all
 permission:
-  edit: deny
-  bash: deny
-  webfetch: deny
-  websearch: deny
+  edit: allow
+  bash: allow
+  webfetch: allow
+  websearch: allow
   skill: allow
   task: allow
   read: allow
@@ -134,15 +133,26 @@ permission:
   list: allow
 ---
 
-你是「通用助手」，论文工作台中不归属四个板块（提纲/写作/排版/评审）的日常对话助手。
+你是「通用助手」，论文工作台中不归属四个板块（提纲/写作/排版/评审）的自由对话助手，拥有完整权限。
 
 工作方式：
 - 回答用户关于论文写作、研究思路、平台使用等各类问题；可进行头脑风暴、方案讨论、文本润色、内容整理。
-- 若用户消息里 @ 了文件空间的文件，可读取并基于其内容回答。
+- 若用户消息里 @ 了文件空间的文件，可读取并基于其内容回答；需要整理成文件时，可读写项目文件空间中的文件。
+- 可运行工具/脚本辅助处理（如生成图表数据、整理格式）；需要联网查证时使用联网工具。
 - 直接输出回答内容本身，不要输出寒暄或“以下是……”之类的前缀。
-- 不修改任何文件；不联网。
+- 修改文件前先说明将改动哪些文件，避免误覆盖用户已有内容。
 
-约束：只读文件与检索；不修改文件；不联网。
+论文图表绘制（环境已预装，禁止重复安装）：
+- 服务器已预装 Python3 + matplotlib + numpy，并装有 Noto CJK 中文字体，无需也不得执行 pip install / 下载字体 / apt 安装；若 import 报错请直接反馈报错，不要自行安装。
+- 绘制含中文的图表时，脚本开头必须显式注册中文字体，例如：
+    from matplotlib import font_manager as fm
+    fm.fontManager.addfont("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
+    import matplotlib.pyplot as plt
+    plt.rcParams["font.sans-serif"] = ["Noto Sans CJK SC", "Noto Sans CJK JP", "DejaVu Sans"]
+    plt.rcParams["axes.unicode_minus"] = False
+- 图表用学术风格（dpi≥200、坐标轴标签带单位、可读字号、黑白色盲友好配色），生成 PNG 直接保存到当前项目文件空间（项目根目录即「资料」，文件名如 fig-code-*.png），并把保存路径告诉用户；如需插入文稿，给出 ![图注](asset://materials/<文件名>) 引用行。
+
+约束：具备完整读写与工具权限；谨慎修改用户文件。
 `,
 }
 
@@ -153,5 +163,24 @@ export async function provisionThesisAgents(): Promise<void> {
   for (const [filename, content] of Object.entries(AGENTS)) {
     const target = path.join(dir, filename)
     await writeFile(target, content, "utf8")
+  }
+
+  // [论文助手定制] 清理“skill 同名 agent”历史残留：若 config/agent/<name>.md 与
+  // config/skills/<name>/ 目录同名且不属于平台固定角色，则删除该 agent 文件，
+  // 让 skill 只作为技能存在（清理失败不影响启动）。
+  try {
+    const skillsDir = path.join(Global.Path.config, "skills")
+    const skillNames = new Set(await readdir(skillsDir))
+    const files = await readdir(dir)
+    for (const file of files) {
+      if (!file.endsWith(".md")) continue
+      if (AGENTS[file]) continue
+      const base = file.slice(0, -3)
+      if (skillNames.has(base)) {
+        await rm(path.join(dir, file), { force: true })
+      }
+    }
+  } catch {
+    // 技能目录不存在等情况直接跳过，不做处理。
   }
 }

@@ -311,6 +311,40 @@ const layer = Layer.effect(
           )
         }
 
+        // [论文助手定制] Skill 可作子代理：SKILL.md frontmatter 含 subagent: true 的技能，
+        // 动态注册为 mode: subagent 的执行代理。它不进主会话的 agent 选择列表（UI/主循环会
+        // 过滤 subagent），但可以被 task 工具以 subagent_type=<技能名> 调度；
+        // 子代理开局会先加载技能说明再执行，保证技能内容始终与 SKILL.md 同步，无需重复落盘。
+        for (const skillInfo of yield* skill.available()) {
+          if (skillInfo.subagent !== true) continue
+          if (cfg.agent?.[skillInfo.name]?.disable) continue
+          if (agents[skillInfo.name]) continue
+          agents[skillInfo.name] = {
+            name: skillInfo.name,
+            description:
+              skillInfo.description ??
+              `按技能「${skillInfo.name}」执行任务的子代理。加载该技能后按其步骤工作。`,
+            mode: "subagent",
+            native: false,
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                todowrite: "deny",
+              }),
+              user,
+            ),
+            prompt: [
+              `你是技能「${skillInfo.name}」的执行子代理。`,
+              "工作方式：",
+              `- 第一步：调用 skill 工具加载名称为「${skillInfo.name}」的技能说明（技能内容与 Base directory 会随加载结果给出），之后严格遵循其中的步骤、脚本与输出约束。`,
+              "- 技能附属脚本/资源路径均相对技能的 Base directory；不要修改技能目录本身。",
+              "- 只完成父级任务描述里要求的工作，不擅自扩大范围；需要写文件时写入当前工作目录（论文文件空间）。",
+              "- 完成后只输出父级需要的最终结果（产物路径、关键结论等），不要附带过程性解释。",
+            ].join("\n"),
+          }
+        }
+
         const get = Effect.fnUntraced(function* (agent: string) {
           return agents[agent]
         })

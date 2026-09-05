@@ -11,7 +11,9 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
-import { GlobalUpgradeInput } from "../groups/global"
+import { GlobalUpgradeInput, ThesisImageGenerateInput } from "../groups/global"
+import { InvalidRequestError } from "../errors"
+import { Buffer } from "node:buffer"
 
 function eventData(data: unknown): Sse.Event {
   return {
@@ -98,6 +100,64 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       return removed
     })
 
+    // [论文助手定制] AI 生图：读全局配置 provider「生图」，调 OpenAI 兼容 images/generations，
+    // 下载返回的图片转 base64 交给前端（key 不出服务端）。
+    const imageGenerate = Effect.fn("GlobalHttpApi.imageGenerate")(function* (ctx: {
+      payload: typeof ThesisImageGenerateInput.Type
+    }) {
+      const info = yield* config.getGlobal()
+      const provider = info.provider?.["生图"]
+      const apiKey = provider?.options?.apiKey
+      const api = provider?.api
+      if (!apiKey || !api) {
+        return yield* new InvalidRequestError({
+          message: "未找到「生图」API 配置，请在 设置 → 模型 API 里添加名称为「生图」的接口",
+        })
+      }
+      const prompt = ctx.payload.prompt?.trim() ?? ""
+      if (!prompt) return yield* new InvalidRequestError({ message: "生图描述不能为空" })
+      const model = ctx.payload.model?.trim() || Object.keys(provider?.models ?? {})[0] || "GLM-Image"
+      const url = `${api.replace(/\/+$/, "")}/images/generations`
+      const result = yield* Effect.tryPromise({
+        try: async () => {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              prompt,
+              ...(ctx.payload.size ? { size: ctx.payload.size } : {}),
+            }),
+          })
+          if (!response.ok) {
+            const detail = (await response.text().catch(() => "")).slice(0, 500)
+            throw new InvalidRequestError({ message: `生图服务返回 ${response.status}：${detail}` })
+          }
+          const json = (await response.json()) as { data?: Array<{ url?: string }> }
+          const imageURL = json.data?.[0]?.url
+          if (!imageURL) throw new InvalidRequestError({ message: "生图服务未返回图片地址" })
+          const image = await fetch(imageURL)
+          if (!image.ok) throw new InvalidRequestError({ message: `下载生成的图片失败：HTTP ${image.status}` })
+          const bytes = Buffer.from(await image.arrayBuffer())
+          const declared = (image.headers.get("content-type") ?? "").split(";")[0].trim()
+          let mediaType = /^image\//.test(declared) ? declared : ""
+          if (!mediaType) {
+            if (bytes[0] === 0xff && bytes[1] === 0xd8) mediaType = "image/jpeg"
+            else if (bytes[0] === 0x89 && bytes[1] === 0x50) mediaType = "image/png"
+            else if (bytes[0] === 0x47 && bytes[1] === 0x49) mediaType = "image/gif"
+            else if (bytes[0] === 0x52 && bytes[1] === 0x49) mediaType = "image/webp"
+            else mediaType = "image/png"
+          }
+          return { b64: bytes.toString("base64"), model, mediaType }
+        },
+        catch: (error) =>
+          error instanceof InvalidRequestError
+            ? error
+            : new InvalidRequestError({ message: `生图失败：${error instanceof Error ? error.message : String(error)}` }),
+      })
+      return result
+    })
+
     const dispose = Effect.fn("GlobalHttpApi.dispose")(function* () {
       yield* disposeAllInstancesAndEmitGlobalDisposed()
       return true
@@ -160,6 +220,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handle("configGet", configGet)
       .handle("configUpdate", configUpdate)
       .handle("modelApiRemove", modelApiRemove)
+      .handle("imageGenerate", imageGenerate)
       .handle("dispose", dispose)
       .handleRaw("upgrade", upgradeRaw)
   }),
