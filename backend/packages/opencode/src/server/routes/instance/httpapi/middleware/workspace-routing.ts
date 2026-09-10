@@ -1,4 +1,5 @@
 import { WorkspaceV2 } from "@opencode-ai/core/workspace"
+import { MultiUser } from "@opencode-ai/server/multi-user"
 import type { Target } from "@/control-plane/types"
 import { Workspace } from "@/control-plane/workspace"
 import { WorkspaceAdapterRuntime } from "@/control-plane/workspace-adapter-runtime"
@@ -31,6 +32,7 @@ type RemoteTarget = Extract<Target, { type: "remote" }>
 type RequestPlan = Data.TaggedEnum<{
   InvalidWorkspace: {}
   MissingWorkspace: { readonly workspaceID: WorkspaceV2.ID }
+  Forbidden: { readonly directory: string }
   Local: { readonly directory: string; readonly workspaceID?: WorkspaceV2.ID }
   Remote: {
     readonly request: HttpServerRequest.HttpServerRequest
@@ -83,12 +85,26 @@ function selectedV2WorkspaceID(
   return workspaceID.value
 }
 
-function defaultDirectory(request: HttpServerRequest.HttpServerRequest, url: URL): string {
+function decodedHeaderDirectory(request: HttpServerRequest.HttpServerRequest): string | undefined {
+  const raw = request.headers["x-opencode-directory"]
+  if (!raw) return undefined
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+function defaultDirectory(
+  request: HttpServerRequest.HttpServerRequest,
+  url: URL,
+  user?: MultiUser.WorkspaceUser,
+): string {
   return (
     url.searchParams.get("directory") ||
     url.searchParams.get("location[directory]") ||
-    request.headers["x-opencode-directory"] ||
-    process.cwd()
+    decodedHeaderDirectory(request) ||
+    (user ? MultiUser.userWorkspaceRoot(user) : process.cwd())
   )
 }
 
@@ -165,6 +181,7 @@ function planWorkspaceRequest(
 function planRequest(
   request: HttpServerRequest.HttpServerRequest,
   session?: Session.Info,
+  auth?: MultiUser.RequestAuth,
 ): Effect.Effect<RequestPlan, never, Workspace.Service> {
   return Effect.gen(function* () {
     const url = requestURL(request)
@@ -183,8 +200,14 @@ function planRequest(
       return yield* planWorkspaceRequest(request, url, workspace)
     }
 
+    const user = auth?.kind === "user" ? auth.user : undefined
+    const directory = session?.directory || defaultDirectory(request, url, user)
+    if (user && !MultiUser.userContainsWorkspace(user, directory)) {
+      return RequestPlan.Forbidden({ directory })
+    }
+
     return RequestPlan.Local({
-      directory: session?.directory || defaultDirectory(request, url),
+      directory,
       workspaceID: envWorkspaceID ?? workspaceID,
     })
   })
@@ -208,6 +231,17 @@ function routeWorkspace<E>(
         ),
       ),
     MissingWorkspace: ({ workspaceID }) => Effect.succeed(missingWorkspaceResponse(workspaceID)),
+    Forbidden: ({ directory }) =>
+      Effect.succeed(
+        HttpServerResponse.jsonUnsafe(
+          new InvalidRequestError({
+            message: `Workspace directory is outside the current user workspace: ${directory}`,
+            kind: "Query",
+            field: "directory",
+          }),
+          { status: 403 },
+        ),
+      ),
     Remote: ({ request, workspace, target, url }) => proxyRemote(client, request, workspace, target, url),
     Local: ({ directory, workspaceID }) =>
       effect.pipe(Effect.provideService(WorkspaceRouteContext, WorkspaceRouteContext.of({ directory, workspaceID }))),
@@ -224,6 +258,13 @@ function routeHttpApiWorkspace<E>(
 > {
   return Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest
+    const auth = yield* Effect.promise(() => MultiUser.requestAuthFromCookie(request.headers.cookie))
+    if (auth.kind === "unauthorized") {
+      return HttpServerResponse.text("Unauthorized", {
+        status: 401,
+        contentType: "text/plain; charset=utf-8",
+      })
+    }
     const sessionID = getWorkspaceRouteSessionID(requestURL(request))
     const session = sessionID
       ? yield* Session.Service.use((svc) => svc.get(sessionID)).pipe(
@@ -234,7 +275,7 @@ function routeHttpApiWorkspace<E>(
           Effect.catchDefect(() => Effect.succeed(undefined)),
         )
       : undefined
-    const plan = yield* planRequest(request, session)
+    const plan = yield* planRequest(request, session, auth)
     return yield* routeWorkspace(client, effect, plan)
   })
 }

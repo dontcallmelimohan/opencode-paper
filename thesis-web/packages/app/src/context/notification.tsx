@@ -11,7 +11,6 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { decode64 } from "@/utils/base64"
 import { EventSessionError } from "@opencode-ai/sdk/v2"
 import { Persist, persisted } from "@/utils/persist"
-import { playSoundById } from "@/utils/sound"
 import { useGlobal } from "./global"
 import { ServerConnection, useServer } from "./server"
 import { type DraftTab, useTabs } from "./tabs"
@@ -342,10 +341,6 @@ function createServerNotificationState(input: {
       if (!session) return
       if (session.parentID) return
 
-      if (settings.sounds.agentEnabled()) {
-        void playSoundById(settings.sounds.agent())
-      }
-
       append({
         directory,
         time,
@@ -372,10 +367,6 @@ function createServerNotificationState(input: {
     void lookup(directory, sessionID).then((session) => {
       if (meta.disposed) return
       if (session?.parentID) return
-
-      if (settings.sounds.errorsEnabled()) {
-        void playSoundById(settings.sounds.errors())
-      }
 
       const error = "error" in event.properties ? event.properties.error : undefined
       append({

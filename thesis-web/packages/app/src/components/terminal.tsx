@@ -18,7 +18,6 @@ import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@
 import { terminalWriter } from "@/utils/terminal-writer"
 import { terminalWebSocketURL } from "@/utils/terminal-websocket-url"
 
-const TOGGLE_TERMINAL_ID = "terminal.toggle"
 const DEFAULT_TOGGLE_TERMINAL_KEYBIND = "ctrl+`"
 export interface TerminalProps extends ComponentProps<"div"> {
   pty: LocalPTY
@@ -339,7 +338,7 @@ export const Terminal = (props: TerminalProps) => {
   })
 
   createEffect(() => {
-    const font = terminalFontFamily(settings.appearance.terminalFont())
+    const font = terminalFontFamily(undefined)
     if (!term) return
     setOptionIfSupported(term, "fontFamily", font)
     scheduleFit()
@@ -403,7 +402,7 @@ export const Terminal = (props: TerminalProps) => {
         cols: restoreSize?.cols,
         rows: restoreSize?.rows,
         fontSize: 14,
-        fontFamily: terminalFontFamily(settings.appearance.terminalFont()),
+        fontFamily: terminalFontFamily(undefined),
         allowTransparency: false,
         convertEol: false,
         theme: terminalColors(),
@@ -433,7 +432,7 @@ export const Terminal = (props: TerminalProps) => {
         }
 
         // allow for toggle terminal keybinds in parent
-        const config = settings.keybinds.get(TOGGLE_TERMINAL_ID) ?? DEFAULT_TOGGLE_TERMINAL_KEYBIND
+        const config = DEFAULT_TOGGLE_TERMINAL_KEYBIND
         const keybinds = parseKeybind(config)
 
         return matchKeybind(keybinds, event)

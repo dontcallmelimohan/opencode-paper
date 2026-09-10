@@ -1,32 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import {
   hasExistingWebState,
-  initialAgentVisibility,
   isAppUpgrade,
   layoutTransitionState,
   maximumSunsetTimeout,
   newLayoutDesignsDefault,
   nextSunsetCheckDelay,
   resolveNewLayoutDesigns,
-  shouldDisplayTabsToast,
   shouldEnableNewLayout,
 } from "./settings"
-
-describe("agent visibility", () => {
-  test("shows the picker for existing profiles and hides it for first-time installs", () => {
-    expect(initialAgentVisibility(undefined, true)).toBe(true)
-    expect(initialAgentVisibility(undefined, false)).toBe(false)
-  })
-
-  test("shows the picker when updating from a recent release", () => {
-    expect(initialAgentVisibility(undefined, false, "1.18.8")).toBe(true)
-  })
-
-  test("preserves the preference after initialization", () => {
-    expect(initialAgentVisibility(true, true, "1.18.8")).toBeUndefined()
-    expect(initialAgentVisibility(true, false)).toBeUndefined()
-  })
-})
 
 describe("layout transition", () => {
   test("blank profiles default to the new layout", () => {
@@ -79,12 +61,6 @@ describe("layout transition", () => {
     expect(isAppUpgrade(undefined, "1.17.20")).toBe(false)
     expect(isAppUpgrade("1.17.20", "1.17.20")).toBe(false)
     expect(isAppUpgrade("1.17.21", "1.17.20")).toBe(false)
-  })
-
-  test("shows the tabs toast for upgrades and existing installs without a recorded version", () => {
-    expect(shouldDisplayTabsToast("1.17.19", "1.17.20", false)).toBe(true)
-    expect(shouldDisplayTabsToast(undefined, "1.17.20", true)).toBe(true)
-    expect(shouldDisplayTabsToast(undefined, "1.17.20", false)).toBe(false)
   })
 
   test("does not enable the new layout without a qualifying upgrade", () => {

@@ -258,7 +258,7 @@ export function ThesisStepSidebar(props: {
                       {step
                         ? `${statusLabel(step.key)} · `
                         : `${thesisSessionAgents.read(sdk().directory, session.id) ?? "通用助手"} · `}
-                      {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
+                      {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative({ locale: "zh-CN" }) ?? ""}
                     </span>
                   </span>
                 </button>
@@ -309,7 +309,7 @@ export function ThesisStepSidebar(props: {
                         {session.title || "局部会话"}
                       </span>
                       <span class="block text-10-regular text-v2-text-text-faint">
-                        {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
+                        {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative({ locale: "zh-CN" }) ?? ""}
                       </span>
                     </span>
                   </button>

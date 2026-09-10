@@ -17,8 +17,8 @@ if [[ -n "$SSH_PASSWORD" ]]; then
   fi
   export SSHPASS="$SSH_PASSWORD"
   # 强制走密码认证：不先试公钥，避免 sshpass 在公钥失败后密码对不上（该服务器偶发）
-  ssh_cmd=(sshpass -e ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no)
-  rsync_cmd=(sshpass -e rsync -e "ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no")
+  ssh_cmd=(sshpass -e ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no)
+  rsync_cmd=(sshpass -e rsync -e "ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no")
 fi
 
 echo "==> Installing thesis-web dependencies"
@@ -55,6 +55,24 @@ set -euo pipefail
 cd /root/opencode-paper/backend
 /root/.bun/bin/bun install
 
+legacy_id_file=/root/opencode-paper/.multi-user-legacy-user-id
+if [[ ! -s "$legacy_id_file" ]]; then
+  python3 - <<'PY' > "$legacy_id_file" || true
+import json
+from pathlib import Path
+
+path = Path.home() / ".local/share/opencode/thesis-auth.json"
+try:
+    users = json.loads(path.read_text()).get("users", [])
+except Exception:
+    users = []
+if len(users) == 1:
+    print(users[0]["id"])
+PY
+fi
+legacy_user_id="$(cat "$legacy_id_file" 2>/dev/null || true)"
+export OPENCODE_MULTIUSER_LEGACY_USER_ID="$legacy_user_id"
+
 systemctl stop opencode-paper-backend opencode-paper-frontend || true
 systemctl reset-failed opencode-paper-backend opencode-paper-frontend || true
 
@@ -66,7 +84,10 @@ if [[ -f /tmp/http80.pid ]]; then
   kill "$(cat /tmp/http80.pid)" || true
 fi
 
-nohup /root/.bun/bin/bun run --cwd /root/opencode-paper/backend/packages/opencode \
+# 允许多人自助注册：默认的安全策略会在已有用户后关闭注册。
+export OPENCODE_AUTH_OPEN_REGISTRATION=true
+
+nohup env OPENCODE_AUTH_OPEN_REGISTRATION=true /root/.bun/bin/bun run --cwd /root/opencode-paper/backend/packages/opencode \
   --conditions=browser ./src/index.ts serve --port 80 --hostname 0.0.0.0 \
   >/var/log/opencode-paper-backend.log 2>&1 &
 

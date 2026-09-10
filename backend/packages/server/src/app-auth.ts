@@ -138,6 +138,11 @@ export async function logout(sessionID: string | undefined) {
   await writeStore(store)
 }
 
+export async function hasUsers() {
+  const store = await readStore()
+  return store.users.length > 0
+}
+
 export async function currentUserFromCookie(cookieHeader: string | undefined) {
   const sessionID = parseCookie(cookieHeader).get(COOKIE_NAME)
   if (!sessionID) return

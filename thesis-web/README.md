@@ -111,14 +111,20 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 
 ### 1. 论文主页（`/`，`pages/home/thesis-home.tsx`）
 
+页面结构（Web 应用式布局：毛玻璃顶栏 + 全宽 Hero 横幅 + 工作空间卡片列表；不再用桌面端「左侧固定侧边栏 + 外圈圆角卡片」）：
+
+- 顶栏：品牌 / 工作空间 / Skill 管理 / 亮暗模式切换 / 账号菜单（设置、退出登录）/「新建工作空间」主按钮；**全页只有这一个新建入口**
+- Hero 横幅：产品定位说明 + 四步流程（导入资料 → 生成提纲 → 写作修订 → 排版评审），只做说明不放按钮
+- 工作空间列表：搜索 + 排序（最近更新 / 最近创建 / 名称排序）
+
 功能：
 
-- 论文项目列表（卡片展示标题、更新时间），按更新时间排序
-- 「新建论文」：输入标题 → 后端在 `thesis-workspace/<标题>/` 下创建目录并注册为项目
-- 「上传资料」：把文件写入论文目录的 `资料/` 子目录；**PDF 上传后自动提取文本**，生成同名 `.txt`
-- 「生成记录」：查看该论文下的所有会话（各步生成的聊天记录）
-- 「开始写作」/点击卡片：进入该论文的「论文工作台」（四步标准化流程，见下）
-- 右上角入口：Skill 管理、设置、亮暗模式切换
+- 论文项目列表（卡片展示标题、文件数、更新时间与四步进度点），按更新时间排序
+- 「新建工作空间」：输入名称 → 后端在 `thesis-workspace/<名称>/` 下创建目录并注册为项目，创建后直接进入工作台
+- 「上传资料」（卡片右上角「更多」→ 文件空间）：把文件写入论文目录；**PDF 上传后自动提取文本**，生成同名 `.txt`
+- 「生成记录」（卡片右上角「更多」）：查看该论文下的所有会话（各步生成的聊天记录）
+- 「删除工作空间」（卡片右上角「更多」）：删除项目记录与工作区目录
+- 点击卡片任意位置：进入该论文的「论文工作台」（四步标准化流程，见下）
 
 实现原理：
 
@@ -145,7 +151,7 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 - 每篇论文复用**一个专属会话**（`sessionID` 存工作流状态）：提纲/写作/排版/评审都在同一上下文里，模型能记住前面的产出
 - 生成调用（`thesis-generator.ts`）：把当前步的表单配置打包成提示词 → 创建/复用会话 → `session.prompt` 发送 → 轮询同步 store 等待 assistant 回复 → 文本保存为该步产物
 - 知识库条目（`thesis-knowledge-store.ts`）同样按论文隔离存 localStorage；资料文件仍从论文目录 `资料/` 读取
-- 主页卡片点击 / 「开始写作」→ `startWriting` 导航到 `/:dir/workbench`（`thesis-home.tsx`）
+- 主页卡片点击 → `startWriting` 导航到 `/:dir/workbench`（`thesis-home.tsx`）
 
 ### 3. 会话页（`/session`，`pages/session/`）
 
@@ -169,7 +175,7 @@ VITE_OPENCODE_SERVER_HOST=localhost VITE_OPENCODE_SERVER_PORT=4096 bun run dev
 - 支持从本地文件夹导入（文件夹须包含 `SKILL.md`）
 - 安装后的 skill 列表、启用/停用
 
-入口位置：论文主页右上角「Skill 管理」按钮 → 跳转到独立页面 `/skills`（点击卡片设为当前使用的 Agent，全局生效）。
+入口位置：论文主页顶栏「Skill 管理」→ 跳转到独立页面 `/skills`（点击卡片设为当前使用的 Agent，全局生效）。
 
 实现原理（前后端配合）：
 

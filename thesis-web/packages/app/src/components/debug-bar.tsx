@@ -563,14 +563,6 @@ export function DebugBar(props: { inline?: boolean } = {}) {
           inline={props.inline}
           span={platform.setForceFocus ? 2 : 3}
         />
-        <ToggleCell
-          active={language.direction() === "rtl"}
-          inline={props.inline}
-          label={language.t("debugBar.direction.label")}
-          tip={language.t("debugBar.direction.tip")}
-          value={language.t(`debugBar.direction.${language.direction()}`)}
-          onClick={() => language.setDirection(language.direction() === "rtl" ? "ltr" : "rtl")}
-        />
         {platform.setForceFocus && (
           <ToggleCell
             active={state.focus}

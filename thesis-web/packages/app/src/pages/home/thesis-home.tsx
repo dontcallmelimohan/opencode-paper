@@ -2,6 +2,7 @@ import { type FileNode, type Project, type SessionV2Info } from "@opencode-ai/sd
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
+import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Markdown } from "@opencode-ai/session-ui/markdown"
@@ -25,6 +26,7 @@ import {
   extension,
 } from "@/components/thesis-workflow/thesis-manuscript-preview"
 import { dataUrlOf, IMAGE_EXTENSIONS, mimeOf } from "@/components/thesis-workflow/thesis-assets"
+import { MANUSCRIPT_FILENAMES } from "@/components/thesis-workflow/thesis-manuscript-file"
 import { debugToolsVisible, setDebugToolsVisible } from "@/utils/debug-tools"
 import { useGlobal } from "@/context/global"
 import { useLayout } from "@/context/layout"
@@ -120,7 +122,7 @@ function NewThesisDialog(props: { onCreated: (project: Project) => void }) {
 }
 
 // [论文助手定制] 资料预览（内嵌在资料弹窗里显示，不开新弹窗——dialog.show 会替换当前弹窗）：
-// md/txt 直接渲染内容，图片内嵌预览，pdf 提供「本地查看 / 新标签页打开」，docx 提供「本地查看（下载）」，
+// md/txt 直接渲染内容，图片内嵌预览，pdf 提供「下载 / 新标签页打开」，docx 提供「下载」，
 // 其它格式提示暂不支持但仍可下载。
 function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () => void }) {
   const sdk = useServerSDK()
@@ -180,7 +182,7 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
               <>
                 <div class="flex items-center justify-end gap-2">
                   <Button size="small" variant="ghost" icon="download" onClick={() => downloadBytes(new TextEncoder().encode(item.text), item.filename, "text/markdown")}>
-                    本地查看
+                    下载
                   </Button>
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto rounded-md border border-v2-border-border-base p-3">
@@ -194,7 +196,7 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
               <>
                 <div class="flex items-center justify-end gap-2">
                   <Button size="small" variant="ghost" icon="download" onClick={() => downloadBytes(new TextEncoder().encode(item.text), item.filename, "text/plain")}>
-                    本地查看
+                    下载
                   </Button>
                 </div>
                 <pre class="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-md border border-v2-border-border-base p-3 text-13-regular">
@@ -208,7 +210,7 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
               <div class="flex min-h-0 flex-1 flex-col gap-2">
                 <div class="flex items-center justify-end gap-2">
                   <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/pdf")}>
-                    本地查看
+                    下载
                   </Button>
                   <a href={item.url} target="_blank" rel="noreferrer" class="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-12-medium text-v2-text-text-accent hover:underline">
                     在新标签页打开
@@ -225,7 +227,7 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
               <div class="flex min-h-0 flex-1 flex-col gap-2">
                 <div class="flex items-center justify-end gap-2">
                   <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>
-                    本地查看
+                    下载
                   </Button>
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto rounded-md border border-v2-border-border-base bg-v2-background-bg-layer-02 p-4">
@@ -573,7 +575,7 @@ function ThesisSessionsDialog(props: { thesis: Project }) {
                         {session.title || "未命名对话"}
                       </span>
                       <span class="block text-12-regular text-v2-text-text-weak">
-                        {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative() ?? ""}
+                        {DateTime.fromMillis(session.time.updated ?? session.time.created).toRelative({ locale: "zh-CN" }) ?? ""}
                       </span>
                     </span>
                     <Icon name="chevron-right" size="small" class="shrink-0 text-v2-text-text-faint" />
@@ -647,6 +649,7 @@ function ThesisDeleteDialog(props: { thesis: ThesisWithContentTime }) {
 
 type ThesisSortKey = "updated" | "created" | "name"
 
+// [论文助手定制] 主页 Hero 的四步流程说明（文案层，顺序即产品流水线）。
 const thesisWorkflow = [
   { title: "导入资料", description: "集中管理 PDF、DOCX 等参考文件" },
   { title: "生成提纲", description: "先建立论文结构与论证骨架" },
@@ -654,130 +657,309 @@ const thesisWorkflow = [
   { title: "排版评审", description: "输出规范格式，并获得多轮审查建议" },
 ]
 
-function ThesisHero(props: { onCreate: () => void; onSkills: () => void }) {
+// [论文助手定制] 卡片进度点：与工作台四步产出的落盘文件一一对应（文件名取自 MANUSCRIPT_FILENAMES）。
+const thesisProgressSteps = [
+  { key: "outline", label: "提纲" },
+  { key: "writing", label: "写作" },
+  { key: "formatting", label: "排版" },
+  { key: "review", label: "评审" },
+] as const
+
+const userInitial = (name: string) => (name.trim().slice(0, 1) || "U").toUpperCase()
+
+const homeNavItems = [
+  { key: "workspace", label: "工作空间" },
+  { key: "skills", label: "Skill 管理" },
+] as const
+
+// [论文助手定制] 主页顶栏：品牌 / 主导航 / 主题切换 / 账号菜单 / 主操作。
+// 全页只有这里一个「新建工作空间」主按钮——Hero 与卡片不再重复放同一操作。
+function HomeTopBar(props: {
+  userName: string
+  loggingOut: boolean
+  onSkills: () => void
+  onSettings: () => void
+  onLogout: () => void
+  onNew: () => void
+}) {
+  const theme = useTheme()
+  const dark = () => theme.mode() === "dark"
+
   return (
-    <div class="thesis-hero mt-10 overflow-hidden rounded-2xl border border-v2-border-border-base p-6 md:p-8">
-      <div class="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
-        <div class="min-w-0">
-          <span class="brand-chip inline-flex h-7 items-center rounded-full px-3 text-12-medium">论文工作台</span>
-          <h2 class="mt-4 max-w-2xl text-28-bold leading-tight text-v2-text-text-strong">从资料到成稿，四步完成论文</h2>
-          <p class="mt-3 max-w-xl text-14-regular text-v2-text-text-weak">
-            围绕资料检索、提纲生成、写作修订、格式排版和学术评审组织内容，减少在多个工具之间反复切换。
-          </p>
-          <div class="mt-6 flex flex-wrap items-center gap-2">
-            <Button size="normal" variant="primary" icon="plus" onClick={props.onCreate}>
-              新建工作空间
-            </Button>
-            <Button size="normal" variant="secondary" icon="dot-grid" onClick={props.onSkills}>
-              Skill 管理
-            </Button>
-          </div>
+    <header class="home-topbar sticky top-0 z-30">
+      <div class="mx-auto flex h-14 w-full max-w-[1320px] items-center gap-1 px-4 sm:gap-2 sm:px-6">
+        <div class="mr-1 flex shrink-0 items-center gap-2.5 sm:mr-3">
+          <span class="brand-tile flex size-7 items-center justify-center rounded-lg">
+            <Mark class="size-4" />
+          </span>
+          <span class="hidden text-14-medium text-v2-text-text-base sm:inline">agent4paper</span>
         </div>
 
-        <div class="w-full max-w-sm shrink-0 rounded-xl bg-v2-background-bg-layer-02 p-5">
-          <div class="text-13-medium text-v2-text-text-strong">标准工作流</div>
-          <div class="mt-4 flex flex-col gap-3">
-            <For each={thesisWorkflow}>
-              {(step, index) => (
-                <div class="flex items-start gap-3">
-                  <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-tint)] text-12-medium text-[var(--brand-700)]">
-                    {index() + 1}
-                  </span>
-                  <div class="min-w-0">
-                    <div class="text-13-medium text-v2-text-text-strong">{step.title}</div>
-                    <div class="mt-0.5 text-12-regular text-v2-text-text-weak">{step.description}</div>
-                  </div>
-                </div>
-              )}
-            </For>
-          </div>
-        </div>
+        <nav class="flex min-w-0 items-center gap-0.5">
+          <For each={homeNavItems}>
+            {(item) => (
+              <button
+                type="button"
+                class="cursor-pointer whitespace-nowrap rounded-lg px-2.5 py-1.5 text-12-medium transition-colors"
+                classList={{
+                  "bg-v2-background-bg-layer-02 text-v2-text-text-base": item.key === "workspace",
+                  "text-v2-text-text-muted hover:bg-v2-background-bg-layer-02 hover:text-v2-text-text-base":
+                    item.key !== "workspace",
+                }}
+                onClick={() => {
+                  if (item.key === "skills") props.onSkills()
+                }}
+              >
+                {item.label}
+              </button>
+            )}
+          </For>
+        </nav>
+
+        <div class="flex-1" />
+
+        <Show when={import.meta.env.DEV}>
+          <TooltipV2 placement="bottom" value="调试面板（NAV/FPS 统计）">
+            <button
+              type="button"
+              data-action="home-debug-toggle"
+              class="hidden h-8 cursor-pointer rounded-lg bg-icon-interactive-base px-2 font-mono text-[11px] font-medium uppercase text-[#FFF] md:block"
+              aria-label="调试面板"
+              aria-pressed={debugToolsVisible()}
+              onClick={() => setDebugToolsVisible((value) => !value)}
+            >
+              DEV
+            </button>
+          </TooltipV2>
+        </Show>
+
+        <TooltipV2 placement="bottom" value={dark() ? "切换为亮色模式" : "切换为暗色模式"}>
+          <IconButton
+            type="button"
+            data-action="home-theme-toggle"
+            icon={dark() ? "sun" : "moon"}
+            size="small"
+            variant="ghost"
+            class="hidden shrink-0 sm:inline-flex"
+            aria-label={dark() ? "切换为亮色模式" : "切换为暗色模式"}
+            onClick={() => theme.setColorScheme(dark() ? "light" : "dark")}
+          />
+        </TooltipV2>
+
+        <TooltipV2 placement="bottom" value="设置">
+          <IconButton
+            type="button"
+            data-action="home-settings"
+            icon="settings-gear"
+            size="small"
+            variant="ghost"
+            class="shrink-0"
+            aria-label="设置"
+            onClick={() => props.onSettings()}
+          />
+        </TooltipV2>
+
+        <DropdownMenu>
+          <DropdownMenu.Trigger
+            as="button"
+            type="button"
+            aria-label="账号菜单"
+            class="ml-0.5 flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-v2-border-border-base bg-v2-background-bg-layer-01 py-[3px] pl-[3px] pr-2 transition-colors hover:bg-v2-background-bg-layer-02"
+          >
+            <span class="flex size-6 items-center justify-center rounded-full bg-[var(--brand-tint)] text-[11px] font-medium text-[var(--brand-fg)]">
+              {userInitial(props.userName)}
+            </span>
+            <span class="hidden max-w-[100px] truncate text-12-medium text-v2-text-text-muted md:inline">
+              {props.userName}
+            </span>
+            <Icon name="chevron-down" size="small" class="text-v2-text-text-faint" />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content>
+              <div class="px-2 py-1.5">
+                <div class="truncate text-14-medium text-v2-text-text-base">{props.userName}</div>
+                <div class="truncate text-12-regular text-v2-text-text-faint">论文写作平台</div>
+              </div>
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item onSelect={() => props.onLogout()} disabled={props.loggingOut}>
+                <Icon name="circle-x" size="small" />
+                <DropdownMenu.ItemLabel>{props.loggingOut ? "退出中…" : "退出登录"}</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu>
+
+        <Button
+          size="small"
+          variant="primary"
+          icon="plus"
+          class="ml-1 shrink-0"
+          aria-label="新建工作空间"
+          onClick={props.onNew}
+        >
+          <span class="hidden md:inline">新建工作空间</span>
+        </Button>
       </div>
-    </div>
+    </header>
   )
 }
 
-// [论文助手定制] 主页工作空间卡片：独立查询文档数/生成记录数（按项目缓存），hover 上浮、删除入口悬浮显示。
+// [论文助手定制] 主页 Hero：全宽横幅，说明产品定位与四步流程。
+// 不放主按钮——主操作统一收在顶栏，避免一屏出现两个「新建工作空间」。
+function ThesisHeroBanner() {
+  return (
+    <section class="home-hero">
+      <div class="mx-auto w-full max-w-[1320px] px-4 pb-8 pt-10 sm:px-6 sm:pb-10 sm:pt-12">
+        <span class="inline-flex items-center gap-1.5 rounded-full border border-[var(--brand-200)] bg-[var(--brand-tint)] px-2.5 py-1 text-12-medium text-[var(--brand-fg)]">
+          <span class="size-1.5 rounded-full bg-[var(--brand-600)]" />
+          AI 论文写作工作台
+        </span>
+        <h1 class="mt-4 max-w-[620px] text-[28px] font-medium leading-[1.3] tracking-[-0.02em] text-v2-text-text-base">
+          从资料到成稿，四步完成一篇论文
+        </h1>
+        <p class="mt-3 max-w-[680px] text-14-regular leading-[1.7] text-v2-text-text-muted">
+          文献资料、提纲、初稿、排版与评审都收在同一条流水线里；每个工作空间独立存放自己的资料与产稿，随时可以回来接着写。
+        </p>
+
+        <ol class="home-hero-steps mt-8 grid gap-x-6 gap-y-5 pt-6 sm:grid-cols-2 lg:grid-cols-4">
+          <For each={thesisWorkflow}>
+            {(step, index) => (
+              <li class="flex min-w-0 gap-3">
+                <span class="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-[var(--brand-tint)] text-[11px] font-medium text-[var(--brand-fg)]">
+                  {index() + 1}
+                </span>
+                <div class="min-w-0">
+                  <div class="text-14-medium text-v2-text-text-base">{step.title}</div>
+                  <div class="mt-1 text-12-regular leading-[1.6] text-v2-text-text-muted">{step.description}</div>
+                </div>
+              </li>
+            )}
+          </For>
+        </ol>
+      </div>
+    </section>
+  )
+}
+
+// [论文助手定制] 主页工作空间卡片：图标 + 名称 + 文件数/更新时间 + 四步进度点；
+// 次级操作（文件空间 / 生成记录 / 删除）收进右上角「更多」菜单，卡片本体即进入工作台。
 function ThesisCard(props: { thesis: ThesisWithContentTime; onEnter: (thesis: Project) => void }) {
   const sdk = useServerSDK()
   const dialog = useDialog()
-  const materials = useQuery(() => ({
+  const files = useQuery(() => ({
     queryKey: ["thesis", "material-count", props.thesis.id],
     queryFn: async () => {
       try {
         const res = await sdk().client.file.list({ directory: props.thesis.worktree, path: "" })
-        return (res.data ?? []).filter((node) => node.type === "file" && !node.name.startsWith(".")).length
+        return (res.data ?? [])
+          .filter((node): node is FileNode & { type: "file" } => node.type === "file")
+          .filter((node) => !node.name.startsWith("."))
+          .map((node) => node.name)
       } catch {
-        return 0
+        return [] as string[]
       }
     },
   }))
+
+  const fileNames = () => files.data ?? []
+  const names = () => new Set(fileNames())
+  const updatedLabel = () =>
+    DateTime.fromMillis(thesisUpdatedAt(props.thesis)).toRelative({ locale: "zh-CN" }) ?? "刚刚"
+
   return (
-    <div class="thesis-card group flex flex-col p-6">
-      <div class="flex items-start justify-between">
-        <div class="flex size-10 items-center justify-center rounded-[14px] bg-[var(--brand-tint)]">
-          <Icon name="folder-add-left" size="normal" class="text-[var(--brand-700)]" />
-        </div>
-        {/* [论文助手定制] 删除入口 hover 卡片时才显示，保持卡片清爽。 */}
-        <div class="flex size-8 items-center justify-center rounded-full opacity-0 transition-opacity duration-150 hover:bg-v2-background-bg-layer-01 group-hover:opacity-100">
-          <TooltipV2 placement="bottom" value="删除论文">
-            <IconButton
-              type="button"
-              data-action="thesis-delete"
-              icon="trash"
-              size="small"
-              variant="ghost"
-              aria-label="删除论文"
-              onClick={() => dialog.show(() => <ThesisDeleteDialog thesis={props.thesis} />)}
-            />
-          </TooltipV2>
-        </div>
-      </div>
-      <button type="button" class="mt-5 min-w-0 cursor-pointer text-left" onClick={() => props.onEnter(props.thesis)}>
-        <div class="truncate text-16-medium text-v2-text-text-strong transition-colors group-hover:text-[var(--brand-700)]">
-          {thesisName(props.thesis)}
-        </div>
+    <div class="home-card group relative flex flex-col p-4">
+      {/* 标题按钮的 after:* 伪元素把点击热区铺满整张卡片（右上角菜单用 z-index 盖在上面）。 */}
+      <button
+        type="button"
+        class="flex min-w-0 cursor-pointer items-start gap-3 pr-8 text-left after:absolute after:inset-0 after:content-['']"
+        onClick={() => props.onEnter(props.thesis)}
+      >
+        <span class="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--brand-200)] bg-[var(--brand-tint)] text-[var(--brand-fg)]">
+          <Icon name="prompt" size="small" />
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-14-medium text-v2-text-text-base transition-colors group-hover:text-[var(--brand-fg)]">
+            {thesisName(props.thesis)}
+          </span>
+          <span class="mt-1 flex items-center gap-1.5 text-12-regular text-v2-text-text-muted">
+            <Show when={!files.isPending}>
+              <span>{fileNames().length} 份文件</span>
+              <span class="opacity-40">·</span>
+            </Show>
+            <span>{updatedLabel()}更新</span>
+          </span>
+        </span>
       </button>
-      <div class="mt-1.5 flex items-center gap-1.5 text-12-regular text-v2-text-text-weak">
-        <span>{materials.data ?? "…"} 个文档</span>
-        <span class="opacity-50">·</span>
-        <span>{DateTime.fromMillis(thesisUpdatedAt(props.thesis)).toRelative() ?? ""} 更新</span>
+
+      <div class="absolute right-3 top-3 z-10">
+        <DropdownMenu>
+          <DropdownMenu.Trigger
+            as="button"
+            type="button"
+            data-action="thesis-more"
+            aria-label={`${thesisName(props.thesis)} 的更多操作`}
+            class="flex size-7 cursor-pointer items-center justify-center rounded-lg text-v2-text-text-faint opacity-0 transition-all hover:bg-v2-background-bg-layer-02 hover:text-v2-text-text-base focus-visible:opacity-100 group-hover:opacity-100 data-[expanded]:opacity-100 pointer-coarse:opacity-60"
+          >
+            <Icon name="menu" size="small" />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content>
+              <DropdownMenu.Item onSelect={() => dialog.show(() => <ThesisUploadDialog thesis={props.thesis} />)}>
+                <Icon name="cloud-upload" size="small" />
+                <DropdownMenu.ItemLabel>文件空间</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => dialog.show(() => <ThesisSessionsDialog thesis={props.thesis} />)}>
+                <Icon name="speech-bubble" size="small" />
+                <DropdownMenu.ItemLabel>生成记录</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item
+                class="text-v2-state-fg-danger"
+                onSelect={() => dialog.show(() => <ThesisDeleteDialog thesis={props.thesis} />)}
+              >
+                <Icon name="trash" size="small" />
+                <DropdownMenu.ItemLabel>删除工作空间</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu>
       </div>
-      <div class="mt-6 flex items-center gap-1">
-        <Button
-          size="small"
-          variant="ghost"
-          icon="speech-bubble"
-          onClick={() => dialog.show(() => <ThesisSessionsDialog thesis={props.thesis} />)}
-          class="px-2 text-12-regular text-v2-text-text-weak hover:text-v2-text-text-strong"
-        >
-          生成记录
-        </Button>
-        <Button
-          size="small"
-          variant="ghost"
-          icon="cloud-upload"
-          onClick={() => dialog.show(() => <ThesisUploadDialog thesis={props.thesis} />)}
-          class="px-2 text-12-regular text-v2-text-text-weak hover:text-v2-text-text-strong"
-        >
-          文件空间
-        </Button>
-        <div class="flex-1" />
-        <Button size="small" variant="primary" onClick={() => props.onEnter(props.thesis)} class="rounded-lg px-3">
-          进入工作台
-        </Button>
+
+      <div class="home-card-hairline mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t pt-3">
+        <For each={thesisProgressSteps}>
+          {(step) => {
+            const done = () => names().has(MANUSCRIPT_FILENAMES[step.key])
+            return (
+              <span
+                class="flex items-center gap-1.5"
+                classList={{
+                  "text-v2-text-text-muted": done(),
+                  "text-v2-text-text-faint": !done(),
+                }}
+              >
+                <span
+                  class="size-1.5 rounded-full"
+                  classList={{
+                    "bg-[var(--brand-accent)]": done(),
+                    "bg-v2-border-border-base": !done(),
+                  }}
+                />
+                <span class="text-[11px]">{step.label}</span>
+              </span>
+            )
+          }}
+        </For>
       </div>
     </div>
   )
 }
 
-export function ThesisHome() {
+export function ThesisHome(props: { userName?: string; loggingOut?: boolean; onLogout?: () => void }) {
   const sdk = useServerSDK()
   const serverSync = useServerSync()
   const layout = useLayout()
   const dialog = useDialog()
   const openSettings = useSettingsDialog()
-  const theme = useTheme()
   const navigate = useNavigate()
 
   const home = () => serverSync().data.path.home?.replace(/\/$/, "") ?? ""
@@ -798,6 +980,9 @@ export function ThesisHome() {
     layout.projects.open(worktree)
     navigate(`/${base64Encode(worktree)}/workbench`)
   }
+
+  const newThesis = () =>
+    dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)
 
   // [论文助手定制] 主页搜索 + 排序：按名称过滤；按更新时间 / 创建时间 / 名称排序。
   const [search, setSearch] = createSignal("")
@@ -825,100 +1010,46 @@ export function ThesisHome() {
 
   const hasTheses = () => (theses.data?.length ?? 0) > 0
 
+  // [论文助手定制] 列表概要：用文本代替原来的一排统计卡片（也修掉了「资料总数 NaN」）。
+  const summary = () => {
+    const list = theses.data ?? []
+    if (list.length === 0) return "创建第一个工作空间，开始你的论文"
+    const latest = Math.max(...list.map((thesis) => thesisUpdatedAt(thesis)))
+    const relative = DateTime.fromMillis(latest).toRelative({ locale: "zh-CN" }) ?? "刚刚"
+    return `${list.length} 个工作空间 · 最近更新 ${relative}`
+  }
+
   return (
-    <div class="home-page-bg h-full overflow-y-auto">
-      <div class="mx-auto flex min-h-full w-full max-w-6xl flex-col px-6 py-6 lg:px-10">
-        {/* 顶部导航：Logo 居左，操作按钮居右 */}
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2.5">
-            <Mark class="size-7" />
-            <span class="text-16-medium text-v2-text-text-strong">agent4paper</span>
-          </div>
-          <div class="flex items-center gap-1">
-            {/* [论文助手定制] 顶部标题栏已删除，DEV 调试按钮挪到这里：切换底部调试栏（NAV/FPS 统计）显隐。 */}
-            <Show when={import.meta.env.DEV}>
-              <TooltipV2 placement="bottom" value="调试面板（NAV/FPS 统计）">
-                <button
-                  type="button"
-                  data-action="home-debug-toggle"
-                  class="h-7 cursor-pointer rounded-sm bg-icon-interactive-base px-2 font-mono text-xs font-medium uppercase text-[#FFF]"
-                  aria-label="调试面板"
-                  aria-pressed={debugToolsVisible()}
-                  onClick={() => setDebugToolsVisible((value) => !value)}
-                >
-                  DEV
-                </button>
-              </TooltipV2>
-            </Show>
-            {/* [论文助手定制] Skill 管理入口：跳转到独立页面 /skills（管理页本身不放在主页）。 */}
-            <TooltipV2 placement="bottom" value="Skill 管理">
-              <IconButton
-                type="button"
-                data-action="home-skills"
-                icon="dot-grid"
-                size="normal"
-                variant="ghost"
-                aria-label="Skill 管理"
-                onClick={() => navigate("/skills")}
-              />
-            </TooltipV2>
-            <TooltipV2 placement="bottom" value="设置">
-              <IconButton
-                type="button"
-                data-action="home-settings"
-                icon="settings-gear"
-                size="normal"
-                variant="ghost"
-                aria-label="设置"
-                onClick={() => openSettings()}
-              />
-            </TooltipV2>
-            <TooltipV2 placement="bottom" value={theme.mode() === "dark" ? "切换为亮色模式" : "切换为暗色模式"}>
-              <IconButton
-                type="button"
-                data-action="home-theme-toggle"
-                icon={theme.mode() === "dark" ? "sun" : "moon"}
-                size="normal"
-                variant="ghost"
-                aria-label={theme.mode() === "dark" ? "切换为亮色模式" : "切换为暗色模式"}
-                onClick={() => theme.setColorScheme(theme.mode() === "dark" ? "light" : "dark")}
-              />
-            </TooltipV2>
-            <Button
-              size="normal"
-              variant="primary"
-              icon="plus"
-              onClick={() => dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)}
-            >
-              新建工作空间
-            </Button>
-          </div>
-        </div>
+    // w-full：父级是 items-start 的纵向 flex，不写宽度会缩成内容宽度（右侧留空）。
+    <div class="home-page-bg h-full w-full overflow-y-auto">
+      <HomeTopBar
+        userName={props.userName ?? "已登录用户"}
+        loggingOut={props.loggingOut ?? false}
+        onSkills={() => navigate("/skills")}
+        onSettings={() => openSettings()}
+        onLogout={() => props.onLogout?.()}
+        onNew={newThesis}
+      />
 
-        <ThesisHero
-          onCreate={() => dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)}
-          onSkills={() => navigate("/skills")}
-        />
+      <ThesisHeroBanner />
 
-        <Show when={hasTheses()}>
-          {/* 标题区：我的工作空间 + 搜索 + 排序 */}
-          <div class="mt-8">
-            <h1 class="text-24-bold text-v2-text-text-strong">我的工作空间</h1>
-            <p class="mt-1.5 text-13-regular text-v2-text-text-weak">
-              共 {theses.data?.length ?? 0} 个工作空间 · 「提纲 、 写作 、 排版 、 评审」
-            </p>
-            <div class="mt-5 flex items-center gap-2">
-              <div class="flex w-full max-w-xs items-center">
-                <TextField
-                  type="text"
-                  label="搜索工作空间"
-                  hideLabel
-                  placeholder="搜索工作空间…"
-                  value={search()}
-                  onChange={setSearch}
-                  class="w-full"
-                />
-              </div>
+      <main class="mx-auto w-full max-w-[1320px] px-4 pb-20 pt-8 sm:px-6">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-16-medium text-v2-text-text-base">我的工作空间</h2>
+            <p class="mt-1 text-12-regular text-v2-text-text-muted">{summary()}</p>
+          </div>
+          <Show when={hasTheses()}>
+            <div class="flex items-center gap-2">
+              <TextField
+                type="text"
+                label="搜索工作空间"
+                hideLabel
+                placeholder="搜索工作空间…"
+                value={search()}
+                onChange={setSearch}
+                class="w-[200px]"
+              />
               <Select
                 data-action="thesis-sort"
                 options={sortOptions}
@@ -931,51 +1062,52 @@ export function ThesisHome() {
                 triggerVariant="settings"
               />
             </div>
-          </div>
+          </Show>
+        </div>
 
-          {/* 工作空间网格 */}
-          <div class="mt-7 flex-1">
+        <Show
+          when={!theses.isPending}
+          fallback={<div class="py-20 text-center text-12-regular text-v2-text-text-faint">加载中…</div>}
+        >
+          <Show when={hasTheses()} fallback={<ThesisEmptyState onCreate={newThesis} />}>
             <Show
               when={visibleTheses().length > 0}
               fallback={
-                <div class="flex flex-col items-center gap-3 py-24 text-center">
+                <div class="flex flex-col items-center gap-2 py-20 text-center">
                   <Icon name="magnifying-glass" size="large" class="text-v2-text-text-faint" />
-                  <div class="text-15-medium text-v2-text-text-strong">没有找到匹配的工作空间</div>
-                  <div class="text-13-regular text-v2-text-text-weak">换个关键词试试，或清除搜索条件</div>
-                  <Button size="small" variant="ghost" icon="circle-x" onClick={() => setSearch("")}>
+                  <div class="mt-1 text-14-medium text-v2-text-text-base">没有找到匹配的工作空间</div>
+                  <div class="text-12-regular text-v2-text-text-muted">换个关键词试试，或清除搜索条件</div>
+                  <Button size="small" variant="ghost" icon="circle-x" class="mt-1" onClick={() => setSearch("")}>
                     清除搜索
                   </Button>
                 </div>
               }
             >
-              <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <For each={visibleTheses()}>
                   {(thesis) => <ThesisCard thesis={thesis} onEnter={(item) => startWriting(item.worktree)} />}
                 </For>
               </div>
             </Show>
-          </div>
+          </Show>
         </Show>
-        <Show when={!hasTheses()}>
-          <ThesisEmptyState onCreate={() => dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)} />
-        </Show>
-      </div>
+      </main>
     </div>
   )
 }
 
-// [论文助手定制] 空状态：无工作空间时的引导页（大号新建按钮）。
+// [论文助手定制] 空状态：还没有工作空间时的引导（唯一一处「新建工作空间」大按钮）。
 function ThesisEmptyState(props: { onCreate: () => void }) {
   return (
-    <div class="flex flex-col items-center gap-4 py-24 text-center">
-      <div class="brand-tile flex size-16 items-center justify-center rounded-2xl shadow-[var(--v2-elevation-floating)]">
-        <Icon name="folder-add-left" size="large" class="text-white" />
-      </div>
-      <div class="text-15-medium text-v2-text-text-strong">还没有工作空间</div>
-      <div class="max-w-sm text-13-regular text-v2-text-text-weak">
-        创建你的第一个论文工作空间，按「提纲 → 写作 → 排版 → 评审」四步完成一篇论文。
-      </div>
-      <Button size="large" variant="primary" icon="plus" onClick={props.onCreate}>
+    <div class="home-card mt-5 flex flex-col items-center px-6 py-16 text-center">
+      <span class="brand-tile flex size-12 items-center justify-center rounded-xl">
+        <Icon name="folder-add-left" size="large" class="text-[#ffffff]" />
+      </span>
+      <div class="mt-4 text-16-medium text-v2-text-text-base">还没有工作空间</div>
+      <p class="mt-2 max-w-[440px] text-12-regular leading-[1.7] text-v2-text-text-muted">
+        每个工作空间对应一篇论文：先上传参考资料，再按「提纲 → 写作 → 排版 → 评审」四步生成与打磨正文。
+      </p>
+      <Button size="normal" variant="primary" icon="plus" class="mt-5" onClick={props.onCreate}>
         新建工作空间
       </Button>
     </div>

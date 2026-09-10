@@ -35,7 +35,7 @@ export const base64ToBytes = (base64: string) => {
 
 export const extension = (path: string) => path.split(".").pop()?.toLowerCase() ?? ""
 
-// [论文助手定制] 预览结果类型：文本 / Markdown / 图片 / docx（本地查看）/ PDF Blob URL / 不支持。
+// [论文助手定制] 预览结果类型：文本 / Markdown / 图片 / docx（下载）/ PDF Blob URL / 不支持。
 type ManuscriptPreview =
   | { kind: "markdown"; text: string; filename: string }
   | { kind: "text"; text: string; filename: string }
@@ -51,7 +51,7 @@ export const errorMessage = (err: unknown) => {
 
 export const basename = (path: string) => path.split("/").pop() ?? "文稿"
 
-// [论文助手定制] 「本地查看」：把内容转成 Blob 下载到本地（md/txt 用文本，docx 用字节）。
+// [论文助手定制] 「下载」：把内容转成 Blob 下载到本地（md/txt 用文本，docx 用字节）。
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
@@ -64,7 +64,7 @@ export const downloadBytes = (bytes: Uint8Array, filename: string, mime: string)
   // TS 5.7 把 Uint8Array 泛型化为 Uint8Array<ArrayBufferLike>，直接传 Blob 会类型不匹配，这里显式转 BlobPart。
   downloadBlob(new Blob([bytes as BlobPart], { type: mime }), filename)
 
-// [论文助手定制] 预览区顶部工具条：文件名 + 右侧操作按钮（本地查看 / 新标签页）。
+// [论文助手定制] 预览区顶部工具条：文件名 + 右侧操作按钮（下载 / 新标签页）。
 function PreviewToolbar(props: { filename: string; children?: JSX.Element }) {
   return (
     <div class="flex shrink-0 items-center gap-2 border-b border-v2-border-border-base px-3 py-1.5">
@@ -75,7 +75,7 @@ function PreviewToolbar(props: { filename: string; children?: JSX.Element }) {
   )
 }
 
-// [论文助手定制] 统一的「本地查看（下载）」按钮。
+// [论文助手定制] 统一的「下载」按钮。
 function LocalViewButton(props: { onClick: () => void }) {
   return (
     <button
@@ -84,18 +84,18 @@ function LocalViewButton(props: { onClick: () => void }) {
       class="flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
     >
       <Icon name="arrow-down-to-line" size="small" />
-      本地查看
+      下载
     </button>
   )
 }
 
-// [论文助手定制] docx 本地查看：不内嵌渲染（保证版式与本地 Word 完全一致），
-// 只显示提示 + 「本地查看」下载按钮，由用户主动点击下载。
+// [论文助手定制] docx 兜底视图：不内嵌渲染（保证版式与本地 Word 完全一致），
+// 只显示提示 + 「下载」按钮，由用户主动点击下载。
 function DocxLocalView(props: { bytes: Uint8Array; filename: string }) {
   return (
     <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
       <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
-      <div class="text-13-medium text-v2-text-text-base">docx 文件请在本地查看</div>
+      <div class="text-13-medium text-v2-text-text-base">docx 文件请下载后查看</div>
       <div class="max-w-sm text-12-regular text-v2-text-text-faint">{props.filename}</div>
       <LocalViewButton
         onClick={() =>
@@ -108,7 +108,7 @@ function DocxLocalView(props: { bytes: Uint8Array; filename: string }) {
 
 // [论文助手定制] docx 直接内嵌渲染：用 docx-preview 在浏览器端按 Word 版式渲染
 // （分页、字体、表格、页眉页脚等都在页面上呈现），无需转 PDF、不依赖服务器额外工具。
-// 渲染失败时显示提示，仍可通过工具栏「本地查看」下载。
+// 渲染失败时显示提示，仍可通过工具栏「下载」下载。
 export function DocxInlineView(props: { bytes: Uint8Array; filename: string }) {
   let containerRef: HTMLDivElement | undefined
   const [failed, setFailed] = createSignal(false)
@@ -150,7 +150,7 @@ export function DocxInlineView(props: { bytes: Uint8Array; filename: string }) {
         <div class="flex flex-col items-center justify-center gap-2 p-6 text-center">
           <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
           <div class="max-w-sm text-12-regular text-v2-text-text-faint">
-            docx 渲染失败，可通过右上角「本地查看」下载后查看
+            docx 渲染失败，可通过右上角「下载」下载后查看
           </div>
         </div>
       </Show>
@@ -316,7 +316,7 @@ export function ThesisFileManager(props: { directory: string }) {
     const filename = basename(fullPath)
     const ext = extension(fullPath)
     if (data.type === "text") {
-      // [论文助手定制] md / txt 直接在面板内预览，同时提供「本地查看」下载按钮。
+      // [论文助手定制] md / txt 直接在面板内预览，同时提供「下载」按钮。
       if (ext === "md") return { kind: "markdown", text: data.content, filename } satisfies ManuscriptPreview
       // [论文助手定制] .svg 是 UTF-8 XML，后端按 text 返回：按图片渲染预览（UTF-8 → base64 data URL）。
       if (ext === "svg") {
@@ -336,7 +336,7 @@ export function ThesisFileManager(props: { directory: string }) {
       return { kind: "image", dataUrl: dataUrlOf(fullPath, data.content ?? ""), bytes, filename } satisfies ManuscriptPreview
     }
     if (ext === "docx") {
-      // [论文助手定制] docx 默认本地查看：返回字节，由 DocxLocalView 自动下载，不再内嵌渲染。
+      // [论文助手定制] docx 默认走下载兜底视图：返回字节，由 DocxLocalView 提供下载，不再内嵌渲染。
       return { kind: "docx", bytes, filename } satisfies ManuscriptPreview
     }
     if (ext === "pdf") {
@@ -817,7 +817,7 @@ export function ThesisBinaryFilePreview(props: { directory: string; path: string
 function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onEdit?: (text: string) => void) {
   switch (result.kind) {
     case "markdown":
-      // [论文助手定制] md：面板内 Markdown 预览 + 顶部「编辑」「本地查看」按钮。
+      // [论文助手定制] md：面板内 Markdown 预览 + 顶部「编辑」「下载」按钮。
       return (
         <div class="flex h-full flex-col">
           <PreviewToolbar filename={result.filename}>
@@ -835,7 +835,7 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
         </div>
       )
     case "text":
-      // [论文助手定制] txt：面板内纯文本预览 + 顶部「编辑」「本地查看」按钮。
+      // [论文助手定制] txt：面板内纯文本预览 + 顶部「编辑」「下载」按钮。
       return (
         <div class="flex h-full flex-col">
           <PreviewToolbar filename={result.filename}>
@@ -851,7 +851,7 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
         </div>
       )
     case "image":
-      // [论文助手定制] 图片：面板内直接预览 + 「本地查看」下载按钮。
+      // [论文助手定制] 图片：面板内直接预览 + 「下载」按钮。
       // 尺寸适配预览区（max-w-full / max-h-full + object-contain），图片超出时预览区内部滚动，不撑破整页。
       return (
         <div class="flex h-full flex-col">
@@ -864,7 +864,7 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
         </div>
       )
     case "docx":
-      // [论文助手定制] docx：面板内直接渲染（docx-preview，Word 版式），同时保留「本地查看」下载。
+      // [论文助手定制] docx：面板内直接渲染（docx-preview，Word 版式），同时保留「下载」。
       return (
         <div class="flex h-full flex-col">
           <PreviewToolbar filename={result.filename}>
@@ -887,8 +887,8 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
       )
     case "pdf":
       // [论文助手定制] PDF 内嵌预览：用浏览器内置查看器在 iframe 里直接显示（blob: URL，
-      // 后端 CSP 的 frame-src 已放行 blob:）。顶部同时保留「本地查看（下载）」与「新标签页打开」，
-      // 内置查看器加载异常时仍可退回到本地查看。
+      // 后端 CSP 的 frame-src 已放行 blob:）。顶部同时保留「下载」与「新标签页打开」，
+      // 内置查看器加载异常时仍可下载后本地查看。
       return (
         <div class="flex h-full flex-col">
           <PreviewToolbar filename={result.filename}>
@@ -898,7 +898,7 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
               class="flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
             >
               <Icon name="arrow-down-to-line" size="small" />
-              本地查看
+              下载
             </a>
             <a
               href={result.url}

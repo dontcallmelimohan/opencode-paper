@@ -1,12 +1,11 @@
-import { useParams } from "@solidjs/router"
 import { onCleanup } from "solid-js"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 
+// [论文助手定制] 设置入口不再需要 sessionID：会话级的权限设置已从设置里移除。
 export function useSettingsDialog(defaultValue?: string) {
   const dialog = useDialog()
-  const params = useParams<{ id?: string }>()
   let run = 0
   let dead = false
 
@@ -16,10 +15,9 @@ export function useSettingsDialog(defaultValue?: string) {
 
   return () => {
     const current = ++run
-    const sessionID = params.id
     void import("@/components/settings-v2").then((module) => {
       if (dead || run !== current) return
-      void dialog.show(() => <module.DialogSettings sessionID={sessionID} defaultValue={defaultValue} />)
+      void dialog.show(() => <module.DialogSettings defaultValue={defaultValue} />)
     })
   }
 }

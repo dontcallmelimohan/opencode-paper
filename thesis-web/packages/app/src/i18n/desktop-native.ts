@@ -1,33 +1,5 @@
-export const DESKTOP_NATIVE_LOCALES = [
-  "en",
-  "zh",
-  "zht",
-  "ko",
-  "de",
-  "es",
-  "fr",
-  "da",
-  "ja",
-  "pl",
-  "ru",
-  "uk",
-  "bs",
-  "ar",
-  "no",
-  "br",
-  "th",
-  "tr",
-  "hi",
-  "nl",
-  "id",
-  "vi",
-  "it",
-  "ur",
-  "pa",
-  "az",
-  "fi",
-  "sv",
-] as const
+// [论文助手定制] 只保留中文（en 作为缺词兜底），其余语言包已删除。
+export const DESKTOP_NATIVE_LOCALES = ["en", "zh"] as const
 
 export type DesktopNativeLocale = (typeof DESKTOP_NATIVE_LOCALES)[number]
 

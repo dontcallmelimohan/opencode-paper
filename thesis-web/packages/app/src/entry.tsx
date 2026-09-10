@@ -13,20 +13,10 @@ import { ServerConnection } from "./context/server"
 
 const DEFAULT_SERVER_URL_KEY = "opencode.settings.dat:defaultServerUrl"
 
-const getLocale = () => {
-  if (typeof navigator !== "object") return "en" as const
-  const languages = navigator.languages?.length ? navigator.languages : [navigator.language]
-  for (const language of languages) {
-    if (!language) continue
-    if (language.toLowerCase().startsWith("zh")) return "zh" as const
-  }
-  return "en" as const
-}
-
+// [论文助手定制] 平台只提供中文界面，不再按浏览器语言探测。
 const getRootNotFoundError = () => {
   const key = "error.dev.rootNotFound" as const
-  const locale = getLocale()
-  return locale === "zh" ? (zh[key] ?? en[key]) : en[key]
+  return zh[key] ?? en[key]
 }
 
 const getStorage = (key: string) => {

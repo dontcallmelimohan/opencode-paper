@@ -280,8 +280,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     )
 
     const bind = (id: string, def: KeybindConfig | undefined) => {
-      const custom = settings.keybinds.get(actionId(id))
-      const config = custom ?? def
+      const config = def
       if (!config || config === "none") return
       return config
     }
@@ -349,7 +348,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     const suspended = () => store.suspendCount > 0
 
     const palette = createMemo(() => {
-      const config = settings.keybinds.get(PALETTE_ID) ?? DEFAULT_PALETTE_KEYBIND
+      const config = DEFAULT_PALETTE_KEYBIND
       const keybinds = parseKeybind(config)
       return new Set(keybinds.map((kb) => signature(kb.key, kb.ctrl, kb.meta, kb.shift, kb.alt)))
     })
@@ -441,7 +440,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     }
 
     const keybindConfig = (id: string) => {
-      if (id === PALETTE_ID) return settings.keybinds.get(PALETTE_ID) ?? DEFAULT_PALETTE_KEYBIND
+      if (id === PALETTE_ID) return DEFAULT_PALETTE_KEYBIND
       const base = actionId(id)
       return options().find((x) => actionId(x.id) === base)?.keybind ?? bind(base, catalog[base]?.keybind)
     }

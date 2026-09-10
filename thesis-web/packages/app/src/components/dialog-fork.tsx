@@ -18,8 +18,9 @@ interface ForkableMessage {
   time: string
 }
 
+// [论文助手定制] 界面固定中文，时间也用中文区域格式。
 function formatTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { timeStyle: "short" })
+  return date.toLocaleTimeString("zh-CN", { timeStyle: "short" })
 }
 
 export const DialogFork: Component = () => {

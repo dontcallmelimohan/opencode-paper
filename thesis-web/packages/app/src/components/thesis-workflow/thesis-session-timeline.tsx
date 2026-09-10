@@ -10,6 +10,7 @@ import { Card } from "@opencode-ai/ui/card"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
+import { Icon } from "@opencode-ai/ui/icon"
 import { TextShimmer } from "@opencode-ai/ui/text-shimmer"
 import { Message, MessageDivider, Part as MessagePart } from "@opencode-ai/session-ui/message-part"
 import { SessionRetry } from "@opencode-ai/session-ui/session-retry"
@@ -17,6 +18,7 @@ import { useSDK } from "@/context/sdk"
 import type {
   AssistantMessage,
   Message as MessageType,
+  Part,
   SessionStatus,
   ToolPart,
   UserMessage,
@@ -44,6 +46,38 @@ const ASSET_FIGURE_RE = /!\[([^\]]*)\]\(asset:\/\/([^)\s]+)\)/g
 const LOCAL_FIGURE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
 const isExternalSrc = (src: string) => /^(https?:|data:|asset:|blob:|\/)/i.test(src)
 const cleanLocalSrc = (src: string) => src.replace(/^\.\//, "").split(/[?#]/)[0] ?? ""
+
+// [论文助手定制] 思考过程默认折叠：模型推理原文（常为英文长段）不再直接铺满会话面板，
+// 收成一行「思考过程」；生成中在标题上显示「思考中…」作为进度反馈，用户点击才展开。
+function ReasoningRow(props: { message: MessageType; part: Part }) {
+  const language = useLanguage()
+  const [manual, setManual] = createSignal<boolean>()
+  const open = () => manual() ?? false
+  const streaming = createMemo(
+    () =>
+      props.message.role === "assistant" && typeof (props.message as AssistantMessage).time.completed !== "number",
+  )
+  return (
+    <div data-component="thesis-reasoning" class="min-w-0 w-full">
+      <button
+        type="button"
+        data-action="thesis-reasoning-toggle"
+        aria-expanded={open()}
+        class="-ml-2 flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-12-medium text-v2-text-text-muted transition-colors hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base"
+        onClick={() => setManual(!open())}
+      >
+        <Icon name={open() ? "chevron-down" : "chevron-right"} size="small" />
+        <span>思考过程</span>
+        <Show when={streaming() && !open()}>
+          <TextShimmer text={language.t("ui.sessionTurn.status.thinking")} />
+        </Show>
+      </button>
+      <Show when={open()}>
+        <MessagePart part={props.part} message={props.message} useV2Actions />
+      </Show>
+    </div>
+  )
+}
 
 function TurnFigureGallery(props: { assistants: AssistantMessage[]; directory: string }) {
   const sync = useSync()
@@ -288,6 +322,14 @@ export function ThesisSessionTimeline(props: {
     const message = messageByID().get(group.ref.messageID)
     const part = getParts(group.ref.messageID).find((item) => item.id === group.ref.partID)
     if (!message || !part) return null
+    // [论文助手定制] 思考过程折叠渲染（其余片段保持原样）。
+    if (part.type === "reasoning") {
+      return (
+        <div data-timeline-row="AssistantPart" class="px-4 py-2 md:px-5">
+          <ReasoningRow message={message} part={part} />
+        </div>
+      )
+    }
     return (
       <div data-timeline-row="AssistantPart" class="px-4 py-2 md:px-5">
         <MessagePart part={part} message={message} useV2Actions />

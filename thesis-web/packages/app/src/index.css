@@ -369,7 +369,14 @@
   --brand-600: light-dark(#1e88e5, #0d47a1);
   --brand-700: light-dark(#1976d2, #0a3d86);
   --brand-800: light-dark(#1565c0, #08306b);
+  /* [论文助手定制] 淡色描边：此前只有 600~800，代码里的 var(--brand-200) 一直是未定义变量，
+     徽标/图标那圈描边整条失效，这里补齐暗色也要看得见的一档。 */
+  --brand-200: light-dark(#cfe1f9, #1d3a5c);
   --brand-tint: light-dark(#e7f0fb, #152a44);
+  /* 淡蓝底上的品牌文字/图标：暗色要提亮，否则 600~800 的深蓝落在深底上读不出来。 */
+  --brand-fg: light-dark(#1976d2, #79c0ff);
+  /* 强调点（进度点、描边、焦点）用更亮的一档。 */
+  --brand-accent: light-dark(#1e88e5, #2f81f7);
   --brand-gradient: light-dark(
     linear-gradient(135deg, #0a1e3f 0%, #1e88e5 100%),
     linear-gradient(135deg, #050d1f 0%, #0a3d86 100%)
@@ -384,6 +391,26 @@
   --brand-primary-border-active: light-dark(#1565c0, #79c0ff);
   --brand-primary-text: #ffffff;
   --brand-primary-text-disabled: light-dark(#ffffff, #7d8590);
+}
+
+/* ===== [论文助手定制] 暗色配色统一 =====
+   v2 主题自带的暗色是中性灰（底 #161616 / 层 #242424），
+   而主页与工作区用的是蓝调深色（#0b0e14 / #0d1117 / #161b22）。
+   两套混用会让弹窗、下拉、设置面板变成「灰块压在蓝底上」。
+   这里把 v2 的底色与描边在暗色下重映射到平台色板，整站暗色只保留一套颜色。
+   注意：主题运行时还会注入一段未分层的 `:root {…}` 覆盖，且它排在最后，
+   所以这里必须用 :root[data-color-scheme="dark"] 提权，否则会被它盖掉。 */
+:root[data-color-scheme="dark"] {
+  --v2-background-bg-base: #0d1117;
+  --v2-background-bg-deep: #0b0e14;
+  --v2-background-bg-layer-01: #161b22;
+  --v2-background-bg-layer-02: #1c232c;
+  --v2-background-bg-layer-03: #232b35;
+  --v2-background-bg-layer-04: #2b343f;
+
+  --v2-border-border-muted: #1f252e;
+  --v2-border-border-base: #262e3a;
+  --v2-border-border-strong: #3d444d;
 }
 
 /* 主操作按钮：opencode 默认近黑 primary → 品牌蓝 */
@@ -426,32 +453,55 @@
   color: var(--brand-700);
 }
 
-/* [论文助手定制] 主页背景：GitHub 式纯色背景（浅色 #ffffff / 暗色 #0d1117）。 */
+/* ===== [论文助手定制] 主页（Web 应用式）：浅灰画布 + 毛玻璃顶栏 + 全宽 Hero + 卡片列表。
+   主页是浏览器里的 Web 产品，不再是「左侧固定侧边栏 + 外圈圆角卡片」的桌面端形态。 ===== */
 .home-page-bg {
-  background-color: light-dark(#ffffff, #0d1117);
+  background-color: light-dark(#f6f8fa, #0b0e14);
 }
 
-/* [论文助手定制] 主页工作空间卡片：GitHub 式专业简约——白底、细边框、小圆角、无阴影，hover 仅边框变色不上浮。 */
-.thesis-card {
-  border: 1px solid light-dark(#d8dee4, #3d444d);
-  border-radius: 10px;
-  background-color: light-dark(#ffffff, #0d1117);
-  transition: border-color 0.15s ease;
+/* 顶栏：半透明 + 背景模糊，滚动时保持悬浮。 */
+.home-topbar {
+  background-color: color-mix(in srgb, light-dark(#ffffff, #0d1117) 84%, transparent);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border-bottom: 1px solid light-dark(#e4e8ec, #1f252e);
 }
 
-.thesis-card:hover {
-  border-color: light-dark(#0969da, #2f81f7);
-}
-
-/* [论文助手定制] 主页 Hero：轻量说明产品流程，不脱离 GitHub 式扁平风格。 */
-.thesis-hero {
+/* Hero 横幅：品牌色渐晕 + 底部发丝线，与内容区分层。 */
+.home-hero {
   position: relative;
+  border-bottom: 1px solid light-dark(#e4e8ec, #1f252e);
   background:
-    radial-gradient(560px 220px at 86% -10%, color-mix(in srgb, var(--brand-600) 9%, transparent), transparent 72%),
-    light-dark(#f8fafc, #11161d);
+    radial-gradient(820px 300px at 8% -70%, color-mix(in srgb, var(--brand-600) 16%, transparent), transparent 70%),
+    radial-gradient(620px 260px at 94% -40%, color-mix(in srgb, var(--brand-600) 9%, transparent), transparent 72%),
+    light-dark(#ffffff, #0d1117);
 }
 
-/* ===== [论文助手定制] 论文工作台 GitHub 式扁平化：与主页 thesis-card 同一套视觉语言。
+/* Hero 内四步流程与上方文案的分隔线。 */
+.home-hero-steps {
+  border-top: 1px solid light-dark(#e9edf1, #222a34);
+}
+
+/* 工作空间卡片：白底 + 1px 边框 + 12px 圆角，hover 描边转品牌色并浮起一点点。 */
+.home-card {
+  border: 1px solid light-dark(#e4e8ec, #262e3a);
+  border-radius: 12px;
+  background-color: light-dark(#ffffff, #0d1117);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.home-card:hover {
+  border-color: color-mix(in srgb, var(--brand-600) 55%, light-dark(#e4e8ec, #262e3a));
+  box-shadow: 0 10px 24px -18px color-mix(in srgb, var(--brand-800) 70%, transparent);
+}
+
+.home-card-hairline {
+  border-color: light-dark(#e9edf1, #222a34);
+}
+
+/* ===== [论文助手定制] 论文工作台 GitHub 式扁平化：与主页卡片同一套视觉语言。
    去掉多层级“浮层卡片 + 大圆角 + 阴影”的 AI 味，改用纯色页面、1px 细分隔线、
    浅灰悬浮行与蓝色下划线 tab。 ===== */
 .workbench-page {

@@ -42,7 +42,6 @@ import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { retry } from "@opencode-ai/core/util/retry"
-import { playSoundById } from "@/utils/sound"
 import { createAim } from "@/utils/aim"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
@@ -54,11 +53,10 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis, getDraggableId } from "@/utils/solid-dnd"
 import { DebugBar } from "@/components/debug-bar"
-import { TabsInfoPopup } from "@/components/help-button"
 import { Titlebar, type TitlebarUpdate } from "@/components/titlebar"
 import { useDirectoryPicker } from "@/components/directory-picker"
 import { ServerConnection, useServer } from "@/context/server"
-import { useLanguage, type Locale } from "@/context/language"
+import { useLanguage } from "@/context/language"
 import { pathKey } from "@/utils/path-key"
 import {
   displayName,
@@ -354,24 +352,6 @@ export default function LegacyLayout(props: ParentProps) {
     })
   }
 
-  function setLocale(next: Locale) {
-    if (next === language.locale()) return
-    language.setLocale(next)
-    showToast({
-      title: language.t("toast.language.title"),
-      description: language.t("toast.language.description", { language: language.label(next) }),
-    })
-  }
-
-  function cycleLanguage(direction = 1) {
-    const locales = language.locales
-    const currentIndex = locales.indexOf(language.locale())
-    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + direction + locales.length) % locales.length
-    const next = locales[nextIndex]
-    if (!next) return
-    setLocale(next)
-  }
-
   const useSDKNotificationToasts = () =>
     onMount(() => {
       const toastBySession = new Map<string, number>()
@@ -442,9 +422,6 @@ export default function LegacyLayout(props: ParentProps) {
         alertedAtBySession.set(sessionKey, now)
 
         if (e.details.type === "permission.asked") {
-          if (settings.sounds.permissionsEnabled()) {
-            void playSoundById(settings.sounds.permissions())
-          }
           if (settings.notifications.permissions()) {
             void platform.notify(title, description, () => navigate(href))
           }
@@ -1075,22 +1052,6 @@ export default function LegacyLayout(props: ParentProps) {
       })
     }
 
-    commands.push({
-      id: "language.cycle",
-      title: language.t("command.language.cycle"),
-      category: language.t("command.category.language"),
-      onSelect: () => cycleLanguage(1),
-    })
-
-    for (const locale of language.locales) {
-      commands.push({
-        id: `language.set.${locale}`,
-        title: language.t("command.language.set", { language: language.label(locale) }),
-        category: language.t("command.category.language"),
-        onSelect: () => setLocale(locale),
-      })
-    }
-
     return commands
   })
 
@@ -1110,12 +1071,11 @@ export default function LegacyLayout(props: ParentProps) {
     })
   }
 
+  // [论文助手定制] 只保留平台自己的设置弹窗。旧版 opencode 设置界面（依赖 newLayoutDesigns
+  // 开关切换）已删除，否则老用户会看到一个完全没适配的 opencode 设置页。
   function openSettings() {
     const run = ++dialogRun
-    const module = settings.general.newLayoutDesigns()
-      ? import("@/components/settings-v2")
-      : import("@/components/dialog-settings")
-    void module.then((x) => {
+    void import("@/components/settings-v2").then((x) => {
       if (dialogDead || dialogRun !== run) return
       dialog.show(() => <x.DialogSettings />)
     })
@@ -2414,7 +2374,6 @@ export default function LegacyLayout(props: ParentProps) {
         </div>
         {import.meta.env.DEV && import.meta.env.VITE_DISABLE_DEBUG_BAR !== "1" && state.debugTools && <DebugBar />}
       </div>
-      <TabsInfoPopup />
       <ToastRegion v2={false} />
     </div>
   )

@@ -1059,7 +1059,8 @@ export function MessageTimeline(props: {
     const defaultOpen = createMemo(() => {
       const item = part()
       if (!item) return
-      return partDefaultOpen(item, settings.general.shellToolPartsExpanded(), settings.general.editToolPartsExpanded())
+      // [论文助手定制] 工具块展开设置已移除，统一按默认（折叠）渲染。
+      return partDefaultOpen(item, false, false)
     })
 
     return (

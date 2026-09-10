@@ -34,6 +34,8 @@ import { htmlToPdf } from "../thesis-pdf"
 import type { ThesisDocxOptions } from "../thesis-docx"
 import { markInstanceForDisposal } from "../lifecycle"
 import { ProjectV2 } from "@opencode-ai/core/project"
+import { MultiUser } from "@opencode-ai/server/multi-user"
+import { CurrentUser } from "../middleware/authorization"
 import path from "path"
 
 export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance", (handlers) =>
@@ -429,13 +431,20 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return target
     }
 
-    // [论文助手定制] 论文工作区根目录：优先用设置里的 thesisWorkspace，否则默认 ~/thesis-workspace。
+    // [论文助手定制] 论文工作区根目录：多用户模式下每个用户有独立根目录。
     const thesisRoot = Effect.fn("InstanceHttpApi.thesisRoot")(function* () {
-      const cfg = yield* config.get()
-      const configured = cfg.thesisWorkspace?.trim()
-      return configured
-        ? configured.replace(/^~(?=\/|$)/, Global.Path.home)
-        : path.join(Global.Path.home, "thesis-workspace")
+      const user = yield* CurrentUser
+      return MultiUser.userThesisRoot(user)
+    })
+
+    // [论文助手定制] 论文项目访问边界：先按当前用户的论文根目录过滤，再返回项目。
+    const thesisProject = Effect.fn("InstanceHttpApi.thesisProject")(function* (projectID: string) {
+      const root = yield* thesisRoot()
+      const proj = yield* project.get(ProjectV2.ID.make(projectID))
+      if (!proj || !FSUtil.contains(root, proj.worktree)) {
+        return yield* Effect.fail(thesisError("论文项目不存在"))
+      }
+      return proj
     })
 
     // [论文助手定制] 扫描目录下所有文件（含子目录，跳过 .git），返回最新 mtime（毫秒）；目录不存在/无文件返回 0。
@@ -467,7 +476,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const listThesis = Effect.fn("InstanceHttpApi.thesisList")(function* () {
       const root = yield* thesisRoot()
       const projects = yield* project.list()
-      const theses = projects.filter((item) => item.worktree.startsWith(`${root}/`))
+      const theses = projects.filter((item) => FSUtil.contains(root, item.worktree))
       return yield* Effect.forEach(
         theses,
         (item) =>
@@ -485,12 +494,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       payload: Schema.Schema.Type<typeof ThesisDeleteBody>
     }) {
       const projectID = ProjectV2.ID.make(ctx.payload.projectID)
-      const proj = yield* project.get(projectID)
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
-      const root = yield* thesisRoot()
-      if (!proj.worktree.startsWith(`${root}/`)) {
-        return yield* Effect.fail(thesisError("只能删除论文工作区内的项目"))
-      }
+      const proj = yield* thesisProject(ctx.payload.projectID)
       yield* project.remove(projectID).pipe(Effect.mapError(() => thesisError("删除项目记录失败")))
       yield* fs.remove(proj.worktree, { recursive: true }).pipe(
         Effect.mapError(() => thesisError("删除项目目录失败")),
@@ -505,11 +509,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       if (!title) return yield* Effect.fail(thesisError("论文标题不能为空"))
       const slug = title.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "thesis"
       const id = Math.random().toString(36).slice(2, 8)
-      const cfg = yield* config.get()
-      const configured = cfg.thesisWorkspace?.trim()
-      const root = configured
-        ? configured.replace(/^~(?=\/|$)/, Global.Path.home)
-        : path.join(Global.Path.home, "thesis-workspace")
+      const root = yield* thesisRoot()
       const dir = path.join(root, `${slug}-${id}`)
       yield* fs.ensureDir(dir).pipe(
         Effect.mapError((error) => thesisError(`创建论文目录失败：${String(error)}`)),
@@ -541,8 +541,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const uploadThesisFile = Effect.fn("InstanceHttpApi.thesisUpload")(function* (ctx: {
       payload: { projectID: string; filename: string; content: string; directory?: string }
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const name = path.basename(ctx.payload.filename).trim()
       if (!name) return yield* Effect.fail(thesisError("文件名无效"))
       const bytes = Buffer.from(ctx.payload.content, "base64")
@@ -562,8 +561,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const mkdirThesis = Effect.fn("InstanceHttpApi.thesisMkdir")(function* (ctx: {
       payload: Schema.Schema.Type<typeof ThesisMkdirBody>
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const target = resolveThesisPath(proj.worktree, ctx.payload.path)
       if (!target) return yield* Effect.fail(thesisError("文件夹路径无效"))
       yield* fs.makeDirectory(target, { recursive: true }).pipe(
@@ -576,8 +574,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const writeThesisFile = Effect.fn("InstanceHttpApi.thesisWriteFile")(function* (ctx: {
       payload: Schema.Schema.Type<typeof ThesisWriteFileBody>
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const target = resolveThesisPath(proj.worktree, ctx.payload.path)
       if (!target) return yield* Effect.fail(thesisError("文件路径无效"))
       yield* fs.writeWithDirs(target, Buffer.from(ctx.payload.content ?? "", "utf8")).pipe(
@@ -590,8 +587,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const deleteThesisEntry = Effect.fn("InstanceHttpApi.thesisDeleteEntry")(function* (ctx: {
       payload: Schema.Schema.Type<typeof ThesisDeleteEntryBody>
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const target = resolveThesisPath(proj.worktree, ctx.payload.path)
       if (!target || target === proj.worktree) return yield* Effect.fail(thesisError("删除路径无效"))
       yield* fs.remove(target, { recursive: true }).pipe(
@@ -607,8 +603,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const pdfTextThesis = Effect.fn("InstanceHttpApi.thesisPdfText")(function* (ctx: {
       payload: { projectID: string; filename: string }
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const name = path.basename(ctx.payload.filename).trim()
       if (!/\.pdf$/i.test(name)) return yield* Effect.fail(thesisError("仅支持 PDF 文件"))
       const source = path.join(proj.worktree, name)
@@ -645,8 +640,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const deleteThesisMaterial = Effect.fn("InstanceHttpApi.thesisDeleteMaterial")(function* (ctx: {
       payload: Schema.Schema.Type<typeof ThesisDeleteMaterialBody>
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const name = path.basename(ctx.payload.filename).trim()
       if (!name) return yield* Effect.fail(thesisError("文件名无效"))
       const target = path.join(proj.worktree, name)
@@ -666,8 +660,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const exportThesisDocx = Effect.fn("InstanceHttpApi.thesisExportDocx")(function* (ctx: {
       payload: Schema.Schema.Type<typeof ThesisExportDocxBody>
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const name = path.basename(ctx.payload.filename).trim()
       if (!name) return yield* Effect.fail(thesisError("文件名无效"))
       const content = ctx.payload.content
@@ -719,8 +712,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const saveThesisManuscript = Effect.fn("InstanceHttpApi.thesisSaveManuscript")(function* (ctx: {
       payload: Schema.Schema.Type<typeof ThesisSaveManuscriptBody>
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       if (!ctx.payload.content.trim()) return yield* Effect.fail(thesisError("文稿内容为空"))
       const filename = MANUSCRIPT_FILENAMES[ctx.payload.step]
       const target = path.join(proj.worktree, filename)
@@ -734,8 +726,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const exportThesisPdf = Effect.fn("InstanceHttpApi.thesisExportPdf")(function* (ctx: {
       payload: { projectID: string; filename: string; html: string }
     }) {
-      const proj = yield* project.get(ProjectV2.ID.make(ctx.payload.projectID))
-      if (!proj) return yield* Effect.fail(thesisError("论文项目不存在"))
+      const proj = yield* thesisProject(ctx.payload.projectID)
       const name = path.basename(ctx.payload.filename).trim()
       if (!name) return yield* Effect.fail(thesisError("文件名无效"))
       if (!ctx.payload.html.trim()) return yield* Effect.fail(thesisError("文稿内容为空，无法导出"))

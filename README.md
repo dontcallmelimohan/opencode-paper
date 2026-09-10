@@ -112,23 +112,26 @@ bun run dev
 | 配置项 | 说明 | 默认值 |
 |---|---|---|
 | `VITE_OPENCODE_SERVER_HOST` / `VITE_OPENCODE_SERVER_PORT` | 前端连接的后端地址（启动前端前设置） | `localhost` / `4096` |
-| 应用登录注册 | 访问页面后先注册账号，再登录使用；账号和会话存到 `~/.local/share/opencode/thesis-auth.json` | 首次访问注册 |
+| 应用登录注册 | 访问页面后先注册账号，再登录使用；账号和会话存到 `~/.local/share/opencode/thesis-auth.json` | 首个账号 |
 | `OPENCODE_AUTH_OPEN_REGISTRATION` | 设置为 `true` 时允许首个账号之后继续注册新账号；公网部署不建议开启 | `false` |
 | `OPENCODE_AUTH_SECURE_COOKIES` | 设置为 `true` 时登录 Cookie 增加 `Secure`，HTTPS 部署建议开启 | `false` |
 | `OPENCODE_SERVER_PASSWORD` / `OPENCODE_SERVER_USERNAME` | 后端 Basic 认证仍可作为兼容入口；新登录系统不依赖它 | 不设 / `opencode` |
-| 论文工作区路径 | 论文项目的根目录，可在应用「设置」里修改（对应配置 `thesisWorkspace`） | `~/thesis-workspace` |
+| 论文工作区路径 | 多用户模式下由用户 ID 派生，忽略全局 `thesisWorkspace` 配置 | `~/.local/share/opencode/users/<userId>/workspaces/thesis-workspace` |
 | Skill 全局目录 | 上传的 skill 存这里，所有论文项目通用 | `~/.config/opencode/skills/<name>/SKILL.md` |
 | Agent 全局目录 | 上传 skill 时同步生成的 agent | `~/.config/opencode/agent/<name>.md` |
 | PDF 提取 | 上传 PDF 自动提取文本（内置 unpdf 库，**无需**系统安装 pdftotext） | 自动 |
 
 后端地址解析逻辑在 `thesis-web/packages/app/src/entry.tsx` 的 `getCurrentUrl()`。
 
-> **登录注册**：项目现在内置了简单账号系统。首次访问会显示登录页，可切换到注册；注册成功后自动登录。
-> 密码使用 Bun 的 Argon2id 哈希保存，登录会话使用 HttpOnly Cookie，后端 API 和页面路由都会校验登录状态。
+> **登录注册**：项目内置简单账号系统。首次访问会显示登录页，可切换到注册；注册成功后自动登录。
+> 密码使用 Bun 的 Argon2id 哈希保存，登录会话使用 HttpOnly Cookie；登录页和静态资源公开，业务 API 会校验 Cookie。
+> 每个用户的论文项目位于独立目录，未登录请求不能访问任意服务器目录。注册默认只允许创建首个账号；需要开放自助注册时设置 `OPENCODE_AUTH_OPEN_REGISTRATION=true`，公网环境请自行评估风险。
+> 服务器从单用户升级时，部署脚本会记录首个用户为兼容用户，让其继续使用旧的 `~/thesis-workspace`；新用户使用 `~/.local/share/opencode/users/<userId>/workspaces`。
 > 用户数据文件位于 `~/.local/share/opencode/thesis-auth.json`，权限写为 `0600`。
 > 为避免公网部署时被陌生人注册，默认只允许创建首个账号；如确实需要多人自行注册，可设置 `OPENCODE_AUTH_OPEN_REGISTRATION=true`。
 > HTTPS 部署时建议设置 `OPENCODE_AUTH_SECURE_COOKIES=true`；本地 HTTP 调试时不要开启。
 > 原来的 `OPENCODE_SERVER_PASSWORD` Basic 认证仍保留为兼容入口，但普通 Web 使用走新的登录注册流程。
+> 当前初步版仍共享全局模型配置、全局 Skill 和 `~/.config/opencode` 下其他全局资源；这是下一步按用户隔离的重点。
 
 ## Windows 运行说明
 
