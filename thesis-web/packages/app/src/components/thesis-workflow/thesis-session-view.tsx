@@ -20,7 +20,7 @@ import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import type { AssistantMessage } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, PermissionRequest } from "@opencode-ai/sdk/v2"
 import type { Prompt } from "@/context/prompt"
 import { PromptInputV2Composer, usePromptInputV2Controller } from "@/components/prompt-input-v2"
 import type { PromptInputV2PersistedState } from "@opencode-ai/session-ui/v2/prompt-input"
@@ -28,10 +28,13 @@ import { useServerSync } from "@/context/server-sync"
 import { useServer } from "@/context/server"
 import { authTokenFromCredentials } from "@/utils/server"
 import { useLocal } from "@/context/local"
+import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useQuery } from "@tanstack/solid-query"
 import { createPromptInputController } from "@/pages/session/composer"
+import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
+import { sessionPermissionRequest } from "@/pages/session/composer/session-request-tree"
 import { createPromptModelSelection } from "@/pages/session/composer/prompt-model-selection"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { legacySessionHref } from "@/utils/session-route"
@@ -64,6 +67,16 @@ const STEP_AGENTS: Record<StepKey, string> = {
 }
 // [论文助手定制] 通用会话固定 Agent：不归属任何板块的自由会话用「通用助手」（与后端 thesis-agents.ts 一致）。
 const GENERAL_AGENT = "通用助手"
+// [论文助手定制] 板块 → 可用技能白名单（与后端 thesis-agents.ts 中板块 agent 的 skill 权限一致）。
+// 技能名取 SKILL.md frontmatter 的 name；输入框技能选择器只展示当前板块白名单内的技能。
+// 提纲助手默认不在技能面板放技能：文献策略在提纲配置里选择，联网检索经 lit-search-cite/deep-research 子代理执行；
+// 通用/游离会话不做过滤、全部可用。
+const STEP_SKILLS: Record<StepKey, string[]> = {
+  outline: [],
+  writing: ["svg-flowchart", "论文图表", "formula-normalizer", "image-description", "research-writing", "academic-writing", "chapter-structure-refactor"],
+  formatting: ["latex-paper-en", "latex-thesis-zh", "typst-paper", "latex-compile", "latex-paper-pipeline", "docx-editor-cn"],
+  review: ["paper-review", "thesis-reviewer", "academic-paper-reviewer", "bib-search-citation"],
+}
 type CanvasApplyMode = "replace" | "append" | "scratch"
 
 // [论文助手定制] 按扩展名推断文件 MIME：图片/PDF/常见文本给准确类型，其余兜底 octet-stream，
@@ -301,6 +314,7 @@ export function ThesisSessionView(props: {
   const sync = useSync()
   const local = useLocal()
   const serverSync = useServerSync()
+  const permission = usePermission()
   const { state, updateInput, setStepSessionID, setStepResult, setCurrentArtifact, markTurn, ensureArtifactForStep, ensureScratchArtifact, upsertArtifact, registerSessionInsertFile } = useThesisWorkflow()
   // [论文助手定制] 文稿文件化：会话里「存为当前文稿」时同样落盘到项目根目录 <step>.md。
   const manuscript = useThesisManuscriptFile(sdk().directory)
@@ -401,6 +415,40 @@ export function ThesisSessionView(props: {
   // [论文助手定制] 配置图标仅在板块上下文显示（outline/writing/formatting/review）：
   // 点击弹出对应配置浮窗（Outline/Writing/Formatting/ReviewConfigForm），配置面板已全部浮窗化。
   const configStep = createMemo(() => sessionBoard() ?? undefined)
+  // [论文助手定制] 待确认的工具权限请求：与全屏会话页同源（沿该会话的子会话树查找），
+  // 排除已被「始终允许 / 始终拒绝」自动响应的项；整段查询放 try/catch，
+  // 会话数据尚未就绪时静默跳过，绝不因权限查询把工作台整页拖进错误页。
+  const permissionRequest = createMemo((): PermissionRequest | undefined => {
+    const id = sessionID()
+    if (!id) return undefined
+    try {
+      return sessionPermissionRequest(sync().data.session, sync().data.permission, id, (item) => {
+        try {
+          return !permission.autoResponds(item, sdk().directory)
+        } catch {
+          return true
+        }
+      })
+    } catch (error) {
+      console.error("[thesis-session] 读取待确认权限请求失败", error)
+      return undefined
+    }
+  })
+  const [respondingPermissionID, setRespondingPermissionID] = createSignal<string>()
+  const decidePermission = (response: "once" | "always" | "reject") => {
+    const perm = permissionRequest()
+    if (!perm || respondingPermissionID() === perm.id) return
+    setRespondingPermissionID(perm.id)
+    sdk()
+      .api.permission.reply({ sessionID: perm.sessionID, requestID: perm.id, reply: response })
+      .catch((err: unknown) => {
+        const description = err instanceof Error ? err.message : String(err)
+        showToast({ title: "权限回复失败", description })
+      })
+      .finally(() => {
+        setRespondingPermissionID((current) => (current === perm.id ? undefined : current))
+      })
+  }
   const route = useSessionKey()
 
   // [论文助手定制] 复用主会话页的自动滚动 Hook：内容渲染完成后（ResizeObserver 在布局后触发）
@@ -473,13 +521,23 @@ export function ThesisSessionView(props: {
   })
   const boardControls = createMemo(() => {
     const base = controls()
+    const board = sessionBoard()
     const fixed = boardAgentName()
+    // [论文助手定制] 板块技能白名单：只把当前板块允许的技能放给输入框技能选择器，
+    // 与后端 thesis-agents.ts 中板块 agent 的 skill 权限一致；通用/游离会话不过滤（全部技能）。
+    const filteredSkills = () => {
+      const all = base.skills?.() ?? []
+      if (!board) return all
+      const allowed = STEP_SKILLS[board] ?? []
+      return all.filter((item) => allowed.includes(item.id))
+    }
     if (fixed) {
       // 通用会话锁定后隐藏 agent 切换入口，避免会话中途误切换；
       // 板块会话仍显示入口（发送时固定用板块角色，与之前一致）。
       const hideAgentPicker = isGenericSession() && sessionStarted()
       return {
         ...base,
+        skills: filteredSkills,
         agents: { ...base.agents, current: fixed, visible: hideAgentPicker ? false : base.agents.visible },
       }
     }
@@ -492,6 +550,7 @@ export function ThesisSessionView(props: {
         (started ? thesisSessionAgents.read(sdk().directory, id) : genericAgent()) ?? GENERAL_AGENT
       return {
         ...base,
+        skills: filteredSkills,
         agents: {
           ...base.agents,
           current: name,
@@ -500,7 +559,7 @@ export function ThesisSessionView(props: {
         },
       }
     }
-    return base
+    return { ...base, skills: filteredSkills }
   })
 
   // [论文助手定制] 完整会话输入框（PromptInputV2Composer）：
@@ -534,8 +593,9 @@ export function ThesisSessionView(props: {
       // [论文助手定制] 配置面板弱化（第二轮）：发送即生成——发送时自动关闭配置浮窗（四个板块统一）。
       if (sessionBoard()) props.onSetConfigOpen?.(false)
     },
-    // [论文助手定制] 配置不再注入会话文本：配置唯一交付方式为落盘 config/论文主题.md（见 thesis-config-forms），
-    // 由「提纲助手」等 Skill 直接读取；故 promptTransform 透传，不追加任何配置段。
+    // [论文助手定制] 配置不再注入会话文本：各板块配置分别落盘到文件空间 config/ 下的独立文档
+    // （论文主题.md / 写作设定.md / 排版配置.md / 评审配置.md，见 thesis-config-forms），
+    // 由对应板块角色直接读取；故 promptTransform 透传，不追加任何配置段。
     promptTransform: (prompt: Prompt) => prompt,
   })
 
@@ -578,7 +638,7 @@ export function ThesisSessionView(props: {
   }
 
   // [论文助手定制] 把输入框 @ 引用能力注册到 workflow store，供配置浮窗「同步到文件空间」按钮调用：
-  // 保存 config/论文主题.md 后把该文件追加为输入框引用，让 Skill 必须看到配置文件。
+  // 各板块保存自己的 config/ 配置文件后追加为输入框引用，让对应角色必须看到配置文件。
   createEffect(() => {
     registerSessionInsertFile(insertFile)
     onCleanup(() => registerSessionInsertFile(undefined))
@@ -832,6 +892,19 @@ export function ThesisSessionView(props: {
       {/* [论文助手定制] 底部完整会话输入框：与主会话页同款（模型选择、skill 选择、@引用/附件、
           发送/停止）；embedded 模式复用当前模块专属会话、发送后不跳转。 */}
       <div class="shrink-0 border-t border-v2-border-border-base p-2">
+        {/* [论文助手定制] 待确认工具权限卡片（与全屏会话页一致的 DockPrompt）：模型请求
+            bash/写文件等权限时在这里给出「拒绝 / 始终允许 / 允许一次」入口，避免回复停在等待状态。 */}
+        <Show when={permissionRequest()} keyed>
+          {(request) => (
+            <div class="mb-2">
+              <SessionPermissionDock
+                request={request}
+                responding={respondingPermissionID() === request.id}
+                onDecide={(response) => decidePermission(response)}
+              />
+            </div>
+          )}
+        </Show>
         {/* [论文助手定制] 「插入文件」按钮：打开文件选择弹窗，从文件空间选任意文件，
           以原生文件引用方式插入输入框（带图标，路径相对项目文件空间）。 */}
         <PromptInputV2Composer

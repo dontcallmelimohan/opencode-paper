@@ -438,8 +438,17 @@
   background-color: light-dark(#ffffff, #0d1117);
   transition: border-color 0.15s ease;
 }
+
 .thesis-card:hover {
   border-color: light-dark(#0969da, #2f81f7);
+}
+
+/* [论文助手定制] 主页 Hero：轻量说明产品流程，不脱离 GitHub 式扁平风格。 */
+.thesis-hero {
+  position: relative;
+  background:
+    radial-gradient(560px 220px at 86% -10%, color-mix(in srgb, var(--brand-600) 9%, transparent), transparent 72%),
+    light-dark(#f8fafc, #11161d);
 }
 
 /* ===== [论文助手定制] 论文工作台 GitHub 式扁平化：与主页 thesis-card 同一套视觉语言。

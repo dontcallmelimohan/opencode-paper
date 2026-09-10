@@ -2,10 +2,12 @@
 // 会话输入框底栏图标弹出的居中 Dialog 浮窗。浮窗只含「勾选论文要求」的表单，不含 Skill / 知识库 /
 // 插图区块；文件与 skill 走会话输入框原生能力（@文件、skill 菜单），插图（writing）走底栏「插图」图标。
 // 配置不再随会话文本注入提示词：改为落盘到文件空间的固定文件，由所选 Skill 直接读取。
-// 落盘路径见 THESIS_TOPIC_FILE_PATH（config/论文主题.md）与 .thesis/config/ 下的排版/评审配置。
+// 落盘路径：提纲阶段用 THESIS_TOPIC_FILE_PATH（config/论文主题.md），写作阶段用
+// THESIS_WRITING_FILE_PATH（config/写作设定.md），排版/评审各用 config/ 下的独立配置，互不覆盖。
 import { getFilename } from "@opencode-ai/core/util/path"
 import { Button } from "@opencode-ai/ui/button"
 import { Checkbox } from "@opencode-ai/ui/checkbox"
+import { Collapsible } from "@opencode-ai/ui/collapsible"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
 import { TextField } from "@opencode-ai/ui/text-field"
@@ -15,25 +17,30 @@ import { useThesisWorkflow, type OutlineInput, type ReviewInput, type WritingInp
 import { useSDK } from "@/context/sdk"
 import { MANUSCRIPT_FILENAMES, useThesisManuscriptFile } from "./thesis-manuscript-file"
 import { InputSourceSelect } from "./thesis-workflow-ui"
+import type { FormattingScenario } from "./thesis-formatting-options"
 import {
   FONT_FAMILIES,
   FONT_SIZES,
   FIRST_LINE_INDENTS,
+  DOCX_PARAM_PRESETS,
+  FORMATTING_SCENARIOS,
   FORMATTING_CONFIG_PATH,
   HEADING_FONTS,
-  HEADING_STYLES,
+  HEADING_STYLE_OPTIONS,
   LINE_SPACINGS,
   MANUAL_PAPER_PATH,
   OUTPUT_FORMATS,
   PAGE_MARGINS,
   PARAGRAPH_SPACINGS,
+  REFERENCE_STYLE_GROUPS,
+  SCENARIO_RECOMMENDATIONS,
   TEMPLATE_FORMATS,
   TEMPLATE_MODES,
-  TYPOGRAPHIES,
+  TYPOGRAPHY_OPTIONS,
   buildFormattingConfigMarkdown,
 } from "./thesis-formatting-options"
 // [论文助手定制] 排版浮窗用到的选项与 outline/writing 本地同名常量区分（值不同），加别名避免冲突。
-import { PAPER_TYPES as FORMATTING_PAPER_TYPES, REFERENCE_STYLES as FORMATTING_REFERENCE_STYLES } from "./thesis-formatting-options"
+import { PAPER_TYPES as FORMATTING_PAPER_TYPES } from "./thesis-formatting-options"
 import { FilePickerDialog } from "./thesis-session-view"
 import { showToast } from "@/utils/toast"
 // [论文助手定制] 二进制文档（docx/doc 等）不能作为 file part 附加给模型（Provider 拒绝），
@@ -43,6 +50,8 @@ import { canAttachAsFilePart } from "./thesis-formatting-options"
 // [论文助手定制] 配置信息的唯一交付物：写入文件空间的固定文件，由 Skill 读取（不再注入会话文本）。
 // 放在 config/ 子目录，与根目录文稿（提纲.md 等）、docs/ 独立文档隔离，不污染文档下拉。
 export const THESIS_TOPIC_FILE_PATH = "config/论文主题.md"
+// [论文助手定制] 写作配置独立落盘（不再与提纲共用 config/论文主题.md，避免写作覆盖提纲配置）。
+export const THESIS_WRITING_FILE_PATH = "config/写作设定.md"
 
 // [论文助手定制] 方向侧重选项（写入提示词）。
 const DIRECTIONS = [
@@ -61,6 +70,19 @@ const TARGET_WORDS = ["1000","2000","3000", "5000", "8000", "12000", "15000", "2
 const STYLES = ["学术、审慎、综述型", "逻辑清晰、偏实证", "批判性强、强调争议", "中文核心期刊风格", "英文 SCI 风格"]
 const FOCUSES = ["研究脉络与概念边界", "方法比较与证据整合", "应用场景与实践价值", "不足、争议与未来趋势"]
 const REFERENCE_STYLES = ["GB/T 7714-2015", "APA 7th", "Vancouver", "IEEE"]
+// [论文助手定制] 提纲配置「文献处理」选项：决定大纲是否需要/如何获取文献，避免把工作流写死在角色提示词里。
+export const LITERATURE_MODES = [
+  { value: "按需", hint: "会话里明确要求查文献时才检索；没要求就不检索，专注结构" },
+  { value: "需要联网检索", hint: "自动联网检索相关文献，并把题录与摘要整理到文件空间 文献库/" },
+  { value: "使用已有文献", hint: "只读取文件空间 文献库/ 与用户提供的文献，不联网检索" },
+  { value: "两者结合", hint: "优先使用已有文献，缺口再由联网检索补齐" },
+] as const
+export const LITERATURE_MODE_LINES: Record<string, string> = {
+  按需: "不主动查文献或读取文献库；会话里明确要求时才处理文献。",
+  需要联网检索: "先派发 lit-search-cite / deep-research 子代理联网检索主题文献，把题录与摘要写入文件空间 文献库/（如 文献库/检索-<主题>.md），再基于检索结果组织综述章节与参考文献。",
+  使用已有文献: "不联网检索；只读取文件空间 文献库/ 与用户提供的文献材料来组织综述章节与参考文献。",
+  两者结合: "优先使用文件空间 文献库/ 与用户提供的文献；确需补充时派发 lit-search-cite / deep-research 子代理联网补检并写入 文献库/。",
+}
 
 // [论文助手定制] 浮窗内表单统一样式（下拉选择框，与左侧配置列一致）。
 const selectClass =
@@ -84,21 +106,22 @@ export function OutlineConfigForm(props?: { onClose?: () => void }) {
   return (
     <Dialog
       title="提纲配置"
-      description="勾选论文要求，随会话发送自动注入提示词（文件与 skill 请在输入框使用 @ 或菜单选择）"
+      description="填写论文主题与要求；点「同步到文件空间」后提纲助手会读取它生成大纲，需要补充材料时可在输入框 @ 文件"
       size="large"
     >
       <div class="mx-auto flex w-[520px] max-w-full flex-col gap-3 px-2.5 pb-4">
+        <div class="mt-0.5 text-13-semibold text-v2-text-text-base">① 论文主题与素材</div>
         <section class="flex flex-col gap-1.5">
-          <div class="text-12-medium text-v2-text-text-base">描述综述需求</div>
+          <div class="text-12-medium text-v2-text-text-base">想写什么</div>
           <TextField
             multiline
-            placeholder="输入选题想法、已有草稿、老师意见、论文摘要或文献摘录..."
+            placeholder="粘贴或输入：选题想法、已有草稿、老师意见、论文摘要、文献摘录…"
             value={input().needs}
             onChange={(value) => updateInput("outline", { needs: value })}
           />
         </section>
+        <div class="mt-0.5 text-13-semibold text-v2-text-text-base">② 论文设定</div>
         <section class="flex flex-col gap-1.5">
-          <div class="text-12-medium text-v2-text-text-base">论文设定</div>
           <div class="grid grid-cols-2 gap-2">
             <section class="flex min-w-0 flex-col gap-1.5">
               <div class="text-11-regular text-v2-text-text-faint">论文类型</div>
@@ -142,20 +165,36 @@ export function OutlineConfigForm(props?: { onClose?: () => void }) {
             </section>
           </div>
         </section>
+        <div class="mt-0.5 text-13-semibold text-v2-text-text-base">③ 方向侧重（想突出什么）</div>
         <section class="flex flex-col gap-1.5">
-          <div class="text-12-medium text-v2-text-text-base">方向</div>
           <div class="flex flex-col gap-1">
             <For each={DIRECTIONS}>
               {(item) => (
-                <Checkbox checked={input().directions.includes(item.key)} onChange={() => toggleDirection(item.key)}>
-                  {item.label}
-                </Checkbox>
+                <div class="flex flex-col gap-0.5">
+                  <Checkbox checked={input().directions.includes(item.key)} onChange={() => toggleDirection(item.key)}>
+                    {item.label}
+                  </Checkbox>
+                  <div class="pl-6 text-11-regular text-v2-text-text-faint">{item.hint}</div>
+                </div>
               )}
             </For>
           </div>
         </section>
+        <div class="mt-0.5 text-13-semibold text-v2-text-text-base">④ 文献怎么处理</div>
         <section class="flex flex-col gap-1.5">
-          <div class="text-12-medium text-v2-text-text-base">生成选项</div>
+          <select
+            class={selectClass}
+            value={input().literature ?? "按需"}
+            onChange={(event) => updateInput("outline", { literature: event.currentTarget.value })}
+          >
+            <For each={LITERATURE_MODES}>{(item) => <option value={item.value}>{item.value}</option>}</For>
+          </select>
+          <div class="text-11-regular text-v2-text-text-faint">
+            {LITERATURE_MODES.find((item) => item.value === (input().literature ?? "按需"))?.hint}
+          </div>
+        </section>
+        <div class="mt-0.5 text-13-semibold text-v2-text-text-base">⑤ 生成选项</div>
+        <section class="flex flex-col gap-1.5">
           <Checkbox checked={input().aiSuggest} onChange={(value) => updateInput("outline", { aiSuggest: value })}>
             AI 建议（每章写作要点与提示）
           </Checkbox>
@@ -165,17 +204,17 @@ export function OutlineConfigForm(props?: { onClose?: () => void }) {
         </section>
         <div class="flex items-center justify-end gap-2">
           <span class="text-11-regular text-v2-text-text-faint">
-            点击后配置写入文件空间 {THESIS_TOPIC_FILE_PATH} 并 @ 到输入框，由技能读取；再次点击可更新
+            点击后配置写入文件空间 {THESIS_TOPIC_FILE_PATH} 并 @ 到输入框，由提纲助手读取；再次点击可更新
           </span>
           <Button
             type="button"
             variant="primary"
             onClick={() => {
-              // [论文助手定制] 配置信息的唯一交付方式：把配置里的综述需求/论文设定写入文件空间固定文件
-              // config/论文主题.md，让「提纲助手」等 Skill 直接读工作目录拿到主题，不依赖会话文本；
+              // [论文助手定制] 配置信息的唯一交付方式：把配置里的论文主题/论文设定写入文件空间固定文件
+              // config/论文主题.md，让「提纲助手」直接读工作目录拿到主题，不依赖会话文本；
               // 再次点击会按最新配置重写同一文件。
               void manuscript.saveFile(THESIS_TOPIC_FILE_PATH, buildTopicFileContent("outline", input()))
-              // [论文助手定制] 同步后把配置文件 @ 进会话输入框，让 Skill 必须看到该文件。
+              // [论文助手定制] 同步后把配置文件 @ 进会话输入框，让提纲助手必须看到该文件。
               insertFileIntoSession(THESIS_TOPIC_FILE_PATH, "论文主题.md")
               // 关闭统一交给 step 层 onClose → setConfigOpen(false) → effect 调 dialog.close()，
               // 这里不直接 dialog.close()，避免 dialog 的 100ms closing/lock 窗口吞掉关闭导致状态卡死。
@@ -309,20 +348,21 @@ export function WritingConfigForm(props?: { onClose?: () => void }) {
         </section>
         <div class="flex items-center justify-end gap-2">
           <span class="text-11-regular text-v2-text-text-faint">
-            点击后配置写入文件空间 {THESIS_TOPIC_FILE_PATH}，并与参考提纲文件一并 @ 到输入框；再次点击可更新
+            点击后配置写入文件空间 {THESIS_WRITING_FILE_PATH}，并与参考提纲文件一并 @ 到输入框；再次点击可更新
           </span>
           <Button
             type="button"
             variant="primary"
             onClick={() => {
-              // [论文助手定制] 配置信息唯一交付方式：写入文件空间固定文件 config/论文主题.md
-              // （含参考提纲与写作设定），供「提纲助手」等 Skill 直接读取；再次点击按最新配置重写。
+              // [论文助手定制] 配置信息唯一交付方式：写入文件空间固定文件 config/写作设定.md
+              // （含参考提纲与写作设定），供「辅助写作」直接读取；与提纲的 config/论文主题.md 分开，
+              // 互不覆盖；再次点击按最新配置重写。
               void manuscript.saveFile(
-                THESIS_TOPIC_FILE_PATH,
+                THESIS_WRITING_FILE_PATH,
                 buildTopicFileContent("writing", input()),
               )
-              // [论文助手定制] 同步后把配置文件与参考提纲文件一并 @ 进会话输入框，让 Skill 必须看到两者。
-              insertFileIntoSession(THESIS_TOPIC_FILE_PATH, "论文主题.md")
+              // [论文助手定制] 同步后把配置文件与参考提纲文件一并 @ 进会话输入框，让辅助写作必须看到两者。
+              insertFileIntoSession(THESIS_WRITING_FILE_PATH, "写作设定.md")
               const outlinePath = input().sourceFile.trim()
               if (outlinePath) insertFileIntoSession(outlinePath, outlinePath.split("/").pop() ?? outlinePath)
               // 关闭统一交给 step 层 onClose → setConfigOpen(false) → effect 调 dialog.close()，
@@ -338,14 +378,14 @@ export function WritingConfigForm(props?: { onClose?: () => void }) {
   )
 }
 
-// [论文助手定制] 生成项目根目录「论文主题.md」的内容：把用户在配置里填的主题/需求落成文件，
-// 让只会「读工作目录找主题」的 Agent（或其子任务）也能拿到论文主题，而不必依赖会话文本。
-// outline = 综述需求 + 提纲配置；writing = 参考提纲（从文件空间引用）+ 写作设定。
+// [论文助手定制] 把用户在配置面板里填的内容落成文件，让只读工作目录的 Agent 也能拿到配置，
+// 而不必依赖会话文本。outline 写入 config/论文主题.md（论文主题 + 提纲配置），
+// writing 写入 config/写作设定.md（参考提纲 + 写作设定），两者独立、互不覆盖。
 export function buildTopicFileContent(
   step: "outline" | "writing",
   input: OutlineInput | WritingInput,
 ): string {
-  const lines: string[] = ["# 论文主题", ""]
+  const lines: string[] = step === "outline" ? ["# 论文主题", ""] : ["# 写作设定", ""]
   if (step === "outline") {
     const values = input as OutlineInput
     lines.push(values.needs.trim() || "（用户尚未在提纲配置中填写综述需求）")
@@ -363,11 +403,14 @@ export function buildTopicFileContent(
     if (values.aiSuggest) options.push("为每个章节给出 AI 建议（写作要点与提示）")
     if (values.optimize) options.push("在最后给出提纲优化提醒")
     if (options.length > 0) lines.push(`- 生成选项：${options.join("；")}`)
+    lines.push("", "## 文献处理")
+    const mode = values.literature ?? "按需"
+    lines.push(`- 方式：${mode}`)
+    lines.push(`- 执行要求：${LITERATURE_MODE_LINES[mode] ?? LITERATURE_MODE_LINES.按需}`)
   } else {
     const values = input as WritingInput
     const outlinePath = values.sourceFile.trim()
-    lines.push(outlinePath ? `（参考提纲：文件空间文件 ${outlinePath}，已作为附件提供）` : "（参考提纲：未选择，请在会话输入框补充）")
-    lines.push("", "## 写作设定")
+    lines.push(outlinePath ? `- 参考提纲：文件空间文件 ${outlinePath}（已作为附件提供）` : "- 参考提纲：未选择，请在会话输入框补充")
     lines.push(`- 目标期刊 / 投稿方向：${values.journal.trim() || "未指定"}`)
     lines.push(`- 写作风格：${values.style}`)
     lines.push(`- 侧重点：${values.focus}`)
@@ -430,6 +473,59 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
   // [论文助手定制] 移除模板：回到无模板模式（文件仍在文件空间，只是不再套用）。
   const removeTemplate = () => updateInput("formatting", { templateMode: "none", templateName: "", templatePath: "" })
 
+  // [论文助手定制] 使用场景当前值（历史数据可能没有该字段，按 general 兜底）。
+  const scenario = (): FormattingScenario => {
+    const raw = input().scenario
+    return FORMATTING_SCENARIOS.some((item) => item.value === raw) ? (raw as FormattingScenario) : "general"
+  }
+  const scenarioHint = () =>
+    FORMATTING_SCENARIOS.find((item) => item.value === scenario())?.hint ?? ""
+
+  // [论文助手定制] 切换使用场景：套用该场景的推荐默认（输出格式/论文类型/引用格式/标题层级/风格）；
+  // 若推荐格式与已选模板扩展名不匹配（如 .tex 模板切到 docx），清空模板避免误用。
+  const applyScenario = (value: string) => {
+    const next = FORMATTING_SCENARIOS.find((item) => item.value === value)?.value ?? "general"
+    const rec = SCENARIO_RECOMMENDATIONS[next]
+    const nextFormat = rec.outputFormat ?? input().outputFormat
+    const mismatch = !!input().templatePath && !TEMPLATE_FORMATS[nextFormat].ext.test(input().templatePath)
+    updateInput("formatting", {
+      scenario: next,
+      ...rec,
+      ...(mismatch ? { templateMode: "none", templateName: "", templatePath: "" } : {}),
+    })
+  }
+
+  // [论文助手定制] 选项列表：标题层级与排版风格隐藏旧值，但若当前值恰为旧值仍显示为唯一选项（兼容历史配置）。
+  const headingOptions = () =>
+    HEADING_STYLE_OPTIONS.includes(input().headingStyle) ? HEADING_STYLE_OPTIONS : [input().headingStyle, ...HEADING_STYLE_OPTIONS]
+  const typographyOptions = () =>
+    TYPOGRAPHY_OPTIONS.includes(input().typography) ? TYPOGRAPHY_OPTIONS : [input().typography, ...TYPOGRAPHY_OPTIONS]
+
+  // [论文助手定制] 版式预设当前值：参数与某套预设一致时回显该预设，否则显示「自定义」。
+  const docxPresetValue = () => {
+    const v = input()
+    const matched = DOCX_PARAM_PRESETS.find(
+      (preset) =>
+        preset.params &&
+        preset.params.fontFamily === v.fontFamily &&
+        preset.params.fontSize === v.fontSize &&
+        preset.params.lineSpacing === v.lineSpacing &&
+        preset.params.pageMargin === v.pageMargin &&
+        preset.params.headingFont === v.headingFont &&
+        preset.params.firstLineIndent === v.firstLineIndent &&
+        preset.params.paragraphSpacing === v.paragraphSpacing &&
+        preset.params.titleNumbering === v.titleNumbering &&
+        preset.params.pageNumber === v.pageNumber,
+    )
+    return matched?.value ?? "custom"
+  }
+
+  // [论文助手定制] 版式预设：一键套用常用 docx 参数（custom 不修改）。
+  const applyDocxPreset = (value: string) => {
+    const preset = DOCX_PARAM_PRESETS.find((item) => item.value === value)
+    if (preset?.params) updateInput("formatting", preset.params)
+  }
+
   // [论文助手定制] 同步到文件空间：写配置到 .thesis/config/formatting.md，并把配置、
   // 模板、内容来源文件一并 @ 进会话输入框（auto 源稿需文件存在才 @，避免空引用发送报错）。
   const syncToFileSpace = () => {
@@ -460,8 +556,27 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
       size="large"
     >
       <div class="mx-auto flex w-[560px] max-w-full flex-col gap-3 px-2.5 pb-4">
+        <div class="mt-0.5 text-13-semibold text-v2-text-text-base">① 用在哪儿（投稿方向 / 论文性质）</div>
         <section class="flex flex-col gap-1.5">
-          <div class="text-12-medium text-v2-text-text-base">排版文件格式</div>
+          <div class="text-12-medium text-v2-text-text-base">这篇论文用在哪里</div>
+          <select class={selectClass} value={scenario()} onChange={(event) => applyScenario(event.currentTarget.value)}>
+            <For each={FORMATTING_SCENARIOS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+          </select>
+          <div class="text-11-regular text-v2-text-text-faint">{scenarioHint()}</div>
+        </section>
+        <Show when={input().templateMode === "none"}>
+          <section class="flex flex-col gap-1.5">
+            <div class="text-12-medium text-v2-text-text-base">目标期刊 / 学校 / 会议名称（选填）</div>
+            <TextField
+              placeholder="例如：中文核心综述类期刊、XX 大学硕士论文模板、IEEE TIP、NeurIPS"
+              value={input().journal}
+              onChange={(value) => updateInput("formatting", { journal: value })}
+            />
+          </section>
+        </Show>
+        <div class="mt-1 text-13-semibold text-v2-text-text-base">② 最终交付文件与模板</div>
+        <section class="flex flex-col gap-1.5">
+          <div class="text-12-medium text-v2-text-text-base">最终交付文件</div>
           <select
             class={selectClass}
             value={input().outputFormat}
@@ -480,6 +595,9 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
           >
             <For each={OUTPUT_FORMATS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
           </select>
+          <div class="text-11-regular text-v2-text-text-faint">
+            Word 用于学位论文 / 期刊返修；PDF 用于审阅与提交；Markdown 是中间稿，可之后再导出成其它格式。
+          </div>
         </section>
         <section class="flex flex-col gap-1.5">
           <div class="text-12-medium text-v2-text-text-base">排版模板</div>
@@ -490,6 +608,11 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
           >
             <For each={TEMPLATE_MODES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
           </select>
+          <Show when={input().templateMode === "upload" && input().outputFormat === "pdf"}>
+            <div class="text-11-regular text-v2-text-text-faint">
+              当前仅把 .tex 文件作为版式规范参考提供；整套 LaTeX 模板包（.zip/.cls/.sty）的自动编译尚未接入。
+            </div>
+          </Show>
         </section>
         <Show when={input().templateMode === "upload"}>
           <section class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2.5">
@@ -542,6 +665,7 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
             </div>
           </section>
         </Show>
+        <div class="mt-0.5 text-13-semibold text-v2-text-text-base">③ 论文内容（要排版哪一份文稿）</div>
         <InputSourceSelect
           label="内容来源"
           value={input().paperSource}
@@ -599,14 +723,7 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
           </section>
         </Show>
         <Show when={input().templateMode === "none"}>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">目标期刊 / 学校模板</div>
-            <TextField
-              placeholder="例如：中文核心综述类期刊、学校毕业论文模板、SCI 期刊"
-              value={input().journal}
-              onChange={(value) => updateInput("formatting", { journal: value })}
-            />
-          </section>
+          <div class="mt-0.5 text-13-semibold text-v2-text-text-base">④ 排版规范（无模板时手动配置）</div>
           <div class="flex gap-2">
             <section class="flex min-w-0 flex-1 flex-col gap-1.5">
               <div class="text-12-medium text-v2-text-text-base">论文类型</div>
@@ -625,8 +742,24 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
                 value={input().referenceStyle}
                 onChange={(event) => updateInput("formatting", { referenceStyle: event.currentTarget.value })}
               >
-                <For each={FORMATTING_REFERENCE_STYLES}>{(item) => <option value={item}>{item}</option>}</For>
+                <For each={REFERENCE_STYLE_GROUPS}>
+                  {(group) => (
+                    <optgroup label={group.group}>
+                      <For each={group.items}>
+                        {(item) => (
+                          <option value={item.value}>
+                            {item.value}
+                            {item.note ? `（${item.note}）` : ""}
+                          </option>
+                        )}
+                      </For>
+                    </optgroup>
+                  )}
+                </For>
               </select>
+              <div class="text-11-regular text-v2-text-text-faint">
+                中文论文选 GB/T 7714，医学选 Vancouver，计算机 / 电子选 IEEE，欧美社科选 APA，人文选 MLA。
+              </div>
             </section>
           </div>
           <div class="flex gap-2">
@@ -637,7 +770,7 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
                 value={input().headingStyle}
                 onChange={(event) => updateInput("formatting", { headingStyle: event.currentTarget.value })}
               >
-                <For each={HEADING_STYLES}>{(item) => <option value={item}>{item}</option>}</For>
+                <For each={headingOptions()}>{(item) => <option value={item}>{item}</option>}</For>
               </select>
             </section>
             <section class="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -647,7 +780,7 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
                 value={input().typography}
                 onChange={(event) => updateInput("formatting", { typography: event.currentTarget.value })}
               >
-                <For each={TYPOGRAPHIES}>{(item) => <option value={item}>{item}</option>}</For>
+                <For each={typographyOptions()}>{(item) => <option value={item}>{item}</option>}</For>
               </select>
             </section>
           </div>
@@ -655,7 +788,7 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
             <div class="text-12-medium text-v2-text-text-base">额外排版要求</div>
             <TextField
               multiline
-              placeholder="例如：图表编号、页眉页脚、参考文献排序规则"
+              placeholder="例如：图表编号规则、页数限制、是否两栏、参考文献排序方式"
               value={input().requirements}
               onChange={(value) => updateInput("formatting", { requirements: value })}
             />
@@ -663,149 +796,172 @@ export function FormattingConfigForm(props?: { onClose?: () => void }) {
         </Show>
         <Show when={input().outputFormat === "docx" && input().templateMode === "none"}>
           <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">docx 排版参数</div>
-            <div class="grid grid-cols-2 gap-2">
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">正文中文字体</div>
-                <select
-                  class={selectClass}
-                  value={input().fontFamily}
-                  onChange={(event) => updateInput("formatting", { fontFamily: event.currentTarget.value })}
-                >
-                  <For each={FONT_FAMILIES}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">正文字号</div>
-                <select
-                  class={selectClass}
-                  value={input().fontSize}
-                  onChange={(event) => updateInput("formatting", { fontSize: event.currentTarget.value })}
-                >
-                  <For each={FONT_SIZES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">行距</div>
-                <select
-                  class={selectClass}
-                  value={input().lineSpacing}
-                  onChange={(event) => updateInput("formatting", { lineSpacing: event.currentTarget.value })}
-                >
-                  <For each={LINE_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">页边距</div>
-                <select
-                  class={selectClass}
-                  value={input().pageMargin}
-                  onChange={(event) => updateInput("formatting", { pageMargin: event.currentTarget.value })}
-                >
-                  <For each={PAGE_MARGINS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">标题字体</div>
-                <select
-                  class={selectClass}
-                  value={input().headingFont}
-                  onChange={(event) => updateInput("formatting", { headingFont: event.currentTarget.value })}
-                >
-                  <For each={HEADING_FONTS}>{(item) => <option value={item}>{item}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">正文首行缩进</div>
-                <select
-                  class={selectClass}
-                  value={input().firstLineIndent}
-                  onChange={(event) => updateInput("formatting", { firstLineIndent: event.currentTarget.value })}
-                >
-                  <For each={FIRST_LINE_INDENTS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">段后间距</div>
-                <select
-                  class={selectClass}
-                  value={input().paragraphSpacing}
-                  onChange={(event) => updateInput("formatting", { paragraphSpacing: event.currentTarget.value })}
-                >
-                  <For each={PARAGRAPH_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
-                </select>
-              </section>
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
-                <input
-                  type="checkbox"
-                  class="size-4 accent-[var(--v2-text-text-accent)]"
-                  checked={input().titleNumbering}
-                  onChange={(event) => updateInput("formatting", { titleNumbering: event.currentTarget.checked })}
-                />
-                标题自动编号（1 / 1.1 / 1.1.1，摘要/参考文献/致谢除外）
-              </label>
-              <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
-                <input
-                  type="checkbox"
-                  class="size-4 accent-[var(--v2-text-text-accent)]"
-                  checked={input().pageNumber}
-                  onChange={(event) => updateInput("formatting", { pageNumber: event.currentTarget.checked })}
-                />
-                页脚居中页码
-              </label>
+            <div class="text-12-medium text-v2-text-text-base">版式预设（Word 排版参数一键套用）</div>
+            <select
+              class={selectClass}
+              value={docxPresetValue()}
+              onChange={(event) => applyDocxPreset(event.currentTarget.value)}
+            >
+              <For each={DOCX_PARAM_PRESETS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+            </select>
+            <div class="text-11-regular text-v2-text-text-faint">
+              先选最接近学校 / 期刊要求的一套，选中后参数自动填好；仍可在下方「精细排版参数」里微调。
             </div>
           </section>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">页眉（可选）</div>
-            <TextField
-              type="text"
-              placeholder="如：本科毕业论文（设计）或论文标题，留空则不生成页眉"
-              value={input().headerText}
-              onChange={(value) => updateInput("formatting", { headerText: value })}
-            />
-            <div class="text-11-regular text-v2-text-text-faint">填了就在每页顶部居中显示页眉文字（9pt 加下边框细线）。</div>
-          </section>
-          <section class="flex flex-col gap-1.5">
-            <div class="text-12-medium text-v2-text-text-base">封面信息（可选，毕业论文需要）</div>
-            <div class="grid grid-cols-2 gap-2">
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">论文题目</div>
+          <Collapsible
+            class="flex flex-col gap-1.5 rounded-md bg-v2-background-bg-layer-01 p-2.5"
+            defaultOpen={input().scenario === "thesis" || !!input().headerText || !!input().coverTitle}
+          >
+            <Collapsible.Trigger class="flex items-center justify-between gap-1.5 text-12-medium text-v2-text-text-base">
+              <span>精细排版参数（字体 / 页眉 / 封面，通常不用改）</span>
+              <Collapsible.Arrow />
+            </Collapsible.Trigger>
+            <Collapsible.Content class="flex flex-col gap-1.5 pt-1">
+              <section class="flex flex-col gap-1.5">
+                <div class="grid grid-cols-2 gap-2">
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">正文中文字体</div>
+                    <select
+                      class={selectClass}
+                      value={input().fontFamily}
+                      onChange={(event) => updateInput("formatting", { fontFamily: event.currentTarget.value })}
+                    >
+                      <For each={FONT_FAMILIES}>{(item) => <option value={item}>{item}</option>}</For>
+                    </select>
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">正文字号</div>
+                    <select
+                      class={selectClass}
+                      value={input().fontSize}
+                      onChange={(event) => updateInput("formatting", { fontSize: event.currentTarget.value })}
+                    >
+                      <For each={FONT_SIZES}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                    </select>
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">行距</div>
+                    <select
+                      class={selectClass}
+                      value={input().lineSpacing}
+                      onChange={(event) => updateInput("formatting", { lineSpacing: event.currentTarget.value })}
+                    >
+                      <For each={LINE_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                    </select>
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">页边距</div>
+                    <select
+                      class={selectClass}
+                      value={input().pageMargin}
+                      onChange={(event) => updateInput("formatting", { pageMargin: event.currentTarget.value })}
+                    >
+                      <For each={PAGE_MARGINS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                    </select>
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">标题字体</div>
+                    <select
+                      class={selectClass}
+                      value={input().headingFont}
+                      onChange={(event) => updateInput("formatting", { headingFont: event.currentTarget.value })}
+                    >
+                      <For each={HEADING_FONTS}>{(item) => <option value={item}>{item}</option>}</For>
+                    </select>
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">正文首行缩进</div>
+                    <select
+                      class={selectClass}
+                      value={input().firstLineIndent}
+                      onChange={(event) => updateInput("formatting", { firstLineIndent: event.currentTarget.value })}
+                    >
+                      <For each={FIRST_LINE_INDENTS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                    </select>
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">段后间距</div>
+                    <select
+                      class={selectClass}
+                      value={input().paragraphSpacing}
+                      onChange={(event) => updateInput("formatting", { paragraphSpacing: event.currentTarget.value })}
+                    >
+                      <For each={PARAGRAPH_SPACINGS}>{(item) => <option value={item.value}>{item.label}</option>}</For>
+                    </select>
+                  </section>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                  <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
+                    <input
+                      type="checkbox"
+                      class="size-4 accent-[var(--v2-text-text-accent)]"
+                      checked={input().titleNumbering}
+                      onChange={(event) => updateInput("formatting", { titleNumbering: event.currentTarget.checked })}
+                    />
+                    标题自动编号（1 / 1.1 / 1.1.1，摘要/参考文献/致谢除外）
+                  </label>
+                  <label class="flex cursor-pointer items-center gap-2 text-13-regular text-v2-text-text-base">
+                    <input
+                      type="checkbox"
+                      class="size-4 accent-[var(--v2-text-text-accent)]"
+                      checked={input().pageNumber}
+                      onChange={(event) => updateInput("formatting", { pageNumber: event.currentTarget.checked })}
+                    />
+                    页脚居中页码
+                  </label>
+                </div>
+              </section>
+              <section class="flex flex-col gap-1.5">
+                <div class="text-12-medium text-v2-text-text-base">页眉（可选）</div>
                 <TextField
                   type="text"
-                  placeholder="填了才会生成封面页"
-                  value={input().coverTitle}
-                  onChange={(value) => updateInput("formatting", { coverTitle: value })}
+                  placeholder="如：本科毕业论文（设计）或论文标题，留空则不生成页眉"
+                  value={input().headerText}
+                  onChange={(value) => updateInput("formatting", { headerText: value })}
                 />
+                <div class="text-11-regular text-v2-text-text-faint">填了就在每页顶部居中显示页眉文字（9pt 加下边框细线）。</div>
               </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">作者</div>
-                <TextField
-                  type="text"
-                  value={input().coverAuthor}
-                  onChange={(value) => updateInput("formatting", { coverAuthor: value })}
-                />
+              <section class="flex flex-col gap-1.5">
+                <div class="text-12-medium text-v2-text-text-base">封面信息（可选，毕业论文需要）</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">论文题目</div>
+                    <TextField
+                      type="text"
+                      placeholder="填了才会生成封面页"
+                      value={input().coverTitle}
+                      onChange={(value) => updateInput("formatting", { coverTitle: value })}
+                    />
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">作者</div>
+                    <TextField
+                      type="text"
+                      value={input().coverAuthor}
+                      onChange={(value) => updateInput("formatting", { coverAuthor: value })}
+                    />
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">单位</div>
+                    <TextField
+                      type="text"
+                      value={input().coverAffiliation}
+                      onChange={(value) => updateInput("formatting", { coverAffiliation: value })}
+                    />
+                  </section>
+                  <section class="flex min-w-0 flex-col gap-1.5">
+                    <div class="text-11-regular text-v2-text-text-faint">日期</div>
+                    <TextField
+                      type="text"
+                      placeholder="如 2026 年 6 月"
+                      value={input().coverDate}
+                      onChange={(value) => updateInput("formatting", { coverDate: value })}
+                    />
+                  </section>
+                </div>
               </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">单位</div>
-                <TextField
-                  type="text"
-                  value={input().coverAffiliation}
-                  onChange={(value) => updateInput("formatting", { coverAffiliation: value })}
-                />
-              </section>
-              <section class="flex min-w-0 flex-col gap-1.5">
-                <div class="text-11-regular text-v2-text-text-faint">日期</div>
-                <TextField
-                  type="text"
-                  placeholder="如 2026 年 6 月"
-                  value={input().coverDate}
-                  onChange={(value) => updateInput("formatting", { coverDate: value })}
-                />
-              </section>
-            </div>
-          </section>
+            </Collapsible.Content>
+          </Collapsible>
         </Show>
         <Show when={input().paperSource === "auto" && !state().steps.writing.result}>
           <div class="flex items-start gap-1.5 rounded-md bg-v2-background-bg-layer-01 px-2.5 py-2 text-11-regular text-v2-text-text-faint">

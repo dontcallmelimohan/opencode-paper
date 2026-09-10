@@ -39,6 +39,120 @@ export const PARAGRAPH_SPACINGS = [
   { label: "很宽（24pt）", value: "24" },
 ]
 
+// [论文助手定制] 排版「使用场景」：普通用户先回答“这篇要交到哪 / 给谁看”，
+// 系统按场景给出推荐的输出格式、论文类型、参考文献等默认（见 SCENARIO_RECOMMENDATIONS）。
+// 场景本身只用于引导与面板记忆，不写入排版配置文档（排版配置文档不包含该字段）。
+export const FORMATTING_SCENARIOS = [
+  { value: "thesis", label: "中文毕业论文（本 / 硕 / 博）", hint: "通常交 Word、按学校模板；引用默认 GB/T 7714-2015。" },
+  { value: "course", label: "课程论文 / 作业 / 报告", hint: "按任课老师要求；中文一般用 GB/T 7714-2015。" },
+  { value: "cn-journal", label: "中文期刊投稿", hint: "按期刊排版细则；引用默认 GB/T 7714-2015。" },
+  { value: "en-journal", label: "英文期刊投稿", hint: "优先官方 LaTeX / Word 模板；引用格式建议按学科选择。" },
+  { value: "conference", label: "国际会议论文", hint: "按会议模板，常为两栏并带页数限制。" },
+  { value: "general", label: "通用 / 其他", hint: "不自动覆盖下方设置，按你的选择排版。" },
+] as const
+
+export type FormattingScenario = (typeof FORMATTING_SCENARIOS)[number]["value"]
+
+// [论文助手定制] 场景 → 推荐默认值（只覆盖排版相关字段，不动内容来源与模板文件；
+// general 不自动覆盖，避免把用户已调好的设置冲掉）。
+export const SCENARIO_RECOMMENDATIONS: Record<FormattingScenario, Partial<FormattingInput>> = {
+  thesis: {
+    outputFormat: "docx",
+    paperType: "毕业论文",
+    referenceStyle: "GB/T 7714-2015",
+    headingStyle: "三级标题",
+    typography: "中文学术默认",
+  },
+  course: {
+    outputFormat: "docx",
+    paperType: "课程论文",
+    referenceStyle: "GB/T 7714-2015",
+    headingStyle: "三级标题",
+    typography: "中文学术默认",
+  },
+  "cn-journal": {
+    outputFormat: "docx",
+    paperType: "期刊投稿稿",
+    referenceStyle: "GB/T 7714-2015",
+    headingStyle: "三级标题",
+    typography: "中文核心期刊风格",
+  },
+  "en-journal": {
+    outputFormat: "pdf",
+    paperType: "期刊投稿稿",
+    referenceStyle: "IEEE",
+    headingStyle: "二级标题",
+    typography: "英文 SCI 风格",
+  },
+  conference: {
+    outputFormat: "pdf",
+    paperType: "期刊投稿稿",
+    referenceStyle: "IEEE",
+    headingStyle: "二级标题",
+    typography: "英文 SCI 风格",
+  },
+  general: {},
+}
+
+// [论文助手定制] 标题层级 / 排版风格的旧枚举值：不再出现在首屏选项里（语义已被“使用场景”等取代），
+// 但保留在常量与数据里以兼容历史配置；若当前值恰为旧值，选择器会把它作为唯一选项显示出来。
+export const LEGACY_HEADING_STYLES = ["四号标题层级", "英文小标题"] as const
+export const HEADING_STYLE_OPTIONS = HEADING_STYLES.filter((value) => !(LEGACY_HEADING_STYLES as readonly string[]).includes(value))
+export const LEGACY_TYPOGRAPHIES = ["毕业论文模板"] as const
+export const TYPOGRAPHY_OPTIONS = TYPOGRAPHIES.filter((value) => !(LEGACY_TYPOGRAPHIES as readonly string[]).includes(value))
+
+// [论文助手定制] 参考文献格式按学科场景分组展示（value 与原来一致，仅用于面板呈现与说明）。
+export const REFERENCE_STYLE_GROUPS: {
+  group: string
+  items: { value: string; note?: string }[]
+}[] = [
+  {
+    group: "中文论文 / 学位论文",
+    items: [{ value: "GB/T 7714-2015", note: "顺序编码制，国内使用最广" }],
+  },
+  { group: "医学 / 生物 / 护理", items: [{ value: "Vancouver", note: "顺序编码制" }] },
+  { group: "计算机 / 电子 / 工程", items: [{ value: "IEEE", note: "顺序编码制" }] },
+  { group: "心理 / 教育 / 社科（欧美）", items: [{ value: "APA 7th", note: "著者-出版年制" }] },
+  { group: "人文 / 语言 / 文学", items: [{ value: "MLA 9th", note: "著者-出版年制" }] },
+]
+
+// [论文助手定制] docx 无模板时的「版式预设」：一键套用一组常用参数（随后仍可微调）；
+// custom 不修改任何参数。预设只影响无模板 docx 的参数区，不影响其它格式。
+export type DocxPresetKey = "thesis" | "cn-journal" | "custom"
+export const DOCX_PARAM_PRESETS: { value: DocxPresetKey; label: string; params: Partial<FormattingInput> | null }[] = [
+  {
+    value: "thesis",
+    label: "毕业论文通用：宋体小四、1.5 倍行距、毕业论文页边距、黑体标题",
+    params: {
+      fontFamily: "宋体",
+      fontSize: "12",
+      lineSpacing: "1.5",
+      pageMargin: "thesis",
+      headingFont: "黑体",
+      firstLineIndent: "2",
+      paragraphSpacing: "6",
+      titleNumbering: true,
+      pageNumber: true,
+    },
+  },
+  {
+    value: "cn-journal",
+    label: "中文期刊通用：宋体五号、1.5 倍行距、标准页边距、黑体标题",
+    params: {
+      fontFamily: "宋体",
+      fontSize: "10.5",
+      lineSpacing: "1.5",
+      pageMargin: "standard",
+      headingFont: "黑体",
+      firstLineIndent: "2",
+      paragraphSpacing: "6",
+      titleNumbering: true,
+      pageNumber: true,
+    },
+  },
+  { value: "custom", label: "自定义（不套预设，展开下方精细参数自己设置）", params: null },
+]
+
 // [论文助手定制] 排版输出格式选项：先选排版文件格式（md / docx / pdf），
 // 决定生成排版稿后的交付方式——md=写入「正文/排版稿.md」，docx/pdf=生成后自动导出对应文件。
 export const OUTPUT_FORMATS: { label: string; value: "md" | "docx" | "pdf" }[] = [

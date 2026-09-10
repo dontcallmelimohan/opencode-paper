@@ -66,6 +66,17 @@ export const mimeOf = (ref: string): string => MIME_BY_EXT[imageExtension(ref)] 
 
 export const dataUrlOf = (ref: string, base64: string): string => `data:${mimeOf(ref)};base64,${base64}`
 
+// [论文助手定制] UTF-8 文本转 base64：后端 file.read 对“能按 UTF-8 解码”的文件（含 .svg XML）返回 text
+// 而非 binary，而图片显示层需要 base64 才能构造 data URL，这里做统一转换。
+export const utf8ToBase64 = (text: string): string => {
+  const bytes = new TextEncoder().encode(text)
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  }
+  return btoa(binary)
+}
+
 // [论文助手定制] data URL 缓存：key = 目录|ref。上传时写入 base64，预览/导出时读文件补缓存。
 const dataUrls = new Map<string, string>()
 const cacheKey = (directory: string, ref: string) => `${directory}\u0000${ref}`
@@ -77,13 +88,24 @@ export const cacheDataUrl = (directory: string, ref: string, base64: string) => 
   dataUrls.set(cacheKey(directory, ref), base64 ? dataUrlOf(ref, base64) : "")
 }
 
+// [论文助手定制] 图片文件统一读取入口：binary 直接取 base64；.svg 是 UTF-8 XML，后端会按 text 返回
+// （内容已被 trim），这里按 UTF-8 转成 base64，使 SVG 与 png/jpg 走同一条 data URL 渲染路径。
+export async function readImageFileBase64(sdk: DirectorySDK, directory: string, path: string): Promise<string | undefined> {
+  const res = await sdk.client.file.read({ directory, path })
+  if (res.error || !res.data) return undefined
+  const data = res.data
+  if (data.type === "binary") return data.content ?? ""
+  if (data.type === "text" && imageExtension(path) === "svg") return utf8ToBase64(data.content)
+  return undefined
+}
+
 // [论文助手定制] 确保这些插图都已缓存 data URL（读不到就缓存空串，避免反复请求）。
 export async function ensureFigureDataUrls(sdk: DirectorySDK, directory: string, refs: string[]) {
   const missing = [...new Set(refs)].filter((ref) => ref && !dataUrls.has(cacheKey(directory, ref)))
   await Promise.all(
     missing.map(async (ref) => {
-      const res = await sdk.client.file.read({ directory, path: refToPath(ref) })
-      cacheDataUrl(directory, ref, res.error || res.data?.type !== "binary" ? "" : (res.data.content ?? ""))
+      const content = await readImageFileBase64(sdk, directory, refToPath(ref))
+      cacheDataUrl(directory, ref, content ?? "")
     }),
   )
 }
@@ -161,9 +183,5 @@ export async function resolveMarkdownImages(
     await ensureFigureDataUrls(sdk, directory, refs)
     resolved = resolveAssetUrls(md, directory)
   }
-  return resolveLocalImages(resolved, directory, baseDir, async (path) => {
-    const res = await sdk.client.file.read({ directory, path })
-    if (res.error || res.data?.type !== "binary") return undefined
-    return res.data.content
-  })
+  return resolveLocalImages(resolved, directory, baseDir, (path) => readImageFileBase64(sdk, directory, path))
 }

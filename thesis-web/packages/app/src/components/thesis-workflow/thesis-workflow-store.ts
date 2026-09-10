@@ -104,6 +104,9 @@ export type OutlineInput = {
   hasFigures: string
   targetWords: string
   directions: string[]
+  // [论文助手定制] 文献处理方式（提纲配置面板单选，写入 config/论文主题.md）：
+  // 按需 / 需要联网检索 / 使用已有文献 / 两者结合。
+  literature: string
   aiSuggest: boolean
   optimize: boolean
   selected: string[]
@@ -132,6 +135,9 @@ export type FormattingInput = {
   skills: string[]
   // [论文助手定制] 生成时是否允许模型调用工具（见 OutlineInput.useTools 注释）。
   useTools: boolean
+  // [论文助手定制] 使用场景（thesis/course/cn-journal/en-journal/conference/general）：
+  // 仅用于配置面板引导与记忆，不写入排版配置文档（值缺失时按 general 处理）。
+  scenario: string
   // [论文助手定制] 方案 B：排版源稿来源——auto=用辅助写作的全文稿，manual=手动粘贴，
   // file=从文件空间选择已上传的文件，none=无源稿。
   paperSource: InputSource
@@ -233,6 +239,7 @@ const DEFAULT_INPUTS: {
     hasFigures: "有图表",
     targetWords: "8000",
     directions: [],
+    literature: "按需",
     aiSuggest: true,
     optimize: true,
     selected: [],
@@ -255,6 +262,7 @@ const DEFAULT_INPUTS: {
   formatting: {
     skills: [],
     useTools: false,
+    scenario: "general",
     paperSource: "auto",
     manualPaper: "",
     sourceFile: "",
@@ -455,7 +463,7 @@ export const { use: useThesisWorkflow, provider: ThesisWorkflowProvider } = crea
     }
 
     // [论文助手定制] 会话输入框 @ 引用注册：会话视图挂载时把自己的 insertFile 注册进来；
-    // 配置浮窗「同步到文件空间」据此把 config/论文主题.md 追加为输入框引用，让 Skill 必须看到配置文件。
+    // 配置浮窗「同步到文件空间」据此把各板块自己的 config/ 配置文档追加为输入框引用。
     let sessionInsertFile: ((path: string, name: string) => void) | undefined
 
     const registerSessionInsertFile = (fn: ((path: string, name: string) => void) | undefined) => {

@@ -21,7 +21,7 @@ import { createEffect, createResource, createSignal, For, Show, onCleanup, type 
 import type { FileNode } from "@opencode-ai/sdk/v2/client"
 import { useSDK } from "@/context/sdk"
 import { showToast } from "@/utils/toast"
-import { dataUrlOf, IMAGE_EXTENSIONS, mimeOf, resolveMarkdownImages } from "./thesis-assets"
+import { dataUrlOf, IMAGE_EXTENSIONS, mimeOf, resolveMarkdownImages, utf8ToBase64 } from "./thesis-assets"
 import { useThesisProject } from "./thesis-export"
 import "./thesis-docx-preview.css"
 
@@ -314,13 +314,23 @@ export function ThesisFileManager(props: { directory: string }) {
     const data = res.data
     if (!data) throw new Error("读取文件失败")
     const filename = basename(fullPath)
+    const ext = extension(fullPath)
     if (data.type === "text") {
       // [论文助手定制] md / txt 直接在面板内预览，同时提供「本地查看」下载按钮。
-      if (extension(fullPath) === "md") return { kind: "markdown", text: data.content, filename } satisfies ManuscriptPreview
+      if (ext === "md") return { kind: "markdown", text: data.content, filename } satisfies ManuscriptPreview
+      // [论文助手定制] .svg 是 UTF-8 XML，后端按 text 返回：按图片渲染预览（UTF-8 → base64 data URL）。
+      if (ext === "svg") {
+        const base64 = utf8ToBase64(data.content)
+        return {
+          kind: "image",
+          dataUrl: dataUrlOf(fullPath, base64),
+          bytes: base64ToBytes(base64),
+          filename,
+        } satisfies ManuscriptPreview
+      }
       return { kind: "text", text: data.content, filename } satisfies ManuscriptPreview
     }
     const bytes = base64ToBytes(data.content ?? "")
-    const ext = extension(fullPath)
     // [论文助手定制] 图片：内嵌预览（与主页资料弹窗同一套 data URL 构造）。
     if ((IMAGE_EXTENSIONS as readonly string[]).includes(ext)) {
       return { kind: "image", dataUrl: dataUrlOf(fullPath, data.content ?? ""), bytes, filename } satisfies ManuscriptPreview
@@ -748,6 +758,62 @@ export function ThesisFilesPage(props: { directory: string; onBack: () => void }
   )
 }
 
+// [论文助手定制] 只读二进制成品预览（PDF / DOCX）：按路径读取文件并内嵌预览，
+// 供工作台画布等场景复用（排版板块产出 main.pdf / .docx 后可直接在画布看成品）。
+// 与文件空间面板同一套渲染（PDF=浏览器内置查看器 iframe、DOCX=docx-preview 版式渲染），
+// 顶部保留下载入口；不提供编辑（二进制文件没有文本编辑语义）。
+export function ThesisBinaryFilePreview(props: { directory: string; path: string }) {
+  const sdk = useSDK()
+  // [论文助手定制] PDF 的 Blob URL 在切换文件/卸载时回收，避免内存泄漏。
+  let pdfUrl: string | undefined
+  const [preview] = createResource(
+    () => [props.directory, props.path] as const,
+    async ([directory, path]) => {
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl)
+        pdfUrl = undefined
+      }
+      const res = await sdk().client.file.read({ directory, path })
+      if (res.error) throw new Error(errorMessage(res.error))
+      const data = res.data
+      if (!data) throw new Error("读取文件失败")
+      const bytes = base64ToBytes(data.content ?? "")
+      const filename = basename(path)
+      const ext = extension(path)
+      if (ext === "pdf") {
+        const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
+        pdfUrl = url
+        return { kind: "pdf", url, filename } satisfies ManuscriptPreview
+      }
+      if (ext === "docx") return { kind: "docx", bytes, filename } satisfies ManuscriptPreview
+      return { kind: "unsupported", reason: `暂不支持预览 .${ext} 文件，可下载后用本地软件查看` } satisfies ManuscriptPreview
+    },
+  )
+  onCleanup(() => {
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl)
+  })
+  return (
+    <div class="flex h-full min-h-0 flex-col">
+      <Show
+        when={preview.error}
+        fallback={
+          <Show
+            when={preview.loading}
+            fallback={<Show when={preview()}>{(result) => renderPreview(result())}</Show>}
+          >
+            <div class="flex items-center gap-2 p-4 text-13-regular text-v2-text-text-faint">
+              <span class="size-3 animate-spin rounded-full border-2 border-v2-border-border-focus border-t-transparent" />
+              加载中…
+            </div>
+          </Show>
+        }
+      >
+        <div class="p-4 text-13-regular text-icon-critical-base">读取失败：{errorMessage(preview.error)}</div>
+      </Show>
+    </div>
+  )
+}
+
 function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onEdit?: (text: string) => void) {
   switch (result.kind) {
     case "markdown":
@@ -820,8 +886,9 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
         </div>
       )
     case "pdf":
-      // [论文助手定制] PDF 不做内嵌预览（浏览器内置查看器体验不可控），
-      // 只提供「本地查看（下载）」与「在新标签页打开」两种方式。
+      // [论文助手定制] PDF 内嵌预览：用浏览器内置查看器在 iframe 里直接显示（blob: URL，
+      // 后端 CSP 的 frame-src 已放行 blob:）。顶部同时保留「本地查看（下载）」与「新标签页打开」，
+      // 内置查看器加载异常时仍可退回到本地查看。
       return (
         <div class="flex h-full flex-col">
           <PreviewToolbar filename={result.filename}>
@@ -843,9 +910,8 @@ function renderPreview(result: ManuscriptPreview, resolvedMarkdown?: string, onE
               在新标签页打开
             </a>
           </PreviewToolbar>
-          <div class="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-            <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
-            <div class="text-12-regular text-v2-text-text-faint">PDF 请在本地或新标签页中查看</div>
+          <div class="min-h-0 flex-1 bg-v2-background-bg-layer-02">
+            <iframe src={result.url} title={result.filename} class="h-full w-full border-0" />
           </div>
         </div>
       )

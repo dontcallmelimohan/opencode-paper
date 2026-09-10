@@ -16,6 +16,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { useProviders } from "@/hooks/use-providers"
+import { thesisSkillDescription, thesisSkillLabel } from "@/components/thesis-workflow/thesis-skill-zh"
 import { pathKey } from "@/utils/path-key"
 
 export function createPromptInputController(input: {
@@ -39,7 +40,13 @@ export function createPromptInputController(input: {
     queryFn: async () => {
       const res = await sdk().client.app.skills({ directory: sdk().directory })
       if (res.error) return []
-      return (res.data ?? []).map((item) => ({ id: item.name, label: item.name }))
+      // [论文助手定制] 技能选择器选项：英文名后附中文名与用途简介（见 thesis-skill-zh.ts），
+      // 让不了解 agent 的用户也能看懂每个 Skill 是做什么的。
+      return (res.data ?? []).map((item) => ({
+        id: item.name,
+        label: thesisSkillLabel(item.name),
+        description: thesisSkillDescription(item.name, item.description),
+      }))
     },
   }))
 

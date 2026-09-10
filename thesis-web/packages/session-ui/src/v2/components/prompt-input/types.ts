@@ -89,6 +89,8 @@ export type PromptInputV2History = {
 export type PromptInputV2Option = {
   id: string
   label: string
+  // [论文助手定制] 选项简介（如 Skill 用途说明）：选择技能弹窗在标题下方第二行展示。
+  description?: string
   providerID?: string
 }
 

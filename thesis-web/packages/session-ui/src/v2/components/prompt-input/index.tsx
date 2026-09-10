@@ -610,11 +610,11 @@ function PromptInputV2SkillsDialog(props: {
             {(option) => (
               <button
                 type="button"
-                class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-v2-overlay-simple-overlay-hover"
+                class="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-start hover:bg-v2-overlay-simple-overlay-hover"
                 onClick={() => props.onToggle(option.id)}
               >
                 <span
-                  class="flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors"
+                  class="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors"
                   classList={{
                     "border-v2-border-border-strong bg-v2-background-bg-accent": props
                       .selected()
@@ -628,8 +628,16 @@ function PromptInputV2SkillsDialog(props: {
                     <IconV2 name="check" class="size-3 text-v2-text-text-inverse" />
                   </Show>
                 </span>
-                <span class="min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-v2-text-text-strong">
-                  {option.label}
+                <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span class="truncate text-[13px] font-medium leading-5 text-v2-text-text-strong">
+                    {option.label}
+                  </span>
+                  {/* [论文助手定制] Skill 简介：标题下方第二行灰色小字展示用途，最多两行，避免撑爆弹窗。 */}
+                  <Show when={option.description}>
+                    <span class="line-clamp-2 whitespace-normal break-words text-[12px] leading-4 text-v2-text-text-muted">
+                      {option.description}
+                    </span>
+                  </Show>
                 </span>
               </button>
             )}

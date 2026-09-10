@@ -62,7 +62,7 @@ import file_59 from "../../../thesis-web/packages/app/dist/assets/KaTeX_Size4-Re
 import file_60 from "../../../thesis-web/packages/app/dist/assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff" with { type: "file" };
 import file_61 from "../../../thesis-web/packages/app/dist/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2" with { type: "file" };
 import file_62 from "../../../thesis-web/packages/app/dist/assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf" with { type: "file" };
-import file_63 from "../../../thesis-web/packages/app/dist/assets/LROKH5N7-C8uAWgGN.js" with { type: "file" };
+import file_63 from "../../../thesis-web/packages/app/dist/assets/LROKH5N7-CPqT-RWI.js" with { type: "file" };
 import file_64 from "../../../thesis-web/packages/app/dist/assets/__vite-browser-external-2447137e-BIHI7g3E.js" with { type: "file" };
 import file_65 from "../../../thesis-web/packages/app/dist/assets/_commonjs-dynamic-modules-TDtrdbi3.js" with { type: "file" };
 import file_66 from "../../../thesis-web/packages/app/dist/assets/abap-BdImnpbu.js" with { type: "file" };
@@ -226,21 +226,21 @@ import file_223 from "../../../thesis-web/packages/app/dist/assets/de-BQNnNsLI.j
 import file_224 from "../../../thesis-web/packages/app/dist/assets/de-CAZZkD7r.js" with { type: "file" };
 import file_225 from "../../../thesis-web/packages/app/dist/assets/desktop-BmXAJ9_W.js" with { type: "file" };
 import file_226 from "../../../thesis-web/packages/app/dist/assets/desktop-DZfyBMgF.js" with { type: "file" };
-import file_227 from "../../../thesis-web/packages/app/dist/assets/dialog-edit-project-Ch47QF4p.js" with { type: "file" };
-import file_228 from "../../../thesis-web/packages/app/dist/assets/dialog-fork-CPRnn5HL.js" with { type: "file" };
+import file_227 from "../../../thesis-web/packages/app/dist/assets/dialog-edit-project-DK0LscgX.js" with { type: "file" };
+import file_228 from "../../../thesis-web/packages/app/dist/assets/dialog-fork-BbqrR5am.js" with { type: "file" };
 import file_229 from "../../../thesis-web/packages/app/dist/assets/dialog-select-directory-v2-BLfZvzPV.css" with { type: "file" };
-import file_230 from "../../../thesis-web/packages/app/dist/assets/dialog-select-directory-v2-CUOhDSel.js" with { type: "file" };
+import file_230 from "../../../thesis-web/packages/app/dist/assets/dialog-select-directory-v2-JnjmTRtr.js" with { type: "file" };
 import file_231 from "../../../thesis-web/packages/app/dist/assets/dialog-select-file-CTGIdC2q.css" with { type: "file" };
-import file_232 from "../../../thesis-web/packages/app/dist/assets/dialog-select-file-PZgNA2Hz.js" with { type: "file" };
-import file_233 from "../../../thesis-web/packages/app/dist/assets/dialog-select-mcp-RtxBZ9ZR.js" with { type: "file" };
-import file_234 from "../../../thesis-web/packages/app/dist/assets/dialog-settings-DzzfJL6L.js" with { type: "file" };
+import file_232 from "../../../thesis-web/packages/app/dist/assets/dialog-select-file-DNVl7tv9.js" with { type: "file" };
+import file_233 from "../../../thesis-web/packages/app/dist/assets/dialog-select-mcp-rK78M64J.js" with { type: "file" };
+import file_234 from "../../../thesis-web/packages/app/dist/assets/dialog-settings-DnwDeuLX.js" with { type: "file" };
 import file_235 from "../../../thesis-web/packages/app/dist/assets/diff-D97Zzqfu.js" with { type: "file" };
 import file_236 from "../../../thesis-web/packages/app/dist/assets/diff-jW5kmiru.js" with { type: "file" };
 import file_237 from "../../../thesis-web/packages/app/dist/assets/divider-v2-2oqtISLg.css" with { type: "file" };
-import file_238 from "../../../thesis-web/packages/app/dist/assets/divider-v2-B5awLHAx.js" with { type: "file" };
+import file_238 from "../../../thesis-web/packages/app/dist/assets/divider-v2-B5CR1zAb.js" with { type: "file" };
 import file_239 from "../../../thesis-web/packages/app/dist/assets/docker-BcOcwvcX.js" with { type: "file" };
 import file_240 from "../../../thesis-web/packages/app/dist/assets/docker-DG9neUKd.js" with { type: "file" };
-import file_241 from "../../../thesis-web/packages/app/dist/assets/docx-preview-CStj4yO6.js" with { type: "file" };
+import file_241 from "../../../thesis-web/packages/app/dist/assets/docx-preview-CpZI8oYb.js" with { type: "file" };
 import file_242 from "../../../thesis-web/packages/app/dist/assets/dotenv-Bea-FkXq.js" with { type: "file" };
 import file_243 from "../../../thesis-web/packages/app/dist/assets/dotenv-Da5cRb03.js" with { type: "file" };
 import file_244 from "../../../thesis-web/packages/app/dist/assets/dracula-BzJJZx-M.js" with { type: "file" };
@@ -293,7 +293,7 @@ import file_290 from "../../../thesis-web/packages/app/dist/assets/genie-D0YGMca
 import file_291 from "../../../thesis-web/packages/app/dist/assets/genie-DSsjfZMX.js" with { type: "file" };
 import file_292 from "../../../thesis-web/packages/app/dist/assets/gherkin-Cl2Fw-_0.js" with { type: "file" };
 import file_293 from "../../../thesis-web/packages/app/dist/assets/gherkin-DyxjwDmM.js" with { type: "file" };
-import file_294 from "../../../thesis-web/packages/app/dist/assets/ghostty-web-5VVCWqCe.js" with { type: "file" };
+import file_294 from "../../../thesis-web/packages/app/dist/assets/ghostty-web-BFfQwrAD.js" with { type: "file" };
 import file_295 from "../../../thesis-web/packages/app/dist/assets/git-commit-CJPsQObV.js" with { type: "file" };
 import file_296 from "../../../thesis-web/packages/app/dist/assets/git-commit-F4YmCXRG.js" with { type: "file" };
 import file_297 from "../../../thesis-web/packages/app/dist/assets/git-rebase-DeZqv4fp.js" with { type: "file" };
@@ -383,9 +383,9 @@ import file_380 from "../../../thesis-web/packages/app/dist/assets/id-CQavIbiH.j
 import file_381 from "../../../thesis-web/packages/app/dist/assets/id-Cib52iL6.js" with { type: "file" };
 import file_382 from "../../../thesis-web/packages/app/dist/assets/imba-D-Pk5S0X.js" with { type: "file" };
 import file_383 from "../../../thesis-web/packages/app/dist/assets/imba-DGztddWO.js" with { type: "file" };
-import file_384 from "../../../thesis-web/packages/app/dist/assets/index-CDC2PY2f.js" with { type: "file" };
-import file_385 from "../../../thesis-web/packages/app/dist/assets/index-DJl7vqkO.css" with { type: "file" };
-import file_386 from "../../../thesis-web/packages/app/dist/assets/index-ZVscaHIz.js" with { type: "file" };
+import file_384 from "../../../thesis-web/packages/app/dist/assets/index-BN-jDJCX.js" with { type: "file" };
+import file_385 from "../../../thesis-web/packages/app/dist/assets/index-BWa5LJ2h.css" with { type: "file" };
+import file_386 from "../../../thesis-web/packages/app/dist/assets/index-CHUwWCbn.js" with { type: "file" };
 import file_387 from "../../../thesis-web/packages/app/dist/assets/index-yv1XkBKO.css" with { type: "file" };
 import file_388 from "../../../thesis-web/packages/app/dist/assets/ini-BEwlwnbL.js" with { type: "file" };
 import file_389 from "../../../thesis-web/packages/app/dist/assets/ini-Dix3pTmg.js" with { type: "file" };
@@ -415,7 +415,7 @@ import file_412 from "../../../thesis-web/packages/app/dist/assets/jssm-C2t-YnRu
 import file_413 from "../../../thesis-web/packages/app/dist/assets/jssm-CWE2S0Z5.js" with { type: "file" };
 import file_414 from "../../../thesis-web/packages/app/dist/assets/jsx-8cLv2Six.js" with { type: "file" };
 import file_415 from "../../../thesis-web/packages/app/dist/assets/jsx-g9-lgVsj.js" with { type: "file" };
-import file_416 from "../../../thesis-web/packages/app/dist/assets/jszip.min-BA8H3zGv.js" with { type: "file" };
+import file_416 from "../../../thesis-web/packages/app/dist/assets/jszip.min-CHbBB12L.js" with { type: "file" };
 import file_417 from "../../../thesis-web/packages/app/dist/assets/julia-D7OTSIA_.js" with { type: "file" };
 import file_418 from "../../../thesis-web/packages/app/dist/assets/julia-z72n2X8P.js" with { type: "file" };
 import file_419 from "../../../thesis-web/packages/app/dist/assets/just-CUsbIsdP.js" with { type: "file" };
@@ -458,7 +458,7 @@ import file_455 from "../../../thesis-web/packages/app/dist/assets/luau-CrdyyxLX
 import file_456 from "../../../thesis-web/packages/app/dist/assets/luau-KW6xsasC.js" with { type: "file" };
 import file_457 from "../../../thesis-web/packages/app/dist/assets/make-CHLpvVh8.js" with { type: "file" };
 import file_458 from "../../../thesis-web/packages/app/dist/assets/make-DXVx14cr.js" with { type: "file" };
-import file_459 from "../../../thesis-web/packages/app/dist/assets/mammoth.browser-7BBJyGC3.js" with { type: "file" };
+import file_459 from "../../../thesis-web/packages/app/dist/assets/mammoth.browser-BFqYB3AS.js" with { type: "file" };
 import file_460 from "../../../thesis-web/packages/app/dist/assets/markdown-Cvjx9yec.js" with { type: "file" };
 import file_461 from "../../../thesis-web/packages/app/dist/assets/markdown-DX-TNHnc.js" with { type: "file" };
 import file_462 from "../../../thesis-web/packages/app/dist/assets/markdown.worker-DcCsHlqc.js" with { type: "file" };
@@ -476,7 +476,7 @@ import file_473 from "../../../thesis-web/packages/app/dist/assets/material-them
 import file_474 from "../../../thesis-web/packages/app/dist/assets/material-theme-palenight-Csfq5Kiy.js" with { type: "file" };
 import file_475 from "../../../thesis-web/packages/app/dist/assets/matlab-D7o27uSR.js" with { type: "file" };
 import file_476 from "../../../thesis-web/packages/app/dist/assets/matlab-DzreyMvm.js" with { type: "file" };
-import file_477 from "../../../thesis-web/packages/app/dist/assets/mcp-zE-JL5GT.js" with { type: "file" };
+import file_477 from "../../../thesis-web/packages/app/dist/assets/mcp-DKOrrNqk.js" with { type: "file" };
 import file_478 from "../../../thesis-web/packages/app/dist/assets/mdc-DTYItulj.js" with { type: "file" };
 import file_479 from "../../../thesis-web/packages/app/dist/assets/mdc-DuMdwZAv.js" with { type: "file" };
 import file_480 from "../../../thesis-web/packages/app/dist/assets/mdx-C2fqO2XY.js" with { type: "file" };
@@ -499,7 +499,7 @@ import file_496 from "../../../thesis-web/packages/app/dist/assets/move-CyYMWVy5
 import file_497 from "../../../thesis-web/packages/app/dist/assets/move-IF9eRakj.js" with { type: "file" };
 import file_498 from "../../../thesis-web/packages/app/dist/assets/narrat-DRg8JJMk.js" with { type: "file" };
 import file_499 from "../../../thesis-web/packages/app/dist/assets/narrat-DXUZ_ZkW.js" with { type: "file" };
-import file_500 from "../../../thesis-web/packages/app/dist/assets/new-session-gIO_CHRE.js" with { type: "file" };
+import file_500 from "../../../thesis-web/packages/app/dist/assets/new-session-DxZLxOxU.js" with { type: "file" };
 import file_501 from "../../../thesis-web/packages/app/dist/assets/nextflow-C-mBbutL.js" with { type: "file" };
 import file_502 from "../../../thesis-web/packages/app/dist/assets/nextflow-D9i3Mg89.js" with { type: "file" };
 import file_503 from "../../../thesis-web/packages/app/dist/assets/nextflow-groovy-BtKenbWl.js" with { type: "file" };
@@ -591,7 +591,7 @@ import file_588 from "../../../thesis-web/packages/app/dist/assets/prisma-Dd19v3
 import file_589 from "../../../thesis-web/packages/app/dist/assets/prisma-Dgf8IN_C.js" with { type: "file" };
 import file_590 from "../../../thesis-web/packages/app/dist/assets/prolog-9JcfiY6I.js" with { type: "file" };
 import file_591 from "../../../thesis-web/packages/app/dist/assets/prolog-CbFg5uaA.js" with { type: "file" };
-import file_592 from "../../../thesis-web/packages/app/dist/assets/prompt-model-selection-CN_-jOyd.js" with { type: "file" };
+import file_592 from "../../../thesis-web/packages/app/dist/assets/prompt-model-selection-yQGEeTm8.js" with { type: "file" };
 import file_593 from "../../../thesis-web/packages/app/dist/assets/proto-C7zT0LnQ.js" with { type: "file" };
 import file_594 from "../../../thesis-web/packages/app/dist/assets/proto-dqx_Sj2i.js" with { type: "file" };
 import file_595 from "../../../thesis-web/packages/app/dist/assets/pug-DKIMFp6K.js" with { type: "file" };
@@ -656,7 +656,7 @@ import file_653 from "../../../thesis-web/packages/app/dist/assets/scss-D5BDwBP9
 import file_654 from "../../../thesis-web/packages/app/dist/assets/scss-n48HZsmL.js" with { type: "file" };
 import file_655 from "../../../thesis-web/packages/app/dist/assets/sdbl-CvZs3G9c.js" with { type: "file" };
 import file_656 from "../../../thesis-web/packages/app/dist/assets/sdbl-DVxCFoDh.js" with { type: "file" };
-import file_657 from "../../../thesis-web/packages/app/dist/assets/settings-keybinds-BqH6tjrs.js" with { type: "file" };
+import file_657 from "../../../thesis-web/packages/app/dist/assets/settings-keybinds-BTcN0lZ_.js" with { type: "file" };
 import file_658 from "../../../thesis-web/packages/app/dist/assets/settings-keybinds-SwzHX8K1.css" with { type: "file" };
 import file_659 from "../../../thesis-web/packages/app/dist/assets/shaderlab-CEJedz68.js" with { type: "file" };
 import file_660 from "../../../thesis-web/packages/app/dist/assets/shaderlab-Dg9Lc6iA.js" with { type: "file" };
@@ -664,7 +664,7 @@ import file_661 from "../../../thesis-web/packages/app/dist/assets/shellscript-D
 import file_662 from "../../../thesis-web/packages/app/dist/assets/shellscript-Yzrsuije.js" with { type: "file" };
 import file_663 from "../../../thesis-web/packages/app/dist/assets/shellsession-BADoaaVG.js" with { type: "file" };
 import file_664 from "../../../thesis-web/packages/app/dist/assets/shellsession-DSlzxnCM.js" with { type: "file" };
-import file_665 from "../../../thesis-web/packages/app/dist/assets/skills-BfvNmzpg.js" with { type: "file" };
+import file_665 from "../../../thesis-web/packages/app/dist/assets/skills-CY2klo1C.js" with { type: "file" };
 import file_666 from "../../../thesis-web/packages/app/dist/assets/slack-dark-BthQWCQV.js" with { type: "file" };
 import file_667 from "../../../thesis-web/packages/app/dist/assets/slack-dark-CWRQmTmo.js" with { type: "file" };
 import file_668 from "../../../thesis-web/packages/app/dist/assets/slack-ochin-DO_ok7XK.js" with { type: "file" };
@@ -704,7 +704,7 @@ import file_701 from "../../../thesis-web/packages/app/dist/assets/staplebops-07
 import file_702 from "../../../thesis-web/packages/app/dist/assets/staplebops-07-cqQEvbIf.aac" with { type: "file" };
 import file_703 from "../../../thesis-web/packages/app/dist/assets/stata-BcICKvEt.js" with { type: "file" };
 import file_704 from "../../../thesis-web/packages/app/dist/assets/stata-DI20mbqo.js" with { type: "file" };
-import file_705 from "../../../thesis-web/packages/app/dist/assets/status-popover-body-CiH4sLh2.js" with { type: "file" };
+import file_705 from "../../../thesis-web/packages/app/dist/assets/status-popover-body-jvhZHaRM.js" with { type: "file" };
 import file_706 from "../../../thesis-web/packages/app/dist/assets/stylus-BEDo0Tqx.js" with { type: "file" };
 import file_707 from "../../../thesis-web/packages/app/dist/assets/stylus-CIg617SB.js" with { type: "file" };
 import file_708 from "../../../thesis-web/packages/app/dist/assets/surrealql-2KNEnAt7.js" with { type: "file" };
@@ -715,7 +715,7 @@ import file_712 from "../../../thesis-web/packages/app/dist/assets/svelte-B-Z8GL
 import file_713 from "../../../thesis-web/packages/app/dist/assets/svelte-Cy7k_4gC.js" with { type: "file" };
 import file_714 from "../../../thesis-web/packages/app/dist/assets/swift-D82vCrfD.js" with { type: "file" };
 import file_715 from "../../../thesis-web/packages/app/dist/assets/swift-tEesUtni.js" with { type: "file" };
-import file_716 from "../../../thesis-web/packages/app/dist/assets/switch-7VxZ2flg.js" with { type: "file" };
+import file_716 from "../../../thesis-web/packages/app/dist/assets/switch-CvD_xUVF.js" with { type: "file" };
 import file_717 from "../../../thesis-web/packages/app/dist/assets/synthwave-84-CbfX1IO0.js" with { type: "file" };
 import file_718 from "../../../thesis-web/packages/app/dist/assets/synthwave-84-DRVv-_m_.js" with { type: "file" };
 import file_719 from "../../../thesis-web/packages/app/dist/assets/system-verilog-CnnmHF94.js" with { type: "file" };
@@ -737,7 +737,7 @@ import file_734 from "../../../thesis-web/packages/app/dist/assets/tex-BHxF5DMe.
 import file_735 from "../../../thesis-web/packages/app/dist/assets/tex-idrVyKtj.js" with { type: "file" };
 import file_736 from "../../../thesis-web/packages/app/dist/assets/th-CMM85ro2.js" with { type: "file" };
 import file_737 from "../../../thesis-web/packages/app/dist/assets/th-VvW38onH.js" with { type: "file" };
-import file_738 from "../../../thesis-web/packages/app/dist/assets/thesis-workbench-BNyc2xos.js" with { type: "file" };
+import file_738 from "../../../thesis-web/packages/app/dist/assets/thesis-workbench-5HNCYmVc.js" with { type: "file" };
 import file_739 from "../../../thesis-web/packages/app/dist/assets/thesis-workbench-inRMJ2u3.css" with { type: "file" };
 import file_740 from "../../../thesis-web/packages/app/dist/assets/tokyo-night-BvwC8l2v.js" with { type: "file" };
 import file_741 from "../../../thesis-web/packages/app/dist/assets/tokyo-night-hegEt444.js" with { type: "file" };
@@ -909,7 +909,7 @@ export default {
   "assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff": file_60,
   "assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2": file_61,
   "assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf": file_62,
-  "assets/LROKH5N7-C8uAWgGN.js": file_63,
+  "assets/LROKH5N7-CPqT-RWI.js": file_63,
   "assets/__vite-browser-external-2447137e-BIHI7g3E.js": file_64,
   "assets/_commonjs-dynamic-modules-TDtrdbi3.js": file_65,
   "assets/abap-BdImnpbu.js": file_66,
@@ -1073,21 +1073,21 @@ export default {
   "assets/de-CAZZkD7r.js": file_224,
   "assets/desktop-BmXAJ9_W.js": file_225,
   "assets/desktop-DZfyBMgF.js": file_226,
-  "assets/dialog-edit-project-Ch47QF4p.js": file_227,
-  "assets/dialog-fork-CPRnn5HL.js": file_228,
+  "assets/dialog-edit-project-DK0LscgX.js": file_227,
+  "assets/dialog-fork-BbqrR5am.js": file_228,
   "assets/dialog-select-directory-v2-BLfZvzPV.css": file_229,
-  "assets/dialog-select-directory-v2-CUOhDSel.js": file_230,
+  "assets/dialog-select-directory-v2-JnjmTRtr.js": file_230,
   "assets/dialog-select-file-CTGIdC2q.css": file_231,
-  "assets/dialog-select-file-PZgNA2Hz.js": file_232,
-  "assets/dialog-select-mcp-RtxBZ9ZR.js": file_233,
-  "assets/dialog-settings-DzzfJL6L.js": file_234,
+  "assets/dialog-select-file-DNVl7tv9.js": file_232,
+  "assets/dialog-select-mcp-rK78M64J.js": file_233,
+  "assets/dialog-settings-DnwDeuLX.js": file_234,
   "assets/diff-D97Zzqfu.js": file_235,
   "assets/diff-jW5kmiru.js": file_236,
   "assets/divider-v2-2oqtISLg.css": file_237,
-  "assets/divider-v2-B5awLHAx.js": file_238,
+  "assets/divider-v2-B5CR1zAb.js": file_238,
   "assets/docker-BcOcwvcX.js": file_239,
   "assets/docker-DG9neUKd.js": file_240,
-  "assets/docx-preview-CStj4yO6.js": file_241,
+  "assets/docx-preview-CpZI8oYb.js": file_241,
   "assets/dotenv-Bea-FkXq.js": file_242,
   "assets/dotenv-Da5cRb03.js": file_243,
   "assets/dracula-BzJJZx-M.js": file_244,
@@ -1140,7 +1140,7 @@ export default {
   "assets/genie-DSsjfZMX.js": file_291,
   "assets/gherkin-Cl2Fw-_0.js": file_292,
   "assets/gherkin-DyxjwDmM.js": file_293,
-  "assets/ghostty-web-5VVCWqCe.js": file_294,
+  "assets/ghostty-web-BFfQwrAD.js": file_294,
   "assets/git-commit-CJPsQObV.js": file_295,
   "assets/git-commit-F4YmCXRG.js": file_296,
   "assets/git-rebase-DeZqv4fp.js": file_297,
@@ -1230,9 +1230,9 @@ export default {
   "assets/id-Cib52iL6.js": file_381,
   "assets/imba-D-Pk5S0X.js": file_382,
   "assets/imba-DGztddWO.js": file_383,
-  "assets/index-CDC2PY2f.js": file_384,
-  "assets/index-DJl7vqkO.css": file_385,
-  "assets/index-ZVscaHIz.js": file_386,
+  "assets/index-BN-jDJCX.js": file_384,
+  "assets/index-BWa5LJ2h.css": file_385,
+  "assets/index-CHUwWCbn.js": file_386,
   "assets/index-yv1XkBKO.css": file_387,
   "assets/ini-BEwlwnbL.js": file_388,
   "assets/ini-Dix3pTmg.js": file_389,
@@ -1262,7 +1262,7 @@ export default {
   "assets/jssm-CWE2S0Z5.js": file_413,
   "assets/jsx-8cLv2Six.js": file_414,
   "assets/jsx-g9-lgVsj.js": file_415,
-  "assets/jszip.min-BA8H3zGv.js": file_416,
+  "assets/jszip.min-CHbBB12L.js": file_416,
   "assets/julia-D7OTSIA_.js": file_417,
   "assets/julia-z72n2X8P.js": file_418,
   "assets/just-CUsbIsdP.js": file_419,
@@ -1305,7 +1305,7 @@ export default {
   "assets/luau-KW6xsasC.js": file_456,
   "assets/make-CHLpvVh8.js": file_457,
   "assets/make-DXVx14cr.js": file_458,
-  "assets/mammoth.browser-7BBJyGC3.js": file_459,
+  "assets/mammoth.browser-BFqYB3AS.js": file_459,
   "assets/markdown-Cvjx9yec.js": file_460,
   "assets/markdown-DX-TNHnc.js": file_461,
   "assets/markdown.worker-DcCsHlqc.js": file_462,
@@ -1323,7 +1323,7 @@ export default {
   "assets/material-theme-palenight-Csfq5Kiy.js": file_474,
   "assets/matlab-D7o27uSR.js": file_475,
   "assets/matlab-DzreyMvm.js": file_476,
-  "assets/mcp-zE-JL5GT.js": file_477,
+  "assets/mcp-DKOrrNqk.js": file_477,
   "assets/mdc-DTYItulj.js": file_478,
   "assets/mdc-DuMdwZAv.js": file_479,
   "assets/mdx-C2fqO2XY.js": file_480,
@@ -1346,7 +1346,7 @@ export default {
   "assets/move-IF9eRakj.js": file_497,
   "assets/narrat-DRg8JJMk.js": file_498,
   "assets/narrat-DXUZ_ZkW.js": file_499,
-  "assets/new-session-gIO_CHRE.js": file_500,
+  "assets/new-session-DxZLxOxU.js": file_500,
   "assets/nextflow-C-mBbutL.js": file_501,
   "assets/nextflow-D9i3Mg89.js": file_502,
   "assets/nextflow-groovy-BtKenbWl.js": file_503,
@@ -1438,7 +1438,7 @@ export default {
   "assets/prisma-Dgf8IN_C.js": file_589,
   "assets/prolog-9JcfiY6I.js": file_590,
   "assets/prolog-CbFg5uaA.js": file_591,
-  "assets/prompt-model-selection-CN_-jOyd.js": file_592,
+  "assets/prompt-model-selection-yQGEeTm8.js": file_592,
   "assets/proto-C7zT0LnQ.js": file_593,
   "assets/proto-dqx_Sj2i.js": file_594,
   "assets/pug-DKIMFp6K.js": file_595,
@@ -1503,7 +1503,7 @@ export default {
   "assets/scss-n48HZsmL.js": file_654,
   "assets/sdbl-CvZs3G9c.js": file_655,
   "assets/sdbl-DVxCFoDh.js": file_656,
-  "assets/settings-keybinds-BqH6tjrs.js": file_657,
+  "assets/settings-keybinds-BTcN0lZ_.js": file_657,
   "assets/settings-keybinds-SwzHX8K1.css": file_658,
   "assets/shaderlab-CEJedz68.js": file_659,
   "assets/shaderlab-Dg9Lc6iA.js": file_660,
@@ -1511,7 +1511,7 @@ export default {
   "assets/shellscript-Yzrsuije.js": file_662,
   "assets/shellsession-BADoaaVG.js": file_663,
   "assets/shellsession-DSlzxnCM.js": file_664,
-  "assets/skills-BfvNmzpg.js": file_665,
+  "assets/skills-CY2klo1C.js": file_665,
   "assets/slack-dark-BthQWCQV.js": file_666,
   "assets/slack-dark-CWRQmTmo.js": file_667,
   "assets/slack-ochin-DO_ok7XK.js": file_668,
@@ -1551,7 +1551,7 @@ export default {
   "assets/staplebops-07-cqQEvbIf.aac": file_702,
   "assets/stata-BcICKvEt.js": file_703,
   "assets/stata-DI20mbqo.js": file_704,
-  "assets/status-popover-body-CiH4sLh2.js": file_705,
+  "assets/status-popover-body-jvhZHaRM.js": file_705,
   "assets/stylus-BEDo0Tqx.js": file_706,
   "assets/stylus-CIg617SB.js": file_707,
   "assets/surrealql-2KNEnAt7.js": file_708,
@@ -1562,7 +1562,7 @@ export default {
   "assets/svelte-Cy7k_4gC.js": file_713,
   "assets/swift-D82vCrfD.js": file_714,
   "assets/swift-tEesUtni.js": file_715,
-  "assets/switch-7VxZ2flg.js": file_716,
+  "assets/switch-CvD_xUVF.js": file_716,
   "assets/synthwave-84-CbfX1IO0.js": file_717,
   "assets/synthwave-84-DRVv-_m_.js": file_718,
   "assets/system-verilog-CnnmHF94.js": file_719,
@@ -1584,7 +1584,7 @@ export default {
   "assets/tex-idrVyKtj.js": file_735,
   "assets/th-CMM85ro2.js": file_736,
   "assets/th-VvW38onH.js": file_737,
-  "assets/thesis-workbench-BNyc2xos.js": file_738,
+  "assets/thesis-workbench-5HNCYmVc.js": file_738,
   "assets/thesis-workbench-inRMJ2u3.css": file_739,
   "assets/tokyo-night-BvwC8l2v.js": file_740,
   "assets/tokyo-night-hegEt444.js": file_741,

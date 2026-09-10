@@ -1,9 +1,10 @@
 #!/bin/bash
 # activate.sh — 把某个分类的 skill 软链到 opencode 的 skills 目录
 # 用法:
-#   ./activate.sh 01                      # 激活"文献与提纲（研究启动）"到 ~/.config/opencode/skills
+#   ./activate.sh 00                      # 激活"文献检索"到 ~/.config/opencode/skills
+#   ./activate.sh 01                      # 激活"提纲助手"到 ~/.config/opencode/skills
 #   ./activate.sh 04 /path/to/skills     # 激活"论文评审"到指定目录
-#   ./activate.sh all                     # 激活全部四个分类
+#   ./activate.sh all                     # 激活全部五个分类
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -16,7 +17,8 @@ mkdir -p "$TARGET"
 # 分类代号 -> 目录名（避免使用关联数组，兼容 macOS 自带 bash 3.2）
 cat_dir() {
   case "$1" in
-    01) echo "01_文献与提纲" ;;
+    00) echo "00_文献检索" ;;
+    01) echo "01_提纲助手" ;;
     02) echo "02_论文写作" ;;
     03) echo "03_论文排版" ;;
     04) echo "04_论文评审" ;;
@@ -47,12 +49,12 @@ link_cat() {
 }
 
 if [ "${1:-}" = "all" ]; then
-  for c in 01 02 03 04; do link_cat "$(cat_dir "$c")"; done
+  for c in 00 01 02 03 04; do link_cat "$(cat_dir "$c")"; done
 elif [ -n "$(cat_dir "${1:-}")" ]; then
   link_cat "$(cat_dir "${1}")"
 else
-  echo "用法: $0 <01|02|03|04|all> [target_skills_dir]" >&2
-  echo "  01=文献与提纲 02=论文写作 03=论文排版 04=论文评审 all=全部" >&2
+  echo "用法: $0 <00|01|02|03|04|all> [target_skills_dir]" >&2
+  echo "  00=文献检索 01=提纲助手 02=论文写作 03=论文排版 04=论文评审 all=全部" >&2
   exit 1
 fi
 

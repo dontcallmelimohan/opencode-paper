@@ -17,11 +17,21 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { encodeFilePath } from "@/context/file/path"
 import { MANUSCRIPT_FILENAMES, useThesisManuscriptFile, type ManuscriptStep } from "./thesis-manuscript-file"
-import { downloadBlob } from "./thesis-manuscript-preview"
+import { downloadBlob, ThesisBinaryFilePreview } from "./thesis-manuscript-preview"
 import type { InputSource, StepKey, StepStatus } from "./thesis-workflow-store"
 import { useThesisWorkflow } from "./thesis-workflow-store"
 import { ThesisSessionView } from "./thesis-session-view"
-import { cachedDataUrl, ensureFigureDataUrls, resolveMarkdownImages } from "./thesis-assets"
+import {
+  cacheLocalImageUrl,
+  cachedDataUrl,
+  cachedLocalImageUrl,
+  dataUrlOf,
+  ensureFigureDataUrls,
+  IMAGE_EXTENSIONS,
+  imageExtension,
+  readImageFileBase64,
+  resolveMarkdownImages,
+} from "./thesis-assets"
 import { absolutePath, waitForAssistantReply } from "./thesis-generator"
 import { ThesisEditor, normalizeInlineAiReplacement, shouldKeepAiReplacementInline } from "./thesis-editor"
 import type { ThesisEditorApi, ThesisEditorSelection } from "./thesis-editor"
@@ -271,8 +281,9 @@ export function StepProductPanel(props: {
   const canvasTitle = () => (boardlessSession() ? "" : props.title)
   const draftForPath = (path: string | null | undefined) => (path ? drafts()[path] : undefined)
 
-  // [论文助手定制] 文件下拉条目：合并根目录与 docs/ 目录下的 .md/.txt 文本文件；
+  // [论文助手定制] 文件下拉条目：合并根目录与 docs/ 目录下的 .md/.txt 文稿与 .pdf/.docx 成品文件；
   // docs/ 下视为独立文档（independent），下拉展示加 [独立] 前缀，落盘路径保持 docs/<原名>。
+  // pdf/docx 为二进制成品（如排版产出的 main.pdf / docx），只读预览，不参与编辑与草稿。
   type TextFileEntry = { name: string; path: string; independent: boolean }
   // [论文助手定制] 文件下拉用 createQuery：与落盘链路（manuscript.save / saveFile）共用失效
   // queryKey（thesis/workflow-files），保存/新建文件（存为当前文稿、论文主题.md、docs/ 独立文档）
@@ -295,10 +306,10 @@ export function StepProductPanel(props: {
           independent,
         })
         const root = (rootRes?.data ?? [])
-          .filter((node) => node.type === "file" && /\.(md|txt)$/i.test(node.name))
+          .filter((node) => node.type === "file" && /\.(md|txt|pdf|docx)$/i.test(node.name))
           .map((node) => toEntry(node, false))
         const docs = (docsRes?.data ?? [])
-          .filter((node) => node.type === "file" && /\.(md|txt)$/i.test(node.name))
+          .filter((node) => node.type === "file" && /\.(md|txt|pdf|docx)$/i.test(node.name))
           .map((node) => toEntry(node, true))
         return [...root, ...docs].sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"))
       } catch {
@@ -341,6 +352,13 @@ export function StepProductPanel(props: {
     const path = currentPath()
     if (!path) return null
     return /\.(md|txt)$/i.test(path) ? path : null
+  }
+  // [论文助手定制] 二进制成品预览：.pdf/.docx 走只读内嵌预览（排版板块产出 main.pdf / 成品 docx 后
+  // 可直接在画布看成品），不进 Markdown 编辑器，也不参与草稿与 AI 改写。
+  const binaryPreviewPath = () => {
+    const path = currentPath()
+    if (!path) return null
+    return /\.(pdf|docx)$/i.test(path) ? path : null
   }
   const editingBlockedByGeneration = () => props.status === "generating" && currentPath() === manuscriptPath()
 
@@ -765,6 +783,29 @@ export function StepProductPanel(props: {
     return cachedDataUrl(dir, ref) || undefined
   }
 
+  // [论文助手定制] Milkdown 编辑器本地相对路径图片“显示层”loader：
+  // 相对路径以当前编辑文件所在目录为基准（全文稿.md 在项目根 → figures/ 即根目录下的
+  // figures/；打开 论文章节/章节.md 时 → 论文章节/figures/…），读成本机 data URL。
+  // 与预览态 resolveLocalImages 的语义一致；读不到（图片不在该位置）返回 undefined，
+  // 编辑器保留原样引用不裂图。
+  const editorLocalImageLoader = async (src: string) => {
+    const dir = props.manuscript?.directory
+    const path = currentPath()
+    if (!dir || !path) return undefined
+    const clean = src.replace(/^\.\//, "").split(/[?#]/)[0] ?? src
+    if (!clean || !(IMAGE_EXTENSIONS as readonly string[]).includes(imageExtension(clean))) return undefined
+    const slash = path.lastIndexOf("/")
+    const baseDir = slash >= 0 ? path.slice(0, slash) : ""
+    const diskPath = baseDir ? `${baseDir}/${clean}` : clean
+    const cached = cachedLocalImageUrl(dir, diskPath)
+    if (cached) return cached
+    const content = await readImageFileBase64(sdk(), dir, diskPath)
+    if (!content) return undefined
+    const dataUrl = dataUrlOf(clean, content)
+    cacheLocalImageUrl(dir, diskPath, dataUrl)
+    return dataUrl
+  }
+
   // [论文助手定制] 会话面板（全宽会话 / 并列右侧复用）：透传板块标识 + 配置浮窗开合状态与回调。
   const SessionPane = () => (
     <div class="min-h-0 flex-1 overflow-hidden">
@@ -786,7 +827,16 @@ export function StepProductPanel(props: {
           }}
         >
           <Show when={props.documentOverride}>{props.documentOverride}</Show>
-          <Show when={!props.documentOverride}>
+          {/* [论文助手定制] 二进制成品（PDF/DOCX）：只读内嵌预览，替代文稿编辑器
+              （排版板块产出 main.pdf / 成品 docx 后直接在画布看成品，不参与编辑与 AI 改写）。 */}
+          <Show when={!props.documentOverride && binaryPreviewPath()}>
+            {(path) => (
+              <div class="h-full min-h-0">
+                <ThesisBinaryFilePreview directory={props.manuscript?.directory ?? sdk().directory} path={path()} />
+              </div>
+            )}
+          </Show>
+          <Show when={!props.documentOverride && !binaryPreviewPath()}>
           {/* [论文助手定制] 渲染即编辑：当前路径是可编辑文本文件（任意 .md/.txt）且已读到内容、
               且该板块未用自定义渲染（render）时，直接渲染 Milkdown 编辑器（无编辑/查看切换，
               选中文字即出 AI 操作条）；否则走原有 Markdown / 自定义渲染逻辑。 */}
@@ -882,6 +932,7 @@ export function StepProductPanel(props: {
                         <ThesisEditor
                           initialMd={currentText() ?? ""}
                           resolveAssetUrl={editorAssetLoader}
+                          resolveLocalImageUrl={editorLocalImageLoader}
                           onMdChange={handleEditorChange}
                           onSelectionChange={handleSelection}
                           onReady={() => setHistoryVersion((v) => v + 1)}

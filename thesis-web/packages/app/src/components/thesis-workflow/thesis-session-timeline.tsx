@@ -24,7 +24,16 @@ import type {
 import { Timeline, TimelineRow } from "@/pages/session/timeline/rows"
 import { reuseTimelineRows } from "@/pages/session/timeline/projection"
 import { TimelineDiffSummaryRow } from "@/pages/session/timeline/message-timeline"
-import { cachedDataUrl, ensureFigureDataUrls } from "./thesis-assets"
+import {
+  cachedDataUrl,
+  cachedLocalImageUrl,
+  cacheLocalImageUrl,
+  dataUrlOf,
+  ensureFigureDataUrls,
+  IMAGE_EXTENSIONS,
+  imageExtension,
+  readImageFileBase64,
+} from "./thesis-assets"
 
 const idle: SessionStatus = { type: "idle" }
 
@@ -32,6 +41,9 @@ const idle: SessionStatus = { type: "idle" }
 // 直接扫描该轮助手消息原文里的 ![alt](asset://materials/x.png) 引用，解析成本机 data URL，
 // 在该轮回复下方渲染成可点击放大的图组，与文稿画布/文件空间看到的是同一张图。
 const ASSET_FIGURE_RE = /!\[([^\]]*)\]\(asset:\/\/([^)\s]+)\)/g
+const LOCAL_FIGURE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
+const isExternalSrc = (src: string) => /^(https?:|data:|asset:|blob:|\/)/i.test(src)
+const cleanLocalSrc = (src: string) => src.replace(/^\.\//, "").split(/[?#]/)[0] ?? ""
 
 function TurnFigureGallery(props: { assistants: AssistantMessage[]; directory: string }) {
   const sync = useSync()
@@ -39,11 +51,11 @@ function TurnFigureGallery(props: { assistants: AssistantMessage[]; directory: s
   const dialog = useDialog()
   // [论文助手定制] 读该轮助手消息的完整原文：与正文渲染一致地从 part store 读文本，
   // 流式期间 delta 累积文本比 part.text 新时用 delta（readPartText 语义）。
-  const refs = createMemo(() => {
+  const text = createMemo(() => {
     const messages = props.assistants ?? []
-    if (messages.length === 0) return []
+    if (messages.length === 0) return ""
     const parts = messages.flatMap((message) => sync().data.part[message.id] ?? [])
-    const text = parts
+    return parts
       .filter((part) => part.type === "text")
       .map((part) => {
         const delta = sync().data.part_text_accum_delta?.[part.id]
@@ -51,10 +63,25 @@ function TurnFigureGallery(props: { assistants: AssistantMessage[]; directory: s
         return typeof delta === "string" && delta.length > current.length ? delta : current
       })
       .join("\n")
+  })
+  // [论文助手定制] asset:// 插图（资料/生图等）
+  const refs = createMemo(() => {
     const list: { ref: string; alt: string }[] = []
-    for (const match of text.matchAll(ASSET_FIGURE_RE)) {
+    for (const match of text().matchAll(ASSET_FIGURE_RE)) {
       const ref = match[2]
       if (ref && !list.some((item) => item.ref === ref)) list.push({ ref, alt: match[1] ?? "" })
+    }
+    return list
+  })
+  // [论文助手定制] 本地相对路径图片（模型按项目根写的 figures/…、论文章节/figures/… 等）
+  const localRefs = createMemo(() => {
+    const list: { ref: string; alt: string }[] = []
+    for (const match of text().matchAll(LOCAL_FIGURE_RE)) {
+      const src = (match[2] ?? "").trim()
+      if (isExternalSrc(src)) continue
+      const clean = cleanLocalSrc(src)
+      if (!(IMAGE_EXTENSIONS as readonly string[]).includes(imageExtension(clean))) continue
+      if (clean && !list.some((item) => item.ref === clean)) list.push({ ref: clean, alt: match[1] ?? "" })
     }
     return list
   })
@@ -83,11 +110,50 @@ function TurnFigureGallery(props: { assistants: AssistantMessage[]; directory: s
       cancelled = true
     })
   })
-  const items = createMemo(() =>
-    refs()
-      .filter((item) => urls()[item.ref])
-      .map((item) => ({ ref: item.ref, alt: item.alt, url: urls()[item.ref]! })),
-  )
+  const [localUrls, setLocalUrls] = createSignal<Record<string, string>>({})
+  createEffect(() => {
+    const signature = localRefs().map((item) => item.ref).join("\n")
+    if (!signature) {
+      setLocalUrls({})
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const directory = props.directory
+      const missing = localRefs().filter((item) => !cachedLocalImageUrl(directory, item.ref))
+      await Promise.all(
+        missing.map(async (item) => {
+          const content = await readImageFileBase64(sdk(), directory, item.ref)
+          if (!content) return
+          cacheLocalImageUrl(directory, item.ref, dataUrlOf(item.ref, content))
+        }),
+      )
+      if (cancelled) return
+      const map: Record<string, string> = {}
+      for (const item of localRefs()) {
+        const url = cachedLocalImageUrl(directory, item.ref)
+        if (url) map[item.ref] = url
+      }
+      setLocalUrls(map)
+    })().catch(() => {
+      if (!cancelled) setLocalUrls({})
+    })
+    onCleanup(() => {
+      cancelled = true
+    })
+  })
+  const items = createMemo(() => {
+    const out: { key: string; ref: string; alt: string; url: string }[] = []
+    for (const item of refs()) {
+      const url = urls()[item.ref]
+      if (url) out.push({ key: `asset:${item.ref}`, ref: item.ref, alt: item.alt, url })
+    }
+    for (const item of localRefs()) {
+      const url = localUrls()[item.ref]
+      if (url) out.push({ key: `local:${item.ref}`, ref: item.ref, alt: item.alt, url })
+    }
+    return out
+  })
   return (
     <Show when={items().length > 0}>
       <div data-timeline-row="TurnFigureGallery" class="px-4 py-2 md:px-5">

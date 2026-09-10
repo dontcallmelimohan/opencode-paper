@@ -12,6 +12,8 @@ import {
   replaceFigureAlt,
   resolveAssetUrls,
   resolveLocalImages,
+  resolveMarkdownImages,
+  utf8ToBase64,
 } from "./thesis-assets"
 
 describe("parseFigures", () => {
@@ -128,5 +130,37 @@ describe("resolveLocalImages", () => {
     // 失败不缓存：换个能读到的 read 再次解析应成功
     const retried = await resolveLocalImages(md, "/proj", "", async () => "QUJD")
     expect(retried).toBe("![4](data:image/jpeg;base64,QUJD)")
+  })
+})
+
+describe("SVG 图片渲染（后端把 .svg 按 text 返回）", () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>'
+
+  test("utf8ToBase64 与 UTF-8 字节编码一致", () => {
+    expect(utf8ToBase64(svg)).toBe(Buffer.from(svg, "utf8").toString("base64"))
+  })
+
+  test("相对路径 svg 经 resolveMarkdownImages 转成 image/svg+xml data URL", async () => {
+    const sdk = {
+      client: {
+        file: {
+          read: async () => ({ data: { type: "text" as const, content: svg } }),
+        },
+      },
+    }
+    const out = await resolveMarkdownImages(sdk as never, "/proj", "", "![流程](figures/flows/flow.svg)")
+    expect(out).toBe(`![流程](data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")})`)
+  })
+
+  test("asset:// 引用的 svg 同样转成 data URL（插图面板/画布路径）", async () => {
+    const sdk = {
+      client: {
+        file: {
+          read: async () => ({ data: { type: "text" as const, content: svg } }),
+        },
+      },
+    }
+    const out = await resolveMarkdownImages(sdk as never, "/proj", "", "![图1](asset://figures/a.svg)")
+    expect(out).toBe(`![图1](data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")})`)
   })
 })

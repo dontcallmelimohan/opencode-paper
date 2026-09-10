@@ -19,6 +19,7 @@ import { useSettingsDialog } from "@/components/settings-dialog"
 import {
   base64ToBytes,
   basename,
+  DocxInlineView,
   downloadBytes,
   errorMessage,
   extension,
@@ -204,10 +205,8 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
           }
           if (item.kind === "pdf") {
             return (
-              <div class="flex flex-col items-center gap-3 py-10 text-center">
-                <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
-                <div class="text-12-regular text-v2-text-text-faint">PDF 请在本地或新标签页中查看</div>
-                <div class="flex items-center gap-2">
+              <div class="flex min-h-0 flex-1 flex-col gap-2">
+                <div class="flex items-center justify-end gap-2">
                   <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/pdf")}>
                     本地查看
                   </Button>
@@ -215,17 +214,25 @@ function MaterialPreviewBody(props: { thesis: Project; path: string; onBack: () 
                     在新标签页打开
                   </a>
                 </div>
+                <div class="min-h-0 flex-1 overflow-hidden rounded-md border border-v2-border-border-base">
+                  <iframe src={item.url} title={item.filename} class="h-full w-full border-0" />
+                </div>
               </div>
             )
           }
           if (item.kind === "docx") {
             return (
-              <div class="flex flex-col items-center gap-3 py-10 text-center">
-                <Icon name="open-file" size="large" class="text-v2-text-text-faint" />
-                <div class="text-12-regular text-v2-text-text-faint">docx 文件请在本地查看（下载后用 Word/WPS 打开）</div>
-                <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>
-                  本地查看
-                </Button>
+              <div class="flex min-h-0 flex-1 flex-col gap-2">
+                <div class="flex items-center justify-end gap-2">
+                  <Button size="small" variant="secondary" icon="download" onClick={() => downloadBytes(item.bytes, item.filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}>
+                    本地查看
+                  </Button>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto rounded-md border border-v2-border-border-base bg-v2-background-bg-layer-02 p-4">
+                  <div class="mx-auto max-w-[820px]">
+                    <DocxInlineView bytes={item.bytes} filename={item.filename} />
+                  </div>
+                </div>
               </div>
             )
           }
@@ -640,6 +647,56 @@ function ThesisDeleteDialog(props: { thesis: ThesisWithContentTime }) {
 
 type ThesisSortKey = "updated" | "created" | "name"
 
+const thesisWorkflow = [
+  { title: "导入资料", description: "集中管理 PDF、DOCX 等参考文件" },
+  { title: "生成提纲", description: "先建立论文结构与论证骨架" },
+  { title: "写作修订", description: "分段生成、编辑并保持上下文一致" },
+  { title: "排版评审", description: "输出规范格式，并获得多轮审查建议" },
+]
+
+function ThesisHero(props: { onCreate: () => void; onSkills: () => void }) {
+  return (
+    <div class="thesis-hero mt-10 overflow-hidden rounded-2xl border border-v2-border-border-base p-6 md:p-8">
+      <div class="relative z-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+        <div class="min-w-0">
+          <span class="brand-chip inline-flex h-7 items-center rounded-full px-3 text-12-medium">论文工作台</span>
+          <h2 class="mt-4 max-w-2xl text-28-bold leading-tight text-v2-text-text-strong">从资料到成稿，四步完成论文</h2>
+          <p class="mt-3 max-w-xl text-14-regular text-v2-text-text-weak">
+            围绕资料检索、提纲生成、写作修订、格式排版和学术评审组织内容，减少在多个工具之间反复切换。
+          </p>
+          <div class="mt-6 flex flex-wrap items-center gap-2">
+            <Button size="normal" variant="primary" icon="plus" onClick={props.onCreate}>
+              新建工作空间
+            </Button>
+            <Button size="normal" variant="secondary" icon="dot-grid" onClick={props.onSkills}>
+              Skill 管理
+            </Button>
+          </div>
+        </div>
+
+        <div class="w-full max-w-sm shrink-0 rounded-xl bg-v2-background-bg-layer-02 p-5">
+          <div class="text-13-medium text-v2-text-text-strong">标准工作流</div>
+          <div class="mt-4 flex flex-col gap-3">
+            <For each={thesisWorkflow}>
+              {(step, index) => (
+                <div class="flex items-start gap-3">
+                  <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-tint)] text-12-medium text-[var(--brand-700)]">
+                    {index() + 1}
+                  </span>
+                  <div class="min-w-0">
+                    <div class="text-13-medium text-v2-text-text-strong">{step.title}</div>
+                    <div class="mt-0.5 text-12-regular text-v2-text-text-weak">{step.description}</div>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // [论文助手定制] 主页工作空间卡片：独立查询文档数/生成记录数（按项目缓存），hover 上浮、删除入口悬浮显示。
 function ThesisCard(props: { thesis: ThesisWithContentTime; onEnter: (thesis: Project) => void }) {
   const sdk = useServerSDK()
@@ -838,41 +895,46 @@ export function ThesisHome() {
           </div>
         </div>
 
-        {/* 标题区：我的工作空间 + 搜索 + 排序 */}
-        <div class="mt-12">
-          <h1 class="text-24-bold text-v2-text-text-strong">我的工作空间</h1>
-          <p class="mt-1.5 text-13-regular text-v2-text-text-weak">
-            共 {theses.data?.length ?? 0} 个工作空间 · 「提纲 、 写作 、 排版 、 评审」
-          </p>
-          <div class="mt-5 flex items-center gap-2">
-            <div class="flex w-full max-w-xs items-center">
-              <TextField
-                type="text"
-                label="搜索工作空间"
-                hideLabel
-                placeholder="搜索工作空间…"
-                value={search()}
-                onChange={setSearch}
-                class="w-full"
+        <ThesisHero
+          onCreate={() => dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)}
+          onSkills={() => navigate("/skills")}
+        />
+
+        <Show when={hasTheses()}>
+          {/* 标题区：我的工作空间 + 搜索 + 排序 */}
+          <div class="mt-8">
+            <h1 class="text-24-bold text-v2-text-text-strong">我的工作空间</h1>
+            <p class="mt-1.5 text-13-regular text-v2-text-text-weak">
+              共 {theses.data?.length ?? 0} 个工作空间 · 「提纲 、 写作 、 排版 、 评审」
+            </p>
+            <div class="mt-5 flex items-center gap-2">
+              <div class="flex w-full max-w-xs items-center">
+                <TextField
+                  type="text"
+                  label="搜索工作空间"
+                  hideLabel
+                  placeholder="搜索工作空间…"
+                  value={search()}
+                  onChange={setSearch}
+                  class="w-full"
+                />
+              </div>
+              <Select
+                data-action="thesis-sort"
+                options={sortOptions}
+                current={sortOptions.find((option) => option.value === sortBy())}
+                value={(option) => option.value}
+                label={(option) => option.label}
+                onSelect={(option) => option && setSortBy(option.value as ThesisSortKey)}
+                variant="secondary"
+                size="small"
+                triggerVariant="settings"
               />
             </div>
-            <Select
-              data-action="thesis-sort"
-              options={sortOptions}
-              current={sortOptions.find((option) => option.value === sortBy())}
-              value={(option) => option.value}
-              label={(option) => option.label}
-              onSelect={(option) => option && setSortBy(option.value as ThesisSortKey)}
-              variant="secondary"
-              size="small"
-              triggerVariant="settings"
-            />
           </div>
-        </div>
 
-        {/* 工作空间网格 */}
-        <div class="mt-7 flex-1">
-          <Show when={hasTheses()} fallback={<ThesisEmptyState onCreate={() => dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)} />}>
+          {/* 工作空间网格 */}
+          <div class="mt-7 flex-1">
             <Show
               when={visibleTheses().length > 0}
               fallback={
@@ -892,8 +954,11 @@ export function ThesisHome() {
                 </For>
               </div>
             </Show>
-          </Show>
-        </div>
+          </div>
+        </Show>
+        <Show when={!hasTheses()}>
+          <ThesisEmptyState onCreate={() => dialog.show(() => <NewThesisDialog onCreated={(project) => startWriting(project.worktree)} />)} />
+        </Show>
       </div>
     </div>
   )

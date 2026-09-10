@@ -16,8 +16,9 @@ if [[ -n "$SSH_PASSWORD" ]]; then
     exit 1
   fi
   export SSHPASS="$SSH_PASSWORD"
-  ssh_cmd=(sshpass -e ssh)
-  rsync_cmd=(sshpass -e rsync)
+  # 强制走密码认证：不先试公钥，避免 sshpass 在公钥失败后密码对不上（该服务器偶发）
+  ssh_cmd=(sshpass -e ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no)
+  rsync_cmd=(sshpass -e rsync -e "ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no")
 fi
 
 echo "==> Installing thesis-web dependencies"

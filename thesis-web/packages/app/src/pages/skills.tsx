@@ -20,6 +20,7 @@ import { useDirectoryPicker } from "@/components/directory-picker"
 import { LocalProvider } from "@/context/local"
 import { ServerConnection, useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
+import { SKILL_ZH } from "@/components/thesis-workflow/thesis-skill-zh"
 import { useServerSync } from "@/context/server-sync"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { DirectoryDataProvider } from "@/pages/directory-layout"
@@ -728,6 +729,11 @@ function SkillsContent() {
                       style={{ background: AGENT_COLORS[index() % AGENT_COLORS.length] }}
                     />
                     <span class="min-w-0 flex-1 truncate text-14-medium text-v2-text-text-strong">{skill.name}</span>
+                    <Show when={SKILL_ZH[skill.name]}>
+                      <span class="shrink-0 truncate text-12-regular text-v2-text-text-faint">
+                        · {SKILL_ZH[skill.name]}
+                      </span>
+                    </Show>
                     <SkillKindChip kind={skillKindOf(skill)} />
                   </span>
                   <span class="line-clamp-2 text-12-regular text-v2-text-text-faint">

@@ -57,6 +57,10 @@ export interface ThesisEditorProps {
   // [论文助手定制] 文稿 asset:// 插图“显示层”解析器：文档本身仍存 asset:// 原文，
   // 渲染时把 <img src="asset://..."> 换成真实图片 data URL（见 sweepAssetImages）。
   resolveAssetUrl?: (src: string) => Promise<string | undefined>
+  // [论文助手定制] 文稿本地相对路径图片（如 figures/x.svg）的“显示层”解析器：
+  // 以当前编辑文件所在目录为基准读成本机 data URL，渲染时替换 <img> 的 src，
+  // 不改文档里的 Markdown 原文。见 thesis-workflow-ui 的 editorLocalImageLoader。
+  resolveLocalImageUrl?: (src: string) => Promise<string | undefined>
 }
 
 // [论文助手定制] AI 修改段高亮：淡黄泛光的 inline decoration，存于插件状态（不进文档）。
@@ -159,6 +163,39 @@ export function ThesisEditor(props: ThesisEditorProps) {
         })
         .finally(() => assetInFlight.delete(src))
     }
+  }
+
+  // [论文助手定制] 本地相对路径图片（模型按画布相对路径写的 figures/… 等）显示层解析：
+  // Milkdown 把 Markdown 图片解析成 <img src="相对路径">，浏览器按站点 URL 请求必然失败；
+  // 这里与 asset:// 同一套策略：loader 把相对路径读成本机 data URL 后替换 DOM 的 src，
+  // 文档里保存的仍是原样相对引用，ProseMirror 重渲染时再扫一遍补 data URL。
+  const isLocalRelativeImageSrc = (src: string) => {
+    if (!src || /^(https?:|data:|blob:|file:|asset:|#|\/)/i.test(src)) return false
+    return /\.(png|jpe?g|gif|webp|bmp|svg)([?#].*)?$/i.test(src)
+  }
+  const localImageInFlight = new Set<string>()
+  const sweepLocalImages = async () => {
+    const loader = props.resolveLocalImageUrl
+    if (!rootRef || !loader) return
+    const imgs = [...rootRef.querySelectorAll<HTMLImageElement>("img")]
+    if (imgs.length === 0) return
+    for (const img of imgs) {
+      const src = img.getAttribute("src") ?? ""
+      if (!isLocalRelativeImageSrc(src) || localImageInFlight.has(src)) continue
+      localImageInFlight.add(src)
+      void loader(src)
+        .then((dataUrl) => {
+          if (dataUrl && img.isConnected && img.getAttribute("src") === src) img.src = dataUrl
+        })
+        .catch(() => {
+          // 读取失败保持原样（下次编辑触发的 sweep 会重试）。
+        })
+        .finally(() => localImageInFlight.delete(src))
+    }
+  }
+  const sweepImages = () => {
+    void sweepAssetImages()
+    void sweepLocalImages()
   }
 
   const setHighlightRange = (view: EditorView, from: number, to: number) => {
@@ -366,8 +403,9 @@ export function ThesisEditor(props: ThesisEditorProps) {
         ctx.get(listenerCtx)
           .markdownUpdated((_ctx, markdown) => {
             props.onMdChange?.(markdown)
-            // [论文助手定制] 内容更新后重扫 asset:// 图片（新建图片节点/重渲染的旧节点需要补 data URL）。
-            void sweepAssetImages()
+            // [论文助手定制] 内容更新后重扫图片（新建图片节点/重渲染的旧节点需要补 data URL，
+            // 含 asset:// 与本地相对路径两种引用）。
+            sweepImages()
           })
           .selectionUpdated((ctx) => {
             const view = ctx.get(editorViewCtx)
@@ -393,8 +431,8 @@ export function ThesisEditor(props: ThesisEditorProps) {
     void editor.create().then(() => {
       if (props.apiRef) props.apiRef.current = api
       props.onReady?.()
-      // [论文助手定制] 首次挂载也扫一遍：让已有 asset:// 插图在打开文档后立即显示真图。
-      void sweepAssetImages()
+      // [论文助手定制] 首次挂载也扫一遍：让已有插图在打开文档后立即显示真图。
+      sweepImages()
     }).catch(() => {
       if (props.apiRef) props.apiRef.current = undefined
     })
